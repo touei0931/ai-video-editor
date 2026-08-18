@@ -2,6 +2,8 @@
 node_modules/
 dist/
 dist-electron/
+dist-sidecar/
+build-sidecar/
 out/
 release/
 .vite/

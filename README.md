@@ -189,6 +189,46 @@ BudouX 0.9.0（**Apache-2.0**）で文節境界を求め、その境界でだけ
 > HTML 処理用の `linkedom`（DOM 実装）まで同梱され、バンドルが 192KB → 412KB に増える。
 > `src/telop/budoux-ja.ts` で日本語モデルとパーサだけを直接読み、**実コスト約 26KB** に抑えている。
 
+### T4 の結果（2026-08-18・Windows 実測）
+
+| 項目 | 結果 |
+|---|---|
+| PyInstaller onedir ビルド | ✅ 266 MB |
+| 固めたバイナリで Electron から起動・応答 | ✅ `frozen=true` |
+| 文字起こし | ✅ 25.6 秒の音声を **2.25 秒（x11.4）**・base モデル・CPU |
+| 進捗の逐次送信 | ✅ 8 回 |
+| 実行中のキャンセル | ✅ |
+| 親プロセス終了時の kill | ✅ |
+
+同梱したのは faster-whisper のみ。MediaPipe / librosa / pyworld は実際に使う
+Phase 2〜3 で追加する（同梱の型は確立できたので、追加は手順の繰り返しになる）。
+
+#### 🔴 ここで判明した設計上の制約（重要）
+
+1. **CTranslate2 の推論を Python のワーカースレッドで走らせるとデッドロックする。**
+   メインスレッドなら 2.7 秒で終わる処理が無限に固まった（Windows）。
+2. 別プロセスに逃がしても、**その子プロセスをワーカースレッドから管理すると同じく固まる。**
+3. `multiprocessing` の spawn は子で main モジュールを再 import するため、
+   `python -m sidecar` 起動だと相対 import に失敗して子が**無言で死ぬ**（stderr にも何も出ない）。
+
+→ **スレッド構成を反転**（メインスレッド = ジョブ実行、別スレッド = stdin 読み取り）し、
+   重い処理は**自分自身を `--worker` で起動した subprocess** で実行する。
+   PyInstaller で固めた後も同じ経路になるので、配布時だけ壊れることがない。
+
+これは回避策ではなく設計として優れている。プロセスを終了させれば**本当にキャンセルでき**、
+推論ライブラリがクラッシュしても RPC ループが生き残る。
+
+#### 切り分けの道具
+
+同種の問題が起きたとき用に、Electron を挟まずサイドカーを叩ける道具を残してある。
+
+```bash
+python scripts/sidecar_probe.py                                  # 疎通・進捗・キャンセル
+python scripts/sidecar_probe.py --transcribe path/to/audio.wav   # 文字起こしまで
+python scripts/sidecar_probe.py dist-sidecar/sidecar/sidecar.exe # 固めたバイナリを叩く
+python scripts/heavy_probe.py path/to/audio.wav                  # 同一プロセス vs 子プロセス
+```
+
 ### Windows と macOS の描画差（2026-08-18・CI 実測）
 
 「Canvas と ffmpeg が一致する」ことと「**Windows と Mac で同じ見た目になる**」ことは別問題。
@@ -248,7 +288,7 @@ Mac 実機でデバッグできないため、「Mac で壊れうる範囲」を
 | **T1** | 🔴 **テロップ WYSIWYG の成立確認** — Canvas → PNG → ffmpeg overlay がブラウザ表示と一致するか | 2 | **✅ 合格**（最大画素差 1/255） |
 | T2 | BudouX 文節改行の検証 | 0.5 | **✅ 合格**（文節途中の改行 0%） |
 | T3 | ffmpeg LGPL ビルドの確保（`libx264` 非搭載を CI で assert） | 2 | **✅ 済**（Windows は BtbN LGPL、macOS は自前ビルドを Release に公開） |
-| T4 | Python サイドカー + PyInstaller（Windows） | 1.5 |
+| T4 | Python サイドカー + PyInstaller（Windows） | 1.5 | **✅ 合格**（下記） |
 | **T5** | 🔴 **GitHub Actions で Mac 版をビルド** — Windows からは作れないため、この経路の確立が全ての前提 | 2 |
 | **T6** | 🔴 **友達の M2 Air で実測（1 回目の往復）** — 6 項目をまとめて 1 回で投げる | 2 + 待ち |
 | T7 | 判断とドキュメント化（`docs/phase0-result.md`） | 1 |
