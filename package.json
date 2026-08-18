@@ -1,0 +1,30 @@
+{
+  "name": "ai-video-editor",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ショート動画向けAI動画編集アプリ（カット/テロップ/ズームの自動提案 → 人間が承認して書き出し）",
+  "main": "dist-electron/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "guard": "node scripts/platform-guard.mjs",
+    "smoke": "electron . --smoke-test",
+    "sidecar:dev": "python -m sidecar"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "electron": "^43.4.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vite-plugin-electron": "^1.1.1"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}
