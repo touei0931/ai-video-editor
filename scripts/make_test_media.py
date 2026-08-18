@@ -23,12 +23,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+
 from _console import enable_utf8  # noqa: E402
 
 enable_utf8()
 
-ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "samples"
 
 FPS = 30
@@ -104,20 +106,28 @@ def build(ffmpeg: str, name: str, width: int, height: int, duo: bool) -> Path:
         audio_map = "[aout]"
         channels = "1"
 
+    # 🔴 テスト素材は**ソフトウェアエンコーダ固定**にする。
+    #
+    # ハードウェアエンコーダ（NVENC / VideoToolbox）はマシンやドライバによって
+    # 出力バイト列が変わるため、golden file テストの入力としては使えない。
+    # mpeg4 は ffmpeg に必ず内蔵されていて外部ライブラリもライセンス問題もなく、
+    # 同じ ffmpeg なら同じ出力になる。素材の画質は検証内容に影響しない。
+    encoder = "mpeg4"
+    vargs = ["-c:v", encoder, "-b:v", "4M", "-pix_fmt", "yuv420p"]
+
     cmd = [
         ffmpeg, "-y",
         "-f", "lavfi", "-i", video_src,
         "-filter_complex", audio_src,
         "-map", "0:v", "-map", audio_map,
         "-ac", channels,
-        "-c:v", "libopenh264", "-b:v", "4M",
+        *vargs,
         "-c:a", "aac", "-b:a", "128k",
-        "-pix_fmt", "yuv420p",
         "-r", str(FPS),
         str(out),
     ]
 
-    print(f"生成中: {name} ({width}x{height}, {'二人' if duo else '一人'})")
+    print(f"生成中: {name} ({width}x{height}, {'二人' if duo else '一人'}, {encoder})")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(result.stderr[-2000:], file=sys.stderr)
