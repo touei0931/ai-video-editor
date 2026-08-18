@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Callable  # noqa: F401
 
@@ -93,8 +94,30 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     )
     transcript["duration"] = transcript.get("duration") or duration
 
-    on_progress(0.88, "カット候補を検出しています")
+    on_progress(0.86, "カット候補を検出しています")
     analysis = detect_candidates(transcript, params.get("options"))
+
+    # レビュー用の短尺クリップを先に作っておく。
+    # 「切って繋いだ結果」を即座にループ再生できることがレビュー速度を決める（§3.3.3）。
+    from .media import make_review_clip
+
+    clips_dir = work_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    total = len(analysis["candidates"])
+    for i, c in enumerate(analysis["candidates"]):
+        try:
+            c["clip_path"] = make_review_clip(
+                video_path,
+                str(clips_dir / f"{c['id']}.mp4"),
+                c["src_start"],
+                c["src_end"],
+            )
+        except Exception as e:  # noqa: BLE001
+            # 1件失敗しても全体は止めない。その候補だけ再生できないだけ。
+            print(f"レビュー用クリップの生成に失敗: {c['id']}: {e}", file=sys.stderr, flush=True)
+            c["clip_path"] = None
+        if total:
+            on_progress(0.86 + 0.13 * ((i + 1) / total), f"プレビューを準備しています {i + 1}/{total}")
     analysis["video_path"] = video_path
     analysis["transcript"] = {
         "backend": transcript.get("backend"),

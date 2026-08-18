@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { sidecar } from './sidecar.js';
 import { isDev } from './paths.js';
@@ -122,9 +123,35 @@ async function runSmokeTest(): Promise<never> {
   return new Promise<never>(() => {});
 }
 
+/**
+ * ローカルの動画をレンダラで再生できるようにする。
+ *
+ * 開発中はページが http://localhost なので file:// を直接読めない。
+ * 配布時も file:// をそのまま許すのは避けたいので、専用のスキームを1つ用意して
+ * そこ経由でだけ読む。
+ */
+function registerMediaProtocol(): void {
+  protocol.handle('media', async (request) => {
+    const url = new URL(request.url);
+    // media://local/<エンコード済み絶対パス>
+    const filePath = decodeURIComponent(url.pathname).replace(/^\//, '');
+    try {
+      return await net.fetch(pathToFileURL(filePath).toString());
+    } catch (e) {
+      console.error('[media] 読み込めませんでした:', filePath, e);
+      return new Response('not found', { status: 404 });
+    }
+  });
+}
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+]);
+
 app
   .whenReady()
   .then(() => {
+    registerMediaProtocol();
     // 起動時の引数を必ず残す。診断情報として友達の実機からも回収する（§10.5）
     writeArtifact('last-launch.json', { argv: process.argv, cwd: process.cwd() });
 

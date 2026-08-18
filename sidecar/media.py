@@ -140,6 +140,53 @@ def export_cut_video(
     }
 
 
+def make_review_clip(
+    video_path: str,
+    out_path: str,
+    cut_start: float,
+    cut_end: float,
+    context: float = 0.6,
+) -> str:
+    """レビュー用の短尺クリップを作る（§3.3.3 / §8.5）。
+
+    🔴 「切る部分」ではなく「**切って繋いだ結果**」を作るのが要点。
+    人間が判断すべきは「そこが無音か」ではなく「繋ぎが自然か」なので、
+    カット前後を実際に繋いだものを聞かせないと判断できない。
+
+    全フレームを I フレームにする（-g 1）。
+    ループ再生の頭でGOPの再構築が入ると毎回引っかかり、
+    それが「もっさり感」になってレビュー速度に直結する。
+    """
+    ffmpeg = find_ffmpeg()
+    before_start = max(0.0, cut_start - context)
+    after_end = cut_end + context
+
+    filter_complex = (
+        f"[0:v]trim=start={before_start}:end={cut_start},setpts=PTS-STARTPTS[v0];"
+        f"[0:a]atrim=start={before_start}:end={cut_start},asetpts=PTS-STARTPTS[a0];"
+        f"[0:v]trim=start={cut_end}:end={after_end},setpts=PTS-STARTPTS[v1];"
+        f"[0:a]atrim=start={cut_end}:end={after_end},asetpts=PTS-STARTPTS[a1];"
+        f"[v0][a0][v1][a1]concat=n=2:v=1:a=1[vcat][aout];"
+        # レビュー用なので解像度は落とす。ループの滑らかさのほうが大事。
+        # 🔴 scale は filter_complex の中に入れること。
+        #    filter_complex の出力ラベルに対して -vf は使えず "Invalid argument" になる。
+        f"[vcat]scale=-2:480[vout]"
+    )
+
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", video_path,
+        "-filter_complex", filter_complex,
+        "-map", "[vout]", "-map", "[aout]",
+        "-c:v", "libopenh264", "-b:v", "2M", "-g", "1",
+        "-c:a", "aac", "-b:a", "128k",
+        "-pix_fmt", "yuv420p",
+        out_path,
+    ])
+    return out_path
+
+
 def write_json(path: str, data: Any) -> str:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

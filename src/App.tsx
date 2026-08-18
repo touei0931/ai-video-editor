@@ -27,6 +27,7 @@ interface AnalyzeResult {
     before?: string;
     after?: string;
     word?: string;
+    clip_path?: string | null;
   }[];
 }
 
@@ -50,6 +51,7 @@ function toCandidate(c: AnalyzeResult['candidates'][number]): CutCandidate {
     before: c.before ?? '',
     after: c.after ?? '',
     word: c.word,
+    clipPath: c.clip_path ?? null,
   };
 }
 

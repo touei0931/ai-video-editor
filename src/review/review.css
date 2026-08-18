@@ -158,6 +158,13 @@
   margin-bottom: 20px;
 }
 
+.preview-video {
+  max-height: 300px;
+  max-width: 100%;
+  border-radius: 10px;
+  background: #000;
+}
+
 .preview-placeholder {
   width: 340px;
   aspect-ratio: 9 / 16;

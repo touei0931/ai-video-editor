@@ -19,6 +19,11 @@ export interface CutCandidate {
   after: string;
   /** フィラーや言い直しの場合、その語 */
   word?: string;
+  /**
+   * レビュー用の短尺クリップ。「切って繋いだ結果」が入っている。
+   * これをループ再生して「繋ぎが自然か」を判断する（§3.3.3）。
+   */
+  clipPath?: string | null;
 }
 
 export const KIND_LABEL: Record<CutKind, string> = {

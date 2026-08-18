@@ -107,6 +107,7 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
   const [startedAt] = useState(() => Date.now());
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const liveRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   /**
    * 「どこまで進んだか」を覚えておく。
@@ -223,6 +224,13 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
           break;
         case 'arrowright':
           nudge(e.shiftKey ? 5 : 1);
+          break;
+        case ' ':
+          // 自動でループしているので、Space は一時停止/再開に使う
+          if (videoRef.current) {
+            if (videoRef.current.paused) void videoRef.current.play();
+            else videoRef.current.pause();
+          }
           break;
         case 'enter':
           setIndex(toReview.length);
@@ -410,14 +418,26 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
 
       <section className="stage">
         <div className="preview">
-          <div className="preview-placeholder">
-            <p>プレビュー</p>
-            <small>
-              実装後はここで「カットして繋いだ結果」を自動ループ再生します。
-              <br />
-              判断すべきは「そこが無音か」ではなく「繋ぎが自然か」だからです（§3.3.3）
-            </small>
-          </div>
+          {current.clipPath ? (
+            <video
+              ref={videoRef}
+              key={current.id}
+              className="preview-video"
+              src={`media://local/${encodeURIComponent(current.clipPath.replace(/\\/g, '/'))}`}
+              autoPlay
+              loop
+              playsInline
+            />
+          ) : (
+            <div className="preview-placeholder">
+              <p>プレビュー</p>
+              <small>
+                この候補のクリップがありません。
+                <br />
+                （モックデータで動かしているか、生成に失敗しています）
+              </small>
+            </div>
+          )}
         </div>
 
         <Waveform candidate={current} />
