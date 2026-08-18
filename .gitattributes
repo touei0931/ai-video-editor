@@ -1,7 +1,5 @@
-# テスト素材（Phase 0 T0）は Git LFS で管理する
-samples/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
-samples/**/*.mov filter=lfs diff=lfs merge=lfs -text
-samples/**/*.wav filter=lfs diff=lfs merge=lfs -text
+# 動画・音声はリポジトリに置かない方針のため、Git LFS は使わない。
+# テスト素材は scripts/make_test_media.py で毎回生成する（samples/README.md）。
 
 # 改行コードは LF に統一（Windows で開発し macOS でビルドするため）
 * text=auto eol=lf

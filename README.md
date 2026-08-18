@@ -140,6 +140,12 @@ npm run build
 
 Python は 3.12 系。Phase 0 時点では追加パッケージ不要（`sidecar/requirements.txt` は全てコメントアウト）。
 
+### 🔴 実素材はリポジトリに置かない
+
+**友達が映っている動画は、private リポジトリであっても GitHub に置かない。**（2026-08-18 決定）
+テスト素材は `python scripts/make_test_media.py` で ffmpeg から合成生成する（`samples/README.md`）。
+実素材が必要な検証（文字起こし精度・顔検出・話者判定）は `fixtures-local/`（`.gitignore` 済み）か実機で行う。
+
 ### プラットフォーム分岐を書いてよいのはこの 4 ファイルだけ
 
 Mac 実機でデバッグできないため、「Mac で壊れうる範囲」を予測可能に保つのが前提条件（§10.4）。
@@ -157,7 +163,7 @@ Mac 実機でデバッグできないため、「Mac で壊れうる範囲」を
 
 | # | タスク | 人日 | 状態 |
 |---|---|---|---|
-| T0 | 環境準備（リポジトリ、Electron + Python サイドカー雛形、`platform-guard` CI） | 1 | **✅ 済**（テスト素材 3 本のみ未 → `samples/README.md`） |
+| T0 | 環境準備（リポジトリ、Electron + Python サイドカー雛形、`platform-guard` CI、テスト素材の生成スクリプト） | 1 | **✅ 済** |
 | **T1** | 🔴 **テロップ WYSIWYG の成立確認** — Canvas → PNG → ffmpeg overlay がブラウザ表示と一致するか | 2 |
 | T2 | BudouX 文節改行の検証 | 0.5 |
 | T3 | ffmpeg LGPL ビルドの確保（`libx264` 非搭載を CI で assert） | 2 |
