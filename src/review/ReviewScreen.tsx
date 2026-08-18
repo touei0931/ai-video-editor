@@ -26,6 +26,13 @@ function formatTime(sec: number): string {
   return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 }
 
+/** 目盛り用。秒は切り捨てて mm:ss */
+function formatClock(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 /** 波形は解析結果が来るまでモック。カット区間が視覚的に分かることが目的。 */
 function Waveform({ candidate }: { candidate: CutCandidate }) {
   const bars = useMemo(() => {
@@ -71,6 +78,20 @@ export function ReviewScreen() {
     };
   }, [all]);
 
+  /** 素材の長さ。実装後は動画のメタデータから取る */
+  const duration = useMemo(
+    () => Math.max(60, Math.ceil(Math.max(...all.map((c) => c.srcEnd)) / 60) * 60),
+    [all],
+  );
+
+  /** 目盛りは2〜5分刻み */
+  const rulerMarks = useMemo(() => {
+    const step = duration > 900 ? 300 : duration > 300 ? 120 : 60;
+    const marks: number[] = [];
+    for (let t = 0; t <= duration; t += step) marks.push(t);
+    return marks;
+  }, [duration]);
+
   const [index, setIndex] = useState(0);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [adjust, setAdjust] = useState<Record<string, number>>({});
@@ -87,6 +108,15 @@ export function ReviewScreen() {
   const [resumeIndex, setResumeIndex] = useState(0);
   const revisiting = index < resumeIndex;
 
+  /** 直前の判定を取り消したときに、どれを取り消したかを知らせる */
+  const [undoNotice, setUndoNotice] = useState<number | null>(null);
+
+  /** タイムライン上のマーカーから「何件目か」を引くための対応表 */
+  const reviewIndexById = useMemo(
+    () => new Map(toReview.map((c, i) => [c.id, i])),
+    [toReview],
+  );
+
   const current = toReview[index];
   const done = index >= toReview.length;
 
@@ -99,6 +129,8 @@ export function ReviewScreen() {
       if (!current) return;
       setDecisions((prev) => ({ ...prev, [current.id]: decision }));
       setHistory((prev) => [...prev, current.id]);
+
+      setUndoNotice(null);
 
       if (revisiting) {
         // 戻って直していたのなら、元いた位置に復帰する
@@ -119,23 +151,39 @@ export function ReviewScreen() {
     (target: number) => {
       setResumeIndex((r) => Math.max(r, index));
       setIndex(Math.max(0, Math.min(toReview.length - 1, target)));
+      setUndoNotice(null);
     },
     [index, toReview.length],
   );
 
+  /**
+   * 直前に下した判定を取り消す（Ctrl+Z 相当。画面上の位置ではなく判定した順に戻る）。
+   *
+   * 取り消した候補を**画面に表示する**こと。
+   * 表示は現在地のままで裏で別の候補の判定だけ消える、という動きは
+   * 「何が起きたか分からない」ので必ず飛ぶ。
+   */
   const undo = useCallback(() => {
     setHistory((prev) => {
       if (prev.length === 0) return prev;
       const last = prev[prev.length - 1];
+
       setDecisions((d) => {
         const next = { ...d };
         delete next[last];
         return next;
       });
-      setIndex((i) => Math.max(0, i - 1));
+
+      const target = toReview.findIndex((c) => c.id === last);
+      if (target >= 0) {
+        setResumeIndex((r) => Math.max(r, index));
+        setIndex(target);
+        setUndoNotice(target);
+      }
+
       return prev.slice(0, -1);
     });
-  }, []);
+  }, [toReview, index]);
 
   const nudge = useCallback(
     (frames: number) => {
@@ -256,40 +304,76 @@ export function ReviewScreen() {
       </header>
 
       {/*
-        候補を並べたバー。クリックで直接そこへ飛べる。
-        1件ずつ取り消して戻るのは苦痛なので、任意の位置へ移動できるようにした。
+        動画の時間軸にカット候補を重ねたバー。
+        「動画のどのあたりの話か」が分かるので、後から戻るときに探しやすい。
+        自動判定済みのものも薄く出して、全体像が見えるようにする。
       */}
-      <nav className="seekbar" aria-label="カット候補の一覧">
-        {toReview.map((c, i) => {
-          const d = decisions[c.id];
-          const cls = [
-            'tick',
-            d ?? 'pending',
-            c.kind,
-            i === index ? 'current' : '',
-            i === resumeIndex && revisiting ? 'resume' : '',
-          ]
-            .filter(Boolean)
-            .join(' ');
-          const label =
-            `${i + 1}件目 ${KIND_LABEL[c.kind]} ${formatTime(c.srcStart)} ` +
-            `確信度${c.confidence.toFixed(2)}` +
-            (d ? ` / ${d === 'approved' ? '承認' : d === 'rejected' ? '却下' : '保留'}` : ' / 未処理');
-          return (
-            <button
-              key={c.id}
-              type="button"
-              className={cls}
-              title={label}
-              aria-label={label}
-              aria-current={i === index}
-              onClick={() => jumpTo(i)}
-            />
-          );
-        })}
+      <nav className="timeline" aria-label="動画のタイムラインとカット候補">
+        <div className="track">
+          {all.map((c) => {
+            const reviewIdx = reviewIndexById.get(c.id);
+            const left = (c.srcStart / duration) * 100;
+            const width = Math.max(0.35, ((c.srcEnd - c.srcStart) / duration) * 100);
+            const decision = decisions[c.id];
+
+            if (reviewIdx === undefined) {
+              // 自動で判定済み。全体像を示すために出すが、押す対象にはしない
+              const auto = c.confidence >= HIGH || c.kind === 'filler' ? 'auto-approved' : 'auto-rejected';
+              return (
+                <span
+                  key={c.id}
+                  className={`mark ${auto}`}
+                  style={{ left: `${left}%`, width: `${width}%` }}
+                  title={`${KIND_LABEL[c.kind]} ${formatTime(c.srcStart)} 確信度${c.confidence.toFixed(2)} / 自動${auto === 'auto-approved' ? '承認' : '却下'}`}
+                />
+              );
+            }
+
+            const state = decision ?? 'pending';
+            const label =
+              `${reviewIdx + 1}件目 ${KIND_LABEL[c.kind]} ${formatTime(c.srcStart)} ` +
+              `確信度${c.confidence.toFixed(2)} / ` +
+              (decision
+                ? decision === 'approved'
+                  ? '承認'
+                  : decision === 'rejected'
+                    ? '却下'
+                    : '保留'
+                : '未処理');
+
+            return (
+              <button
+                key={c.id}
+                type="button"
+                className={`mark review ${state} ${reviewIdx === index ? 'current' : ''}`}
+                style={{ left: `${left}%`, width: `${width}%` }}
+                title={label}
+                aria-label={label}
+                aria-current={reviewIdx === index}
+                onClick={() => jumpTo(reviewIdx)}
+              />
+            );
+          })}
+
+          <div className="playhead" style={{ left: `${(current.srcStart / duration) * 100}%` }} />
+        </div>
+
+        <div className="ruler">
+          {rulerMarks.map((sec) => (
+            <span key={sec} style={{ left: `${(sec / duration) * 100}%` }}>
+              {formatClock(sec)}
+            </span>
+          ))}
+        </div>
       </nav>
 
-      {revisiting && (
+      {undoNotice !== null && (
+        <div className="undo-note">
+          {undoNotice + 1} 件目の判定を取り消しました。この候補を表示しています
+        </div>
+      )}
+
+      {undoNotice === null && revisiting && (
         <div className="revisit-note">
           {index + 1} 件目に戻って確認中 — 決定するか <kbd>Esc</kbd> で {resumeIndex + 1} 件目に戻ります
         </div>
@@ -345,7 +429,8 @@ export function ReviewScreen() {
         <kbd>→</kbd> 境界±1F <kbd>Shift</kbd>+←→ ±5F <kbd>S</kbd> 保留
         <span className="sep" />
         <kbd>[</kbd>
-        <kbd>]</kbd> 前後へ移動 <kbd>U</kbd> 直前を取消 <kbd>Enter</kbd> 残り一括承認
+        <kbd>]</kbd> 前後へ移動 <kbd>U</kbd> 直前に下した判定を取消（そこへ飛びます）{' '}
+        <kbd>Enter</kbd> 残り一括承認
       </footer>
 
       <div ref={liveRef} aria-live="polite" className="sr-only" />
