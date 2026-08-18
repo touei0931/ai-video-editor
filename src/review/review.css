@@ -158,11 +158,47 @@
   margin-bottom: 20px;
 }
 
+.preview-box {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
 .preview-video {
   max-height: 300px;
   max-width: 100%;
   border-radius: 10px;
   background: #000;
+}
+
+/* クリップ内の再生位置と繋ぎ目 */
+.clipbar {
+  position: relative;
+  height: 5px;
+  border-radius: 3px;
+  background: #26262e;
+  overflow: hidden;
+}
+
+.clipbar .clip-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #55606f;
+}
+
+/* 繋ぎ目 = カットが起きている位置。ここが自然かどうかだけを見る */
+.clipbar .clip-join {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: #ff5a5a;
+  box-shadow: 0 0 5px rgba(255, 90, 90, 0.9);
 }
 
 .preview-placeholder {

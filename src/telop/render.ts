@@ -29,6 +29,19 @@ const POSITION_RATIO: Record<TelopSpec['position'], number> = {
 };
 
 /**
+ * 文字の大きさ。
+ *
+ * 🔴 画面の**短辺**を基準にすること。
+ *    幅基準にすると、縦動画（1080x1920）で合わせた比率が
+ *    横動画（1920x1080）では倍近い大きさになる。
+ *    短辺基準なら、縦でも横でも同じ「画面に対する文字の大きさ」になる。
+ *    （T1 は縦 1080x1920 で検証したので、短辺=幅。結果は変わらない）
+ */
+export function telopFontSize(style: TelopSpec['style'], frame: Frame): number {
+  return Math.round(Math.min(frame.width, frame.height) * style.fontSizeRatio);
+}
+
+/**
  * テロップを描く。呼び出し側は事前にフォントのロードを済ませておくこと
  * （ロード前に描くとフォールバックフォントで描かれ、見た目が変わる）。
  */
@@ -36,7 +49,7 @@ export function drawTelop(ctx: Ctx2D, spec: TelopSpec, frame: Frame): void {
   const { lines, style, position } = spec;
   if (lines.length === 0) return;
 
-  const fontSize = Math.round(frame.width * style.fontSizeRatio);
+  const fontSize = telopFontSize(style, frame);
   const lineHeight = Math.round(fontSize * style.lineHeightRatio);
 
   ctx.save();
@@ -78,7 +91,7 @@ export function drawTelop(ctx: Ctx2D, spec: TelopSpec, frame: Frame): void {
  * その「何文字で折り返すか」の入力値をここで求める。
  */
 export function maxCharsPerLine(spec: TelopSpec, frame: Frame, marginRatio = 0.08): number {
-  const fontSize = frame.width * spec.style.fontSizeRatio;
+  const fontSize = telopFontSize(spec.style, frame);
   const usable = frame.width * (1 - marginRatio * 2);
   return Math.max(1, Math.floor(usable / fontSize));
 }

@@ -9,16 +9,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  DEFAULT_BAND,
   generateMockCandidates,
   KIND_LABEL,
   type CutCandidate,
+  type ReviewBand,
 } from './mockCandidates';
 import './review.css';
 
 type Decision = 'approved' | 'rejected' | 'held';
-
-const HIGH = 0.9;
-const LOW = 0.6;
 
 function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -66,13 +65,24 @@ function Waveform({ candidate }: { candidate: CutCandidate }) {
 export interface ReviewScreenProps {
   /** 実データ。省略するとモックで動く（操作感の確認用） */
   candidates?: CutCandidate[];
+  /**
+   * 確信度の3分割の境目。解析結果に含まれる値を渡すこと。
+   * ここが sidecar 側とずれると、プレビューの無い候補がレビューに出てくる。
+   */
+  band?: ReviewBand;
   /** 書き出しへ進む。省略すると書き出しボタンを出さない */
   onExport?: (approved: CutCandidate[]) => void;
   exporting?: boolean;
 }
 
-export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenProps = {}) {
+export function ReviewScreen({
+  candidates,
+  band = DEFAULT_BAND,
+  onExport,
+  exporting,
+}: ReviewScreenProps = {}) {
   const all = useMemo(() => candidates ?? generateMockCandidates(118), [candidates]);
+  const { low: LOW, high: HIGH } = band;
 
   // 確信度で3分割（§3.3.1）。人間が1件ずつ見るのは中間層だけ。
   const { autoApproved, toReview, autoRejected, fillers } = useMemo(() => {
@@ -84,7 +94,7 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
       autoRejected: rest.filter((c) => c.confidence < LOW),
       fillers: fillerList,
     };
-  }, [all]);
+  }, [all, LOW, HIGH]);
 
   /** 素材の長さ。実装後は動画のメタデータから取る */
   const duration = useMemo(
@@ -108,6 +118,8 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const liveRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  /** クリップ内の再生位置。繋ぎ目まであと何秒かを示すのに使う */
+  const [clipTime, setClipTime] = useState(0);
 
   /**
    * 「どこまで進んだか」を覚えておく。
@@ -202,6 +214,19 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
     [current],
   );
 
+  /**
+   * 繋ぎ目の少し手前まで巻き戻す。
+   * クリップを長くすると前後の会話は分かるようになるが、
+   * 「繋ぎが自然か」だけをもう一度確かめたいときにループを待つのは無駄なので、
+   * 肝心の部分へ直接飛べるようにする。
+   */
+  const replayJoin = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !current?.clipJoinAt) return;
+    video.currentTime = Math.max(0, current.clipJoinAt - 1.0);
+    void video.play();
+  }, [current]);
+
   // キーボードだけで完結させる。マウスに手を伸ばした時点で2秒失う（§3.3.3）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -232,6 +257,9 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
             else videoRef.current.pause();
           }
           break;
+        case 'r':
+          replayJoin();
+          break;
         case 'enter':
           setIndex(toReview.length);
           break;
@@ -252,7 +280,7 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [decide, undo, nudge, jumpTo, index, revisiting, resumeIndex, toReview.length]);
+  }, [decide, undo, nudge, jumpTo, replayJoin, index, revisiting, resumeIndex, toReview.length]);
 
   const counts = useMemo(() => {
     const v = Object.values(decisions);
@@ -314,9 +342,11 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
                 onExport(approved);
               }}
             >
-              {exporting ? '書き出し中…' : `承認した ${
-                autoApproved.length + fillers.length + counts.approved
-              } 箇所をカットして書き出す`}
+              {exporting
+                ? '処理中…'
+                : `${
+                    autoApproved.length + fillers.length + counts.approved
+                  } 箇所をカットしてテロップへ進む`}
             </button>
           )}
           <button onClick={() => window.location.reload()}>最初から</button>
@@ -327,6 +357,8 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
 
   const offset = adjust[current.id] ?? 0;
   const cutLength = current.srcEnd - current.srcStart + offset / 30;
+  const joinAt = current.clipJoinAt ?? 0;
+  const clipDuration = current.clipDuration ?? 0;
 
   return (
     <div className="review">
@@ -419,15 +451,31 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
       <section className="stage">
         <div className="preview">
           {current.clipPath ? (
-            <video
-              ref={videoRef}
-              key={current.id}
-              className="preview-video"
-              src={`media://local/${encodeURIComponent(current.clipPath.replace(/\\/g, '/'))}`}
-              autoPlay
-              loop
-              playsInline
-            />
+            <div className="preview-box">
+              <video
+                ref={videoRef}
+                key={current.id}
+                className="preview-video"
+                src={`media://local/${encodeURIComponent(current.clipPath.replace(/\\/g, '/'))}`}
+                autoPlay
+                loop
+                playsInline
+                onTimeUpdate={(e) => setClipTime(e.currentTarget.currentTime)}
+              />
+
+              {/*
+                クリップは「切って繋いだ結果」なので、繋ぎ目がどこかを示さないと
+                「今の違和感はカットのせいか、元からか」が分からない。
+              */}
+              {clipDuration > 0 && (
+                <div className="clipbar" aria-hidden>
+                  <span className="clip-played" style={{ width: `${(clipTime / clipDuration) * 100}%` }} />
+                  {joinAt > 0 && (
+                    <span className="clip-join" style={{ left: `${(joinAt / clipDuration) * 100}%` }} />
+                  )}
+                </div>
+              )}
+            </div>
           ) : (
             <div className="preview-placeholder">
               <p>プレビュー</p>
@@ -440,15 +488,25 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
           )}
         </div>
 
-        <Waveform candidate={current} />
+        {/* 波形はまだ実データが無い。実クリップがあるときに出すと嘘の情報になる。 */}
+        {!current.clipPath && <Waveform candidate={current} />}
 
         <div className="cutinfo">
-          <span className="keep">残す 0.5s</span>
-          <span className="cut">
-            カット {cutLength.toFixed(2)} 秒
-            {offset !== 0 && <em> （{offset > 0 ? '+' : ''}{offset}F 調整）</em>}
-          </span>
-          <span className="keep">残す 0.5s</span>
+          {joinAt > 0 ? (
+            <>
+              <span className="keep">カット前 {joinAt.toFixed(1)}秒</span>
+              <span className="cut">
+                ここで {cutLength.toFixed(2)} 秒カット
+                {offset !== 0 && <em> （{offset > 0 ? '+' : ''}{offset}F 調整）</em>}
+              </span>
+              <span className="keep">カット後 {(clipDuration - joinAt).toFixed(1)}秒</span>
+            </>
+          ) : (
+            <span className="cut">
+              カット {cutLength.toFixed(2)} 秒
+              {offset !== 0 && <em> （{offset > 0 ? '+' : ''}{offset}F 調整）</em>}
+            </span>
+          )}
         </div>
 
         <div className="context">
@@ -472,7 +530,7 @@ export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenPr
       </section>
 
       <footer>
-        <kbd>Y</kbd> 承認 <kbd>N</kbd> 却下 <kbd>Space</kbd> 再生
+        <kbd>Y</kbd> 承認 <kbd>N</kbd> 却下 <kbd>Space</kbd> 一時停止 <kbd>R</kbd> 繋ぎ目から再生
         <span className="sep" />
         <kbd>←</kbd>
         <kbd>→</kbd> 境界±1F <kbd>Shift</kbd>+←→ ±5F <kbd>S</kbd> 保留

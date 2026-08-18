@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -50,19 +51,41 @@ def _run(cmd: list[str]) -> str:
     return result.stdout or ""
 
 
-def probe_duration(path: str) -> float:
-    """尺を秒で返す。ffprobe が無い環境もありうるので ffmpeg の出力から拾う。"""
+def probe_video_info(path: str) -> dict[str, Any]:
+    """解像度・fps・尺をまとめて返す。ffprobe が無い環境もありうるので ffmpeg の出力から拾う。
+
+    テロップの PNG は**この解像度ちょうどで描く**必要がある。
+    ずれると overlay で拡大縮小され、縁取りの太さが変わって見た目が崩れる。
+    """
     ffmpeg = find_ffmpeg()
     result = subprocess.run(
         [ffmpeg, "-hide_banner", "-i", path],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
+    info: dict[str, Any] = {"width": 0, "height": 0, "fps": 30.0, "duration": 0.0}
+
     for line in (result.stderr or "").splitlines():
         if "Duration:" in line:
             token = line.split("Duration:")[1].split(",")[0].strip()
-            h, m, s = token.split(":")
-            return int(h) * 3600 + int(m) * 60 + float(s)
-    return 0.0
+            try:
+                h, m, s = token.split(":")
+                info["duration"] = int(h) * 3600 + int(m) * 60 + float(s)
+            except ValueError:
+                pass
+        if "Video:" in line and not info["width"]:
+            # 「1920x1080」を拾う。SAR/DAR は「1280:1281」形式なので誤爆しない。
+            size = re.search(r"\b(\d{2,5})x(\d{2,5})\b", line)
+            if size:
+                info["width"] = int(size.group(1))
+                info["height"] = int(size.group(2))
+            fps = re.search(r"([\d.]+) fps", line)
+            if fps:
+                try:
+                    info["fps"] = float(fps.group(1))
+                except ValueError:
+                    pass
+
+    return info
 
 
 def extract_audio(video_path: str, out_wav: str, on_progress: ProgressFn | None = None) -> str:
@@ -85,13 +108,67 @@ def extract_audio(video_path: str, out_wav: str, on_progress: ProgressFn | None 
     return out_wav
 
 
+def _concat_path(path: str) -> str:
+    """concat デマクサのファイル名として安全な形にする。
+
+    concat デマクサはバックスラッシュをエスケープ文字として解釈するので、
+    Windows のパスをそのまま書くと壊れる。ffmpeg は / を受け付けるので置き換える。
+    """
+    return str(path).replace("\\", "/").replace("'", r"'\''")
+
+
+def write_telop_track(
+    list_path: str,
+    blank_png: str,
+    telops: list[dict[str, Any]],
+    total_duration: float,
+) -> str:
+    """テロップの表示スケジュールを concat デマクサ用のリストとして書く。
+
+    🔴 テロップ1枚ごとに ffmpeg の入力を増やしてはいけない。
+    20分素材ならテロップは数百枚になり、-i を数百個並べるのは現実的でない。
+    concat デマクサなら、何枚あっても**入力は1本**で済む。
+
+    透明な blank.png で隙間を埋め、全体が動画の尺と同じ長さになるようにする。
+    尺を合わせておかないと、overlay が最後のテロップを最後まで出しっぱなしにする。
+    """
+    lines: list[str] = []
+    cursor = 0.0
+
+    def blank(seconds: float) -> None:
+        if seconds > 0.001:
+            lines.append(f"file '{_concat_path(blank_png)}'")
+            lines.append(f"duration {seconds:.3f}")
+
+    for t in sorted(telops, key=lambda x: x["out_start"]):
+        start = max(cursor, float(t["out_start"]))
+        end = max(start, float(t["out_end"]))
+        if end - start < 0.02:
+            continue
+        blank(start - cursor)
+        lines.append(f"file '{_concat_path(t['png'])}'")
+        lines.append(f"duration {end - start:.3f}")
+        cursor = end
+
+    blank(max(0.2, total_duration - cursor))
+    # 🔴 concat デマクサは**最後のエントリの duration を無視する**。
+    #    もう一度同じファイルを書いておかないと、最後の表示が消えない。
+    lines.append(f"file '{_concat_path(blank_png)}'")
+
+    Path(list_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(list_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return list_path
+
+
 def export_cut_video(
     video_path: str,
     out_path: str,
     keeps: list[tuple[float, float]],
+    telop_track: str | None = None,
+    fps: float = 30.0,
     on_progress: ProgressFn | None = None,
 ) -> dict[str, Any]:
-    """残す区間だけを繋いで書き出す。
+    """残す区間だけを繋いで書き出す。テロップがあれば同じパスで焼き込む。
 
     trim/atrim + concat フィルタで1パスで行う。
     区間ごとに一時ファイルを作って結合する方式は、
@@ -114,12 +191,27 @@ def export_cut_video(
             f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{i}];"
         )
     concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(len(keeps)))
-    filter_complex = "".join(parts) + f"{concat_inputs}concat=n={len(keeps)}:v=1:a=1[vout][aout]"
+
+    inputs = ["-i", video_path]
+    if telop_track:
+        inputs += ["-f", "concat", "-safe", "0", "-i", telop_track]
+        filter_complex = (
+            "".join(parts)
+            + f"{concat_inputs}concat=n={len(keeps)}:v=1:a=1[vcat][aout];"
+            # 静止画のままだとタイムスタンプが疎なので、動画と同じ fps に揃える
+            f"[1:v]format=rgba,fps={fps:.5g},setpts=PTS-STARTPTS[ov];"
+            # repeatlast=0 にしないと、テロップ列が尽きた後も最後の1枚が残り続ける
+            "[vcat][ov]overlay=0:0:eof_action=pass:repeatlast=0[vout]"
+        )
+    else:
+        filter_complex = (
+            "".join(parts) + f"{concat_inputs}concat=n={len(keeps)}:v=1:a=1[vout][aout]"
+        )
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     _run([
         ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-        "-i", video_path,
+        *inputs,
         "-filter_complex", filter_complex,
         "-map", "[vout]", "-map", "[aout]",
         *vargs,
@@ -140,51 +232,88 @@ def export_cut_video(
     }
 
 
+#: レビュー用クリップで、カット前後をそれぞれ何秒ぶん見せるか。
+#: 短いと「無音だったか」しか分からない。前後の話が聞こえる長さが要る。
+REVIEW_CONTEXT = 2.5
+
+
 def make_review_clip(
     video_path: str,
     out_path: str,
     cut_start: float,
     cut_end: float,
-    context: float = 0.6,
-) -> str:
+    context: float = REVIEW_CONTEXT,
+    height: int = 480,
+) -> dict[str, Any]:
     """レビュー用の短尺クリップを作る（§3.3.3 / §8.5）。
 
     🔴 「切る部分」ではなく「**切って繋いだ結果**」を作るのが要点。
     人間が判断すべきは「そこが無音か」ではなく「繋ぎが自然か」なので、
     カット前後を実際に繋いだものを聞かせないと判断できない。
 
-    全フレームを I フレームにする（-g 1）。
-    ループ再生の頭でGOPの再構築が入ると毎回引っかかり、
-    それが「もっさり感」になってレビュー速度に直結する。
+    🔴 頭出しは必ず入力側の -ss / -t で行うこと。
+    `-i 動画` のあとに trim フィルタで切り出す書き方だと、
+    ffmpeg は**毎回ファイルの先頭からデコードする**。
+    20分素材の後半にある候補では1件あたり十数分かかり、
+    候補が100件あれば実用にならない。
+    入力側の -ss なら該当箇所へ直接シークするので、位置によらず一定時間で済む。
+
+    繋ぎ目の位置（クリップ先頭から何秒か）を返す。UI 側で目印を出すのに使う。
     """
     ffmpeg = find_ffmpeg()
     before_start = max(0.0, cut_start - context)
-    after_end = cut_end + context
+    before_len = round(cut_start - before_start, 3)
+    after_len = round(context, 3)
 
-    filter_complex = (
-        f"[0:v]trim=start={before_start}:end={cut_start},setpts=PTS-STARTPTS[v0];"
-        f"[0:a]atrim=start={before_start}:end={cut_start},asetpts=PTS-STARTPTS[a0];"
-        f"[0:v]trim=start={cut_end}:end={after_end},setpts=PTS-STARTPTS[v1];"
-        f"[0:a]atrim=start={cut_end}:end={after_end},asetpts=PTS-STARTPTS[a1];"
-        f"[v0][a0][v1][a1]concat=n=2:v=1:a=1[vcat][aout];"
-        # レビュー用なので解像度は落とす。ループの滑らかさのほうが大事。
-        # 🔴 scale は filter_complex の中に入れること。
-        #    filter_complex の出力ラベルに対して -vf は使えず "Invalid argument" になる。
-        f"[vcat]scale=-2:480[vout]"
-    )
+    # 素材の端すぎて前後どちらかが取れないことがある。取れる側だけで作る。
+    segments: list[tuple[float, float]] = []
+    if before_len > 0.05:
+        segments.append((before_start, before_len))
+    if after_len > 0.05:
+        segments.append((cut_end, after_len))
+    if not segments:
+        raise ValueError("プレビューを作れる長さがありません")
+
+    cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error"]
+    for start, length in segments:
+        cmd += ["-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", video_path]
+
+    filters: list[str] = []
+    for i in range(len(segments)):
+        filters.append(f"[{i}:v]setpts=PTS-STARTPTS[v{i}]")
+        filters.append(f"[{i}:a]asetpts=PTS-STARTPTS[a{i}]")
+
+    if len(segments) > 1:
+        joined = "".join(f"[v{i}][a{i}]" for i in range(len(segments)))
+        filters.append(f"{joined}concat=n={len(segments)}:v=1:a=1[vcat][aout]")
+        vsrc = "[vcat]"
+    else:
+        filters.append("[a0]anull[aout]")
+        vsrc = "[v0]"
+
+    # レビュー用なので解像度は落とす。滑らかさのほうが大事。
+    # 🔴 scale は filter_complex の中に入れること。
+    #    filter_complex の出力ラベルに対して -vf は使えず "Invalid argument" になる。
+    filters.append(f"{vsrc}scale=-2:{height}[vout]")
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    _run([
-        ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-        "-i", video_path,
-        "-filter_complex", filter_complex,
+    _run(cmd + [
+        "-filter_complex", ";".join(filters),
         "-map", "[vout]", "-map", "[aout]",
-        "-c:v", "libopenh264", "-b:v", "2M", "-g", "1",
+        # GOP を短くするのは、繋ぎ目まで巻き戻す操作（R キー）を待たせないため。
+        # ループの先頭は必ずキーフレームなので、ループ自体には効かない。
+        "-c:v", "libopenh264", "-b:v", "2M", "-g", "15",
         "-c:a", "aac", "-b:a", "128k",
         "-pix_fmt", "yuv420p",
         out_path,
     ])
-    return out_path
+
+    return {
+        "path": out_path,
+        # 繋ぎ目 = 前半の長さ。ここでカットが起きている。
+        "join_at": before_len if len(segments) > 1 else 0.0,
+        "duration": round(sum(length for _, length in segments), 3),
+    }
 
 
 def write_json(path: str, data: Any) -> str:

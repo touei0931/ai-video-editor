@@ -1,22 +1,43 @@
 /**
- * アプリ本体の流れ（①カット）。
+ * アプリ本体の流れ。
  *
  *   動画を選ぶ → 解析（音声抽出→文字起こし→カット候補検出）
- *     → レビュー（Y/N で承認・却下）→ 書き出し
+ *     → ①カットのレビュー（Y/N で承認・却下）
+ *     → ②テロップの確認（文言・スタイルを直す）
+ *     → 書き出し（カットを適用し、テロップを焼き込む）
  *
- * テロップ（②）とズーム（③）は Phase 2 以降。
+ * 🔴 テロップはカットの**あと**に作る。
+ *    先に作ると、切った箇所の言葉がテロップに残る（sidecar/telop.py 参照）。
+ *
+ * ③ズーム・画角は Phase 3。
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ReviewScreen } from './review/ReviewScreen';
-import type { CutCandidate, CutKind } from './review/mockCandidates';
+import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
+import { TelopScreen } from './telop/TelopScreen';
+import { loadTelopFonts } from './telop/fonts';
+import { renderBlank, renderTelopPngs } from './telop/rasterize';
+import {
+  buildCards,
+  makeMeasure,
+  rewrapCard,
+  type Frame,
+  type TelopCard,
+  type TelopUnit,
+} from './telop/split';
+import type { TelopStyleName } from './telop/style';
 
-type Phase = 'idle' | 'analyzing' | 'review' | 'exporting' | 'done';
+type Phase = 'idle' | 'analyzing' | 'review' | 'telops-building' | 'telop' | 'exporting' | 'done';
 
 interface AnalyzeResult {
   video_path: string;
   duration: number;
   candidate_count: number;
   kinds: Record<string, number>;
+  transcript_path: string;
+  wav_path: string;
+  work_dir: string;
+  video: { width: number; height: number; fps: number; duration: number };
   transcript: { text: string; realtime_factor: number; elapsed_seconds: number; model: string };
   candidates: {
     id: string;
@@ -28,6 +49,24 @@ interface AnalyzeResult {
     after?: string;
     word?: string;
     clip_path?: string | null;
+    clip_join_at?: number;
+    clip_duration?: number;
+  }[];
+  review_band?: ReviewBand;
+}
+
+interface TelopResult {
+  telops: {
+    id: string;
+    src_start: number;
+    src_end: number;
+    text: string;
+    style: TelopStyleName;
+    reason: string;
+    position: 'top' | 'middle' | 'bottom';
+    needs_check: boolean;
+    confidence: number;
+    words: { text: string; src_start: number; src_end: number }[];
   }[];
 }
 
@@ -37,6 +76,7 @@ interface ExportResult {
   kept_seconds: number;
   original_seconds: number;
   cut_count: number;
+  telop_count: number;
   segments: number;
   size_mb: number;
 }
@@ -52,6 +92,23 @@ function toCandidate(c: AnalyzeResult['candidates'][number]): CutCandidate {
     after: c.after ?? '',
     word: c.word,
     clipPath: c.clip_path ?? null,
+    clipJoinAt: c.clip_join_at,
+    clipDuration: c.clip_duration,
+  };
+}
+
+function toUnit(t: TelopResult['telops'][number]): TelopUnit {
+  return {
+    id: t.id,
+    srcStart: t.src_start,
+    srcEnd: t.src_end,
+    text: t.text,
+    style: t.style,
+    reason: t.reason,
+    position: t.position,
+    needsCheck: t.needs_check,
+    confidence: t.confidence,
+    words: t.words.map((w) => ({ text: w.text, srcStart: w.src_start, srcEnd: w.src_end })),
   };
 }
 
@@ -65,6 +122,8 @@ export function App() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState({ value: 0, message: '' });
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
+  const [cuts, setCuts] = useState<CutCandidate[]>([]);
+  const [cards, setCards] = useState<TelopCard[]>([]);
   const [exported, setExported] = useState<ExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(0);
@@ -80,6 +139,15 @@ export function App() {
     if (!hasBridge) return;
     return window.app.onProgress(setProgress);
   }, [hasBridge]);
+
+  const measure = useMemo(() => (hasBridge ? makeMeasure() : null), [hasBridge]);
+  const frame: Frame = useMemo(
+    () => ({
+      width: analysis?.video.width || 1920,
+      height: analysis?.video.height || 1080,
+    }),
+    [analysis],
+  );
 
   const pickAndAnalyze = useCallback(async () => {
     setError(null);
@@ -100,31 +168,97 @@ export function App() {
     }
   }, []);
 
-  const runExport = useCallback(
+  /** カットのレビューが終わったら、その結果を踏まえてテロップを作る */
+  const buildTelops = useCallback(
     async (approved: CutCandidate[]) => {
-      if (!analysis) return;
-      const base = analysis.video_path.replace(/\.[^.]+$/, '');
-      const target = await window.app.pickOutput(`${base}_cut.mp4`);
-      if (!target) return;
-
-      setPhase('exporting');
-      setProgress({ value: 0, message: '書き出しています' });
+      if (!analysis || !measure) return;
+      setCuts(approved);
+      setPhase('telops-building');
+      setProgress({ value: 0, message: 'テロップを作っています' });
 
       try {
-        const result = (await window.app.exportVideo({
-          video_path: analysis.video_path,
-          out_path: target,
-          duration: analysis.duration,
+        // フォントが載る前に幅を測ると、フォールバックフォントの幅で折り返してしまう
+        await loadTelopFonts();
+
+        const result = (await window.app.buildTelops({
+          transcript_path: analysis.transcript_path,
+          wav_path: analysis.wav_path,
+          out_path: `${analysis.work_dir}/telops.json`,
           cuts: approved.map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd })),
-        })) as ExportResult;
-        setExported(result);
-        setPhase('done');
+        })) as TelopResult;
+
+        setCards(buildCards(result.telops.map(toUnit), measure, frame));
+        setPhase('telop');
       } catch (e) {
         setError((e as Error).message);
         setPhase('review');
       }
     },
-    [analysis],
+    [analysis, measure, frame],
+  );
+
+  const rewrap = useCallback(
+    (text: string, style: TelopStyleName) =>
+      measure ? rewrapCard(text, style, measure, frame) : { lines: [text], fontScale: 1 },
+    [measure, frame],
+  );
+
+  const runExport = useCallback(
+    async (finalCards: TelopCard[]) => {
+      if (!analysis) return;
+      const base = analysis.video_path.replace(/\.[^.]+$/, '');
+      const target = await window.app.pickOutput(`${base}_edited.mp4`);
+      if (!target) return;
+
+      setPhase('exporting');
+      setProgress({ value: 0, message: 'テロップを描いています' });
+
+      try {
+        let telops: { src_start: number; src_end: number; png: string }[] = [];
+        let blankPng = '';
+
+        if (finalCards.length > 0) {
+          const dir = `${analysis.work_dir}/telops`;
+          const rendered = await renderTelopPngs(finalCards, frame, (done, total) =>
+            setProgress({ value: done / total, message: `テロップを描いています ${done}/${total}` }),
+          );
+          const blank = await renderBlank(frame);
+
+          const saved = await window.app.saveTelopFrames({
+            dir,
+            frames: [
+              ...rendered.map((r) => ({ name: r.name, bytes: r.bytes })),
+              { name: '_blank.png', bytes: blank },
+            ],
+          });
+
+          blankPng = saved['_blank.png'];
+          telops = finalCards.map((c, i) => ({
+            src_start: c.srcStart,
+            src_end: c.srcEnd,
+            png: saved[rendered[i].name],
+          }));
+        }
+
+        setProgress({ value: 0, message: '書き出しています' });
+        const result = (await window.app.exportVideo({
+          video_path: analysis.video_path,
+          out_path: target,
+          work_dir: analysis.work_dir,
+          duration: analysis.duration,
+          fps: analysis.video.fps,
+          cuts: cuts.map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd })),
+          telops,
+          blank_png: blankPng,
+        })) as ExportResult;
+        setExported(result);
+        setPhase('done');
+      } catch (e) {
+        setError((e as Error).message);
+        setPhase('telop');
+      }
+    },
+    [analysis, cuts, frame],
   );
 
   if (!hasBridge) {
@@ -155,16 +289,37 @@ export function App() {
     return (
       <ReviewScreen
         candidates={analysis.candidates.map(toCandidate)}
+        band={analysis.review_band}
+        onExport={buildTelops}
+        exporting={false}
+      />
+    );
+  }
+
+  if (phase === 'telop' && analysis) {
+    return (
+      <TelopScreen
+        cards={cards}
+        videoPath={analysis.video_path}
+        frame={frame}
+        rewrap={rewrap}
+        onBack={() => setPhase('review')}
         onExport={runExport}
         exporting={false}
       />
     );
   }
 
+  const busy = phase === 'analyzing' || phase === 'exporting' || phase === 'telops-building';
+  const busyTitle =
+    phase === 'analyzing' ? '解析中' : phase === 'telops-building' ? 'テロップを作成中' : '書き出し中';
+
   return (
     <main>
       <h1>AI動画編集</h1>
-      <p className="phase">無音・フィラー・言い直しを自動で見つけてカットします</p>
+      <p className="phase">
+        無音・フィラー・言い直しを自動でカットし、テロップを自動で入れます
+      </p>
 
       {error && <p className="error">エラー: {error}</p>}
 
@@ -174,15 +329,15 @@ export function App() {
           <p className="muted">
             読み込むと、音声を文字起こししてカット候補を作ります。
             <br />
-            候補は1件ずつ確認して、Y / N で承認・却下できます。
+            カットを決めたあと、その結果に合わせてテロップを作ります。
           </p>
           <button onClick={pickAndAnalyze}>動画を選ぶ</button>
         </section>
       )}
 
-      {(phase === 'analyzing' || phase === 'exporting') && (
+      {busy && (
         <section>
-          <h2>{phase === 'analyzing' ? '解析中' : '書き出し中'}</h2>
+          <h2>{busyTitle}</h2>
           <div className="progress-track">
             <div className="progress-fill" style={{ width: `${progress.value * 100}%` }} />
           </div>
@@ -210,6 +365,8 @@ export function App() {
             </dd>
             <dt>適用したカット</dt>
             <dd>{exported.cut_count} 箇所</dd>
+            <dt>焼き込んだテロップ</dt>
+            <dd>{exported.telop_count} 枚</dd>
             <dt>エンコーダ</dt>
             <dd>{exported.encoder}</dd>
             <dt>ファイル</dt>
@@ -225,6 +382,8 @@ export function App() {
               onClick={() => {
                 setAnalysis(null);
                 setExported(null);
+                setCards([]);
+                setCuts([]);
                 setPhase('idle');
               }}
             >
@@ -234,7 +393,7 @@ export function App() {
         </section>
       )}
 
-      {analysis && phase !== 'review' && (
+      {analysis && phase !== 'review' && phase !== 'telop' && (
         <section>
           <h2>文字起こし</h2>
           <p className="muted">

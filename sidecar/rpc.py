@@ -78,6 +78,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "sleep": _sleep,
     "transcribe": _transcribe,
     "analyze": _heavy("analyze"),
+    "build_telops": _heavy("build_telops"),
     "export": _heavy("export"),
 }
 

@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('app', {
   pickVideo: () => ipcRenderer.invoke('app:pickVideo'),
   pickOutput: (defaultPath: string) => ipcRenderer.invoke('app:pickOutput', defaultPath),
   analyze: (params: Record<string, unknown>) => ipcRenderer.invoke('app:analyze', params),
+  buildTelops: (params: Record<string, unknown>) => ipcRenderer.invoke('app:buildTelops', params),
+  saveTelopFrames: (payload: { dir: string; frames: { name: string; bytes: Uint8Array }[] }) =>
+    ipcRenderer.invoke('app:saveTelopFrames', payload),
   exportVideo: (params: Record<string, unknown>) => ipcRenderer.invoke('app:export', params),
   revealFile: (filePath: string) => ipcRenderer.invoke('app:revealFile', filePath),
   onProgress: (cb: (p: { value: number; message: string }) => void) => {

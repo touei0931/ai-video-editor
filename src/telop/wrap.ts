@@ -107,6 +107,39 @@ export function fitJapanese(
 }
 
 /**
+ * 「文節途中で切らない」に加えて「指定の行数に収める」まで満たす倍率を探す。
+ *
+ * テロップは1画面に出せる行数が決まっている（ショート動画なら2行）。
+ * 行数を無視して倍率だけ決めると、収まらないぶんが次の画面に押し出され、
+ * 押し出された側で今度は文節が割れる。両方を同時に満たす必要がある。
+ */
+export function fitToLines(
+  measureAt: (text: string, scale: number) => number,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+  opts: { minScale?: number; step?: number } = {},
+): FitResult {
+  const minScale = opts.minScale ?? 0.7;
+  const step = opts.step ?? 0.05;
+
+  let last: WrapResult | null = null;
+  for (let scale = 1; scale >= minScale - 1e-9; scale -= step) {
+    const result = wrapJapaneseByWidth((t) => measureAt(t, scale), text, maxWidth);
+    last = result;
+    if (result.forcedBreaks === 0 && result.lines.length <= maxLines) {
+      return { ...result, fontScale: Number(scale.toFixed(2)) };
+    }
+  }
+
+  // どこまで縮めても収まらない。文節優先で妥協する（行数のはみ出しより読みやすい）。
+  const fallback = fitJapanese(measureAt, text, maxWidth, opts);
+  return fallback.forcedBreaks === 0
+    ? fallback
+    : { ...last!, fontScale: Number(minScale.toFixed(2)) };
+}
+
+/**
  * 実測幅で折り返す。縮小はしない（fitJapanese の内部で使う）。
  *
  * 文字数で決めると、英数字混じりや約物で実際の描画幅とズレて画面から溢れる。

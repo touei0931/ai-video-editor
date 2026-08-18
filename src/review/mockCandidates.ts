@@ -24,7 +24,18 @@ export interface CutCandidate {
    * これをループ再生して「繋ぎが自然か」を判断する（§3.3.3）。
    */
   clipPath?: string | null;
+  /** クリップ先頭から何秒の位置が繋ぎ目か */
+  clipJoinAt?: number;
+  clipDuration?: number;
 }
+
+/** 確信度による3分割の境目。既定値は sidecar/cut.py の REVIEW_BAND と同じ。 */
+export interface ReviewBand {
+  low: number;
+  high: number;
+}
+
+export const DEFAULT_BAND: ReviewBand = { low: 0.6, high: 0.9 };
 
 export const KIND_LABEL: Record<CutKind, string> = {
   silence: '無音',

@@ -31,6 +31,26 @@ DEFAULTS = {
     "trim_tail": True,
 }
 
+# 確信度による3分割の境目（§3.3.1）。
+# これ以上は自動承認、これ未満は自動却下、その間だけ人間が1件ずつ見る。
+#
+# 🔴 UI 側（ReviewScreen）と必ず同じ値を使うこと。
+#    ずれると「レビュー対象なのにプレビューが無い候補」が出る。
+#    そのため analysis.json に review_band として書き出し、UI はそれを読む。
+REVIEW_BAND = {"low": 0.6, "high": 0.9}
+
+
+def needs_review(candidate: dict[str, Any], band: dict[str, float] | None = None) -> bool:
+    """人間が1件ずつ見る対象か。
+
+    フィラーは確信度が一定以上なら一括処理するので、個別レビューには回さない。
+    """
+    b = band or REVIEW_BAND
+    conf = candidate["confidence"]
+    if candidate["kind"] == "filler" and conf >= b["low"]:
+        return False
+    return b["low"] <= conf < b["high"]
+
 
 def _normalize(text: str) -> str:
     return re.sub(r"[、。,.\s]", "", text)
@@ -154,6 +174,7 @@ def detect_candidates(transcript: dict[str, Any], options: dict[str, Any] | None
         "word_count": len(words),
         "candidates": candidates,
         "options": opts,
+        "review_band": REVIEW_BAND,
     }
 
 
@@ -184,3 +205,22 @@ def keep_ranges(duration: float, cuts: list[tuple[float, float]]) -> list[tuple[
         keeps.append((round(cursor, 3), round(duration, 3)))
 
     return keeps
+
+
+def map_time_to_output(keeps: list[tuple[float, float]], t: float) -> float:
+    """元素材の時刻を、編集後タイムラインの時刻に写す（§11.2）。
+
+    🔴 二重座標系の変換はここだけで行う。
+    テロップは元素材の時刻で作られるが、カットを適用すると時間が詰まるので、
+    そのまま焼き込むと後半になるほど字幕がずれる。
+
+    カットされた区間に落ちる時刻は、その手前の残存区間の終端に寄せる。
+    """
+    cursor = 0.0
+    for start, end in keeps:
+        if t < start:
+            return round(cursor, 3)
+        if t <= end:
+            return round(cursor + (t - start), 3)
+        cursor += end - start
+    return round(cursor, 3)

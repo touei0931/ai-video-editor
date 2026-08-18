@@ -69,7 +69,7 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     動画 → 音声抽出 → 文字起こし → カット候補検出 → analysis.json
     """
     from .cut import detect_candidates
-    from .media import extract_audio, probe_duration, write_json
+    from .media import extract_audio, probe_video_info, write_json
 
     video_path = params.get("video_path")
     if not video_path:
@@ -78,7 +78,8 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     work_dir = Path(params.get("work_dir") or Path(video_path).parent / ".ai-video-editor")
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    duration = probe_duration(video_path)
+    video_info = probe_video_info(video_path)
+    duration = video_info["duration"]
     wav = extract_audio(video_path, str(work_dir / "audio.wav"), on_progress)
 
     # 文字起こしの進捗を全体の 5%〜85% に割り当てる
@@ -99,19 +100,27 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
 
     # レビュー用の短尺クリップを先に作っておく。
     # 「切って繋いだ結果」を即座にループ再生できることがレビュー速度を決める（§3.3.3）。
+    #
+    # 作るのは**人間が実際に見る候補だけ**。自動承認・自動却下される分まで作ると、
+    # 候補118件のうち約25件しか使わないクリップを118件ぶん作ることになる。
+    from .cut import needs_review
     from .media import make_review_clip
 
     clips_dir = work_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
-    total = len(analysis["candidates"])
-    for i, c in enumerate(analysis["candidates"]):
+    targets = [c for c in analysis["candidates"] if needs_review(c, analysis.get("review_band"))]
+    total = len(targets)
+    for i, c in enumerate(targets):
         try:
-            c["clip_path"] = make_review_clip(
+            clip = make_review_clip(
                 video_path,
                 str(clips_dir / f"{c['id']}.mp4"),
                 c["src_start"],
                 c["src_end"],
             )
+            c["clip_path"] = clip["path"]
+            c["clip_join_at"] = clip["join_at"]
+            c["clip_duration"] = clip["duration"]
         except Exception as e:  # noqa: BLE001
             # 1件失敗しても全体は止めない。その候補だけ再生できないだけ。
             print(f"レビュー用クリップの生成に失敗: {c['id']}: {e}", file=sys.stderr, flush=True)
@@ -128,7 +137,7 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
         "text": "".join(s["text"] for s in transcript.get("segments", [])),
     }
 
-    write_json(str(work_dir / "transcript.json"), transcript)
+    transcript_path = write_json(str(work_dir / "transcript.json"), transcript)
     analysis_path = write_json(str(work_dir / "analysis.json"), analysis)
 
     on_progress(1.0, "完了")
@@ -140,19 +149,64 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     return {
         "cancelled": False,
         "analysis_path": analysis_path,
+        # テロップ生成はカットレビューのあとに別の呼び出しで行うので、
+        # そのときに必要になるパスをここで渡しておく
+        "transcript_path": transcript_path,
+        "wav_path": wav,
+        "work_dir": str(work_dir),
+        "video": video_info,
         "video_path": video_path,
         "duration": analysis["duration"],
         "candidate_count": len(analysis["candidates"]),
         "kinds": kinds,
+        "review_band": analysis["review_band"],
         "transcript": analysis["transcript"],
         "candidates": analysis["candidates"],
     }
 
 
+def _build_telops(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
+    """承認されたカットを踏まえてテロップ候補を作る（②）。
+
+    カットのあとに作るのが要点。理由は telop.py の冒頭に書いてある。
+    """
+    from .telop import build_units
+
+    on_progress(0.1, "テロップを組み立てています")
+
+    transcript_path = params.get("transcript_path")
+    if not transcript_path:
+        raise ValueError("transcript_path が必要です")
+    transcript = json.loads(Path(transcript_path).read_text(encoding="utf-8"))
+
+    cuts = [(float(c["src_start"]), float(c["src_end"])) for c in params.get("cuts", [])]
+    result = build_units(transcript, cuts, params.get("wav_path"), params.get("options"))
+
+    out_path = params.get("out_path")
+    if out_path:
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_path).write_text(
+            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    on_progress(1.0, "完了")
+    styles: dict[str, int] = {}
+    for t in result["telops"]:
+        styles[t["style"]] = styles.get(t["style"], 0) + 1
+
+    return {
+        "cancelled": False,
+        "out_path": out_path,
+        "telops": result["telops"],
+        "styles": styles,
+        "needs_check": sum(1 for t in result["telops"] if t["needs_check"]),
+    }
+
+
 def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
-    """承認されたカットを適用して書き出す。"""
-    from .cut import keep_ranges
-    from .media import export_cut_video
+    """承認されたカットとテロップを適用して書き出す。"""
+    from .cut import keep_ranges, map_time_to_output
+    from .media import export_cut_video, write_telop_track
 
     video_path = params["video_path"]
     out_path = params["out_path"]
@@ -160,16 +214,52 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     cuts = [(float(c["src_start"]), float(c["src_end"])) for c in params.get("cuts", [])]
 
     keeps = keep_ranges(duration, cuts)
-    result = export_cut_video(video_path, out_path, keeps, on_progress)
+    kept_total = sum(e - s for s, e in keeps)
+
+    # ── テロップを編集後タイムラインへ写す ──
+    telop_track = None
+    burned = 0
+    telops = params.get("telops") or []
+    if telops:
+        on_progress(0.02, "テロップを配置しています")
+        placed: list[dict[str, Any]] = []
+        for t in telops:
+            out_start = map_time_to_output(keeps, float(t["src_start"]))
+            out_end = map_time_to_output(keeps, float(t["src_end"]))
+            # まるごとカットに入った、または詰められて一瞬になったものは出さない
+            if out_end - out_start < 0.15:
+                continue
+            placed.append({"out_start": out_start, "out_end": out_end, "png": t["png"]})
+
+        if placed:
+            work_dir = Path(params.get("work_dir") or Path(video_path).parent / ".ai-video-editor")
+            telop_track = write_telop_track(
+                str(work_dir / "telops" / "track.txt"),
+                params["blank_png"],
+                placed,
+                kept_total,
+            )
+            burned = len(placed)
+
+    result = export_cut_video(
+        video_path,
+        out_path,
+        keeps,
+        telop_track=telop_track,
+        fps=float(params.get("fps") or 30.0),
+        on_progress=on_progress,
+    )
     result["cancelled"] = False
     result["original_seconds"] = round(duration, 2)
     result["cut_count"] = len(cuts)
+    result["telop_count"] = burned
     return result
 
 
 HEAVY_HANDLERS: dict[str, Callable[..., Any]] = {
     "transcribe": _transcribe,
     "analyze": _analyze,
+    "build_telops": _build_telops,
     "export": _export,
 }
 

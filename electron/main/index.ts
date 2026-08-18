@@ -1,7 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
+import { extname, join } from 'node:path';
+import { createReadStream, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import { sidecar } from './sidecar.js';
 import { isDev } from './paths.js';
 import { runT1 } from './t1.js';
@@ -86,6 +86,36 @@ ipcMain.handle('app:analyze', async (e, params: Record<string, unknown>) => {
   }
 });
 
+ipcMain.handle('app:buildTelops', async (e, params: Record<string, unknown>) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const off = forwardProgress(win);
+  try {
+    return await sidecar.call('build_telops', params);
+  } finally {
+    off();
+  }
+});
+
+/**
+ * レンダラが Canvas で描いたテロップ PNG をディスクに落とす。
+ *
+ * 描画をレンダラでやるのは、プレビューと書き出しで**同じコードを通す**ため（§6）。
+ * Python 側で描き直すと、その瞬間に見た目のずれが入り込む。
+ */
+ipcMain.handle(
+  'app:saveTelopFrames',
+  (_e, payload: { dir: string; frames: { name: string; bytes: Uint8Array }[] }) => {
+    mkdirSync(payload.dir, { recursive: true });
+    const paths: Record<string, string> = {};
+    for (const frame of payload.frames) {
+      const target = join(payload.dir, frame.name);
+      writeFileSync(target, Buffer.from(frame.bytes));
+      paths[frame.name] = target;
+    }
+    return paths;
+  },
+);
+
 ipcMain.handle('app:export', async (e, params: Record<string, unknown>) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const off = forwardProgress(win);
@@ -123,24 +153,77 @@ async function runSmokeTest(): Promise<never> {
   return new Promise<never>(() => {});
 }
 
+const MEDIA_TYPES: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.mkv': 'video/x-matroska',
+  '.webm': 'video/webm',
+  '.avi': 'video/x-msvideo',
+  '.png': 'image/png',
+  '.wav': 'audio/wav',
+};
+
 /**
  * ローカルの動画をレンダラで再生できるようにする。
  *
  * 開発中はページが http://localhost なので file:// を直接読めない。
  * 配布時も file:// をそのまま許すのは避けたいので、専用のスキームを1つ用意して
  * そこ経由でだけ読む。
+ *
+ * 🔴 Range リクエストに応えること。
+ *    ファイル全体を1本のレスポンスで返すと、Chromium は**任意の位置へシークできない**。
+ *    レビュー用の1〜5秒クリップなら問題にならないが、
+ *    テロップの確認では元素材（数百MB〜）の任意の時刻へ飛ぶ必要がある。
  */
 function registerMediaProtocol(): void {
   protocol.handle('media', async (request) => {
     const url = new URL(request.url);
     // media://local/<エンコード済み絶対パス>
     const filePath = decodeURIComponent(url.pathname).replace(/^\//, '');
+
+    let size: number;
     try {
-      return await net.fetch(pathToFileURL(filePath).toString());
+      size = statSync(filePath).size;
     } catch (e) {
       console.error('[media] 読み込めませんでした:', filePath, e);
       return new Response('not found', { status: 404 });
     }
+
+    const type = MEDIA_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+    const range = request.headers.get('Range');
+    const match = range ? /bytes=(\d*)-(\d*)/.exec(range) : null;
+
+    if (match) {
+      const start = match[1] ? Number(match[1]) : 0;
+      const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+      if (start >= size || end < start) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${size}` },
+        });
+      }
+      const stream = Readable.toWeb(createReadStream(filePath, { start, end })) as ReadableStream;
+      return new Response(stream, {
+        status: 206,
+        headers: {
+          'Content-Type': type,
+          'Content-Length': String(end - start + 1),
+          'Content-Range': `bytes ${start}-${end}/${size}`,
+          'Accept-Ranges': 'bytes',
+        },
+      });
+    }
+
+    const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream;
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'Content-Type': type,
+        'Content-Length': String(size),
+        'Accept-Ranges': 'bytes',
+      },
+    });
   });
 }
 

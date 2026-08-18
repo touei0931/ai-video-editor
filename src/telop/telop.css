@@ -1,0 +1,222 @@
+/* テロップ確認画面。一覧で流し読みできることが最優先。 */
+
+.telop {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 16px 20px 12px;
+  gap: 12px;
+}
+
+.telop header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.telop header .grow {
+  flex: 1;
+}
+
+.telop .counter strong {
+  font-size: 20px;
+  color: #fff;
+}
+
+.telop .stats {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0b0b0f;
+  white-space: nowrap;
+}
+.chip.normal {
+  background: #cfd6e0;
+}
+.chip.note {
+  background: #9fd8ff;
+}
+.chip.emphasis {
+  background: #ff8a80;
+}
+
+.check-jump {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-color: #7a3b3b;
+  color: #ff9d9d;
+}
+
+.telop .body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(360px, 460px);
+  gap: 16px;
+  min-height: 0;
+}
+
+/* ── 一覧 ─────────────────────────────────────────────── */
+
+.telop .list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #14141a;
+}
+
+.telop .list li {
+  border-bottom: 1px solid #1e1e26;
+  /* 数百件出るので、画面外の描画を省かせる */
+  content-visibility: auto;
+  contain-intrinsic-size: 40px;
+}
+
+.telop .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  text-align: left;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.telop .row:hover {
+  background: #1a1a22;
+}
+
+.telop .row.current {
+  background: #1f2733;
+  border-left-color: var(--accent);
+}
+
+.telop .row.check .text {
+  color: #ffc9c9;
+}
+
+.telop .row .t {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  min-width: 48px;
+}
+
+.telop .row .text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flag {
+  font-size: 11px;
+  color: #ff9d9d;
+  border: 1px solid #7a3b3b;
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+/* ── プレビュー ────────────────────────────────────────── */
+
+.telop .stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.telop .canvas-wrap {
+  position: relative;
+  width: 100%;
+  max-height: 62vh;
+  align-self: center;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.telop .canvas-wrap .bg,
+.telop .canvas-wrap .overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.telop .editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.telop .editor input,
+.telop .text-display {
+  width: 100%;
+  font-size: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #14141a;
+  color: #fff;
+  text-align: left;
+  cursor: text;
+}
+
+.telop .editor input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.telop .editor .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.telop .editor .meta .reason {
+  color: #e0c08f;
+}
+
+.telop .editor .meta .scale {
+  color: #9fd8ff;
+}
+
+.telop footer {
+  color: var(--muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.telop footer .sep {
+  width: 16px;
+}
+
+.telop.empty {
+  max-width: 560px;
+  margin: 0 auto;
+  height: auto;
+  padding-top: 80px;
+}
