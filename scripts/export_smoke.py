@@ -27,9 +27,9 @@ from _console import enable_utf8  # noqa: E402
 enable_utf8()
 
 from sidecar.ffmpeg.platform_args import (  # noqa: E402
+    available_proxy_args,
     available_video_args,
     platform_name,
-    proxy_args,
 )
 
 SAMPLES = ROOT / "samples"
@@ -101,8 +101,7 @@ def export(ffmpeg: str, src: Path, dst: Path) -> dict:
 
 def export_proxy(ffmpeg: str, src: Path, dst: Path) -> dict:
     """レビュー用プロキシ。Mac では ProRes Proxy になる（§8.5）。"""
-    pargs = proxy_args()
-    encoder = pargs[pargs.index("-c:v") + 1]
+    pargs, encoder = available_proxy_args(ffmpeg)
 
     cmd = [
         ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
