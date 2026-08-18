@@ -1,0 +1,23 @@
+# NVIDIA GPU で文字起こしを走らせるための追加依存（Windows のみ・任意）。
+#
+#   pip install -r sidecar/requirements-cuda.txt
+#
+# 🔴 requirements.txt に入れないのは、配布物の容量のため。
+#    これらだけで約 800MB あり、Mac では一切使わない。
+#    入っていなければ CPU で動く（遅いだけで壊れない）。
+#
+# なぜ必要か:
+#    CTranslate2 は CUDA を使うのに cuBLAS と cuDNN を要求する。
+#    NVIDIA GPU があっても、これらが入っていなければ
+#    `cublas64_12.dll is not found` で静かに CPU に落ちる。
+#    しかも失敗するのはモデル読み込み時ではなく**最初の推論時**。
+#    large-v3-turbo を CPU で回すと 20 分素材に 15〜20 分かかるので、
+#    「気づかないまま遅い」が一番まずい。
+#
+# DLL の探索パスへの追加は sidecar/asr/__init__.py の
+# _enable_cuda_libraries() が行う。pip で入れただけでは見つからない。
+#
+# バージョン: CTranslate2 4.5 以降は cuDNN 9 が必要（4.4 までは cuDNN 8）。
+
+nvidia-cublas-cu12; platform_system == "Windows"
+nvidia-cudnn-cu12>=9,<10; platform_system == "Windows"

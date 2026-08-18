@@ -32,6 +32,8 @@ export interface TelopUnit {
   position: TelopPosition;
   needsCheck: boolean;
   confidence: number;
+  /** 確度の低い語の数。「なぜ要確認なのか」を画面に出すために持つ */
+  lowWords: number;
   words: TelopWord[];
 }
 
@@ -49,6 +51,7 @@ export interface TelopCard {
   reason: string;
   needsCheck: boolean;
   confidence: number;
+  lowWords: number;
   /** 文節途中の改行を避けるために縮めた倍率（1.0 なら等倍） */
   fontScale: number;
 }
@@ -159,6 +162,7 @@ export function splitIntoCards(
       reason: unit.reason,
       needsCheck: unit.needsCheck,
       confidence: unit.confidence,
+      lowWords: unit.lowWords,
       fontScale: fit.fontScale,
     });
   });

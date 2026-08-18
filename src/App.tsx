@@ -66,6 +66,7 @@ interface TelopResult {
     position: 'top' | 'middle' | 'bottom';
     needs_check: boolean;
     confidence: number;
+    low_words: number;
     words: { text: string; src_start: number; src_end: number }[];
   }[];
 }
@@ -108,6 +109,7 @@ function toUnit(t: TelopResult['telops'][number]): TelopUnit {
     position: t.position,
     needsCheck: t.needs_check,
     confidence: t.confidence,
+    lowWords: t.low_words ?? 0,
     words: t.words.map((w) => ({ text: w.text, srcStart: w.src_start, srcEnd: w.src_end })),
   };
 }
@@ -159,7 +161,9 @@ export function App() {
     setStartedAt(Date.now());
 
     try {
-      const result = (await window.app.analyze({ video_path: path, model: 'base' })) as AnalyzeResult;
+      // モデルは sidecar 側の既定（large-v3-turbo）に任せる。
+      // 精度は文字起こし・カット・テロップのすべてに効くので、ここをケチらない。
+      const result = (await window.app.analyze({ video_path: path })) as AnalyzeResult;
       setAnalysis(result);
       setPhase('review');
     } catch (e) {

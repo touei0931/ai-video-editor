@@ -31,6 +31,7 @@ const UNITS: TelopUnit[] = [
     position: 'bottom',
     needsCheck: false,
     confidence: 0.9,
+    lowWords: 0,
     words: 'このバイクのカスタムを紹介していきます'.split('').map((c, i) => ({
       text: c,
       srcStart: 1.0 + i * 0.1,
@@ -47,6 +48,7 @@ const UNITS: TelopUnit[] = [
     position: 'middle',
     needsCheck: true,
     confidence: 0.4,
+    lowWords: 5,
     words: 'これがめちゃくちゃかたくて全然まわらないんですよ'.split('').map((c, i) => ({
       text: c,
       srcStart: 4.0 + i * 0.14,
@@ -63,6 +65,7 @@ const UNITS: TelopUnit[] = [
     position: 'top',
     needsCheck: false,
     confidence: 0.95,
+    lowWords: 0,
     words: '※ 撮影は許可を得ています'.split('').map((c, i) => ({
       text: c,
       srcStart: 8.5 + i * 0.12,

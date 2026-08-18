@@ -13,10 +13,58 @@
 
 from __future__ import annotations
 
+import os
 import sys
+from pathlib import Path
 from typing import Protocol
 
 _IS_MAC = sys.platform == "darwin"
+_IS_WINDOWS = sys.platform == "win32"
+
+
+def _enable_cuda_libraries() -> list[str]:
+    """CUDA の DLL を見つけられるようにする（Windows）。
+
+    🔴 CTranslate2 は CUDA を使うのに cuBLAS と cuDNN の DLL を要求するが、
+       NVIDIA GPU があってもこれらが入っているとは限らないし、
+       pip で入れても**既定の DLL 探索パスには入らない**。
+       その結果 `cublas64_12.dll is not found` で静かに CPU に落ちる。
+       CPU に落ちると large-v3-turbo は実用にならない速度になるので、
+       「気づかず遅い」が一番まずい。
+
+    pip の nvidia-* パッケージが入っていればその bin を探索対象に加える。
+    無ければ何もしない（CPU で動く）。
+
+    CTranslate2 4.5 以降は cuDNN 9 が必要。
+    """
+    if not _IS_WINDOWS:
+        return []
+
+    added: list[str] = []
+    try:
+        import nvidia  # noqa: F401
+    except ImportError:
+        return added
+
+    for base in getattr(sys.modules["nvidia"], "__path__", []):
+        for sub in ("cublas", "cudnn", "cuda_nvrtc"):
+            for leaf in ("bin", "lib"):
+                path = Path(base) / sub / leaf
+                if not path.is_dir():
+                    continue
+                try:
+                    os.add_dll_directory(str(path))
+                    added.append(str(path))
+                except OSError:
+                    pass
+
+    # ctranslate2 は LoadLibrary を素の名前で呼ぶ経路もあるので PATH にも通す
+    if added:
+        os.environ["PATH"] = os.pathsep.join(added) + os.pathsep + os.environ.get("PATH", "")
+    return added
+
+
+CUDA_LIB_DIRS = _enable_cuda_libraries()
 
 
 class Asr(Protocol):
@@ -59,4 +107,6 @@ def make_asr() -> Asr:
 
 def describe_backend() -> str:
     """診断情報用（§10.5）。"""
-    return "faster-whisper+cpu" if _IS_MAC else "faster-whisper+cuda"
+    if _IS_MAC:
+        return "faster-whisper+cpu"
+    return f"faster-whisper+cuda(libs={len(CUDA_LIB_DIRS)})"

@@ -337,7 +337,8 @@ export function TelopScreen({
               {current.reason && <span className="reason">{current.reason}</span>}
               {current.needsCheck && (
                 <span className="flag">
-                  認識が怪しい（確度 {current.confidence.toFixed(2)}）
+                  聞き取りが怪しい（平均確度 {current.confidence.toFixed(2)}
+                  {current.lowWords > 0 && ` / 怪しい語 ${current.lowWords}`}）
                 </span>
               )}
             </div>

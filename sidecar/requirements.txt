@@ -7,7 +7,9 @@
 #   - libfdk-aac（非フリー）→ ネイティブ AAC を使う
 
 # --- Phase 0 T4 で導入済み ---
-faster-whisper          # Windows 側 ASR。CUDA が使えなければ自動で CPU に落ちる
+faster-whisper          # ASR。CUDA が使えなければ自動で CPU に落ちる
+                        # NVIDIA GPU を使う場合は requirements-cuda.txt も入れること
+                        # （約800MBあるので既定には入れない。無くても CPU で動く）
 
 # --- Phase 1 ---
 # pywhispercpp          # Mac 側 ASR（CoreML/Metal）。T5 で対応

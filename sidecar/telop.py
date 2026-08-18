@@ -36,8 +36,21 @@ DEFAULTS = {
     "tail_padding": 0.15,
     # 平均よりこれ以上大きい声なら「強調」とみなす
     "loud_db": 4.0,
-    # 単語の認識確度がこれ未満なら「要確認」として印を付ける
-    "low_confidence": 0.6,
+
+    # ── 「要確認」の判定 ──
+    #
+    # 🔴 単語確度の**最小値**で判定してはいけない。
+    #    助詞ひとつの確度が低いだけで全部に印が付き、印が意味を失う。
+    #    実測: 完全に正しい「これがめちゃくちゃ硬くて全然回らないんですよ」で
+    #    最小 0.14。この基準だと 10 件中 9 件が「要確認」になった。
+    #
+    # 平均と「確度の低い語がどれだけ固まっているか」で見る。
+    # 実測では、この基準でクリーンな素材は 0 件、
+    # ゲーム音声では実際に誤っている 4 件だけが引っかかった。
+    "low_word_prob": 0.5,      # この確度未満の語を「怪しい語」と数える
+    "min_mean_prob": 0.7,      # 平均がこれ未満なら文全体が怪しい
+    "low_word_ratio": 0.25,    # 怪しい語がこの割合以上
+    "low_word_min": 3,         # かつ最低この語数（短い文で誤検出しないため）
 }
 
 SENTENCE_END = "。．.！!？?"
@@ -303,7 +316,13 @@ def build_units(
         style, reason = classify(text.strip(), loud_delta, opts)
 
         probs = [w["probability"] for w in g if w["probability"] > 0]
-        confidence = min(probs) if probs else 1.0
+        mean_prob = sum(probs) / len(probs) if probs else 1.0
+        low_words = sum(1 for p in probs if p < opts["low_word_prob"])
+        low_ratio = low_words / len(probs) if probs else 0.0
+
+        needs_check = mean_prob < opts["min_mean_prob"] or (
+            low_words >= opts["low_word_min"] and low_ratio >= opts["low_word_ratio"]
+        )
 
         telops.append({
             "id": f"t{len(telops):04d}",
@@ -314,8 +333,9 @@ def build_units(
             "reason": reason,
             "position": "bottom",
             # 認識が怪しい箇所は、読まずに飛ばさず必ず目を通してほしい
-            "needs_check": confidence < opts["low_confidence"],
-            "confidence": round(confidence, 3),
+            "needs_check": needs_check,
+            "confidence": round(mean_prob, 3),
+            "low_words": low_words,
             # 1画面ぶんへの再分割は Canvas 側が行う。
             # そのとき各画面の表示時刻を正確に出せるよう、単語の時刻をそのまま渡す。
             "words": unit_words,

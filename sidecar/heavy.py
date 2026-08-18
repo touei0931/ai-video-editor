@@ -16,6 +16,14 @@ from .asr import make_asr
 
 ProgressFn = Callable[[float, str], None]
 
+#: 既定のモデル。
+#:
+#: base では「えー」が「栄え」になるなど誤りが多く、②の要件（校正がほぼ不要）を満たせない。
+#: large-v3-turbo は large-v3 とほぼ同等の精度で 4 倍程度速い。
+#: 🔴 GPU が使えないと実時間の 1〜2 倍かかる。asr/__init__.py の
+#:    _enable_cuda_libraries() が効いているかを必ず確認すること。
+DEFAULT_MODEL = "large-v3-turbo"
+
 _asr = None
 
 
@@ -88,7 +96,7 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
 
     transcript = _get_asr().transcribe(
         wav,
-        model=params.get("model", "base"),
+        model=params.get("model", DEFAULT_MODEL),
         language=params.get("language", "ja"),
         on_progress=asr_progress,
         is_cancelled=None,
