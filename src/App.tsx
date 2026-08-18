@@ -67,7 +67,17 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(0);
 
-  useEffect(() => window.app.onProgress(setProgress), []);
+  /**
+   * preload が読み込まれていないと window.app が無い。
+   * 素のブラウザで開いた場合や、配布時に preload のパスがずれた場合に起きる。
+   * 何も出ない白画面が一番デバッグしづらいので、必ず理由を表示する。
+   */
+  const hasBridge = typeof window !== 'undefined' && typeof window.app !== 'undefined';
+
+  useEffect(() => {
+    if (!hasBridge) return;
+    return window.app.onProgress(setProgress);
+  }, [hasBridge]);
 
   const pickAndAnalyze = useCallback(async () => {
     setError(null);
@@ -114,6 +124,30 @@ export function App() {
     },
     [analysis],
   );
+
+  if (!hasBridge) {
+    return (
+      <main>
+        <h1>AI動画編集</h1>
+        <section>
+          <h2>アプリとして起動してください</h2>
+          <p className="error">
+            Electron の橋渡し（preload）が読み込まれていません。動画の読み込みや書き出しはできません。
+          </p>
+          <p className="muted">
+            ブラウザで直接開いた場合はこの表示になります。
+            <code>アプリを起動.cmd</code> か <code>npm run app</code> で起動してください。
+            <br />
+            アプリとして起動しているのにこの表示が出る場合は、preload の配置がずれています。
+          </p>
+          <p className="muted">
+            レビューUIの操作感だけ見たいときは <code>?mode=review-demo</code> を付けると
+            モックデータで動きます。
+          </p>
+        </section>
+      </main>
+    );
+  }
 
   if (phase === 'review' && analysis) {
     return (

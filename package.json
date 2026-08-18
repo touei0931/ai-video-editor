@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "app": "npm run build && electron .",
     "guard": "node scripts/platform-guard.mjs",
     "smoke": "electron . --smoke-test",
     "t1": "electron . --t1-wysiwyg",
