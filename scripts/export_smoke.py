@@ -20,6 +20,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from _console import enable_utf8  # noqa: E402
+
+enable_utf8()
 
 from sidecar.ffmpeg.platform_args import (  # noqa: E402
     available_video_args,
