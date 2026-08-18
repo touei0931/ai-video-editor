@@ -27,7 +27,15 @@ import {
 } from './telop/split';
 import type { TelopStyleName } from './telop/style';
 
-type Phase = 'idle' | 'analyzing' | 'review' | 'telops-building' | 'telop' | 'exporting' | 'done';
+type Phase =
+  | 'idle'
+  | 'analyzing'
+  | 'no-speech'
+  | 'review'
+  | 'telops-building'
+  | 'telop'
+  | 'exporting'
+  | 'done';
 
 interface AnalyzeResult {
   video_path: string;
@@ -38,6 +46,13 @@ interface AnalyzeResult {
   wav_path: string;
   work_dir: string;
   video: { width: number; height: number; fps: number; duration: number };
+  speech: {
+    kept: number;
+    dropped: number;
+    reasons: Record<string, number>;
+    speech_seconds: number;
+    speech_ratio: number;
+  };
   transcript: { text: string; realtime_factor: number; elapsed_seconds: number; model: string };
   candidates: {
     id: string;
@@ -165,7 +180,9 @@ export function App() {
       // 精度は文字起こし・カット・テロップのすべてに効くので、ここをケチらない。
       const result = (await window.app.analyze({ video_path: path })) as AnalyzeResult;
       setAnalysis(result);
-      setPhase('review');
+      // 使える発話がひとつも無い素材。ここで止めないと、
+      // 素材全体が無音扱いになって「全部カット」という壊れた結果になる。
+      setPhase(result.speech.kept === 0 ? 'no-speech' : 'review');
     } catch (e) {
       setError((e as Error).message);
       setPhase('idle');
@@ -328,6 +345,44 @@ export function App() {
 
       {error && <p className="error">エラー: {error}</p>}
 
+      {phase === 'no-speech' && analysis && (
+        <section>
+          <h2>この動画は編集できません</h2>
+          <p className="error">音声（人の声）が検出できませんでした。</p>
+          <p className="muted">
+            このアプリは「話している内容」を元にカットとテロップを作ります。
+            <br />
+            声が入っていない素材では、判断の材料がないため何もできません。
+          </p>
+          <dl>
+            <dt>動画の長さ</dt>
+            <dd>{formatDuration(analysis.video.duration)}</dd>
+            <dt>検出できた発話</dt>
+            <dd>0 秒</dd>
+            <dt>除外した誤認識</dt>
+            <dd>
+              {analysis.speech.dropped} 件
+              <span className="muted">
+                {' '}
+                （{Object.entries(analysis.speech.reasons).map(([k, v]) => `${k} ${v}`).join(' / ')}）
+              </span>
+            </dd>
+          </dl>
+          <p className="muted">
+            音声認識エンジンは、声の入っていない素材に対しても
+            <strong>それらしい文字列を出力してしまう</strong>ことがあります
+            （今回は「mr」の繰り返し）。
+            <br />
+            そのまま使うと意味のないテロップだらけになるため、ここで止めています。
+          </p>
+          <div className="actions">
+            <button className="primary" onClick={pickAndAnalyze}>
+              別の動画を選ぶ
+            </button>
+          </div>
+        </section>
+      )}
+
       {phase === 'idle' && (
         <section>
           <h2>動画を読み込む</h2>
@@ -398,7 +453,7 @@ export function App() {
         </section>
       )}
 
-      {analysis && phase !== 'review' && phase !== 'telop' && (
+      {analysis && phase !== 'review' && phase !== 'telop' && phase !== 'no-speech' && (
         <section>
           <h2>文字起こし</h2>
           <p className="muted">

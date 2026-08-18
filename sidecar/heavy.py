@@ -103,8 +103,25 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     )
     transcript["duration"] = transcript.get("duration") or duration
 
+    # 🔴 幻聴を落としてから使う。ここを通さないと下流が全部壊れる（clean.py 参照）。
+    from .clean import clean_transcript
+
+    speech = clean_transcript(transcript)
+
     on_progress(0.86, "カット候補を検出しています")
-    analysis = detect_candidates(transcript, params.get("options"))
+
+    if speech["kept"] == 0:
+        # 使える発話がひとつも無い。ここで候補を作ると
+        # 「素材全体が無音」＝全部カット、という壊れた結果になる。
+        analysis = {
+            "duration": transcript["duration"],
+            "word_count": 0,
+            "candidates": [],
+            "options": {},
+            "review_band": {"low": 0.6, "high": 0.9},
+        }
+    else:
+        analysis = detect_candidates(transcript, params.get("options"))
 
     # レビュー用の短尺クリップを先に作っておく。
     # 「切って繋いだ結果」を即座にループ再生できることがレビュー速度を決める（§3.3.3）。
@@ -164,6 +181,8 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
         "work_dir": str(work_dir),
         "video": video_info,
         "video_path": video_path,
+        # 素材に使える音声が入っていたか。UI はこれを見て
+        "speech": speech,
         "duration": analysis["duration"],
         "candidate_count": len(analysis["candidates"]),
         "kinds": kinds,
@@ -186,6 +205,12 @@ def _build_telops(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, 
     if not transcript_path:
         raise ValueError("transcript_path が必要です")
     transcript = json.loads(Path(transcript_path).read_text(encoding="utf-8"))
+
+    # transcript.json は掃除済みのものが書かれているが、
+    # 古い解析結果を読み直した場合に備えてもう一度通す（何度通しても結果は同じ）
+    from .clean import clean_transcript
+
+    clean_transcript(transcript)
 
     cuts = [(float(c["src_start"]), float(c["src_end"])) for c in params.get("cuts", [])]
     result = build_units(transcript, cuts, params.get("wav_path"), params.get("options"))
