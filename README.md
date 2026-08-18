@@ -141,6 +141,11 @@ npm run build
 | `npm run sidecar:dev` | Python サイドカー単体を起動（stdin に JSON-RPC を流す） |
 | **`python scripts/verify_ffmpeg.py`** | **同梱 ffmpeg に GPL 汚染がないか検証（§13.1）** |
 | `python scripts/export_smoke.py` | 1080×1920 の書き出しと ProRes プロキシの確認 |
+| `npm run t1` | テロップ WYSIWYG の検証（結果は `phase0-artifacts/t1/`） |
+| `python scripts/fetch_fonts.py` | テロップ用フォント（SIL OFL）を取得 |
+| `python scripts/validate_workflows.py` | push 前にワークフロー YAML を検証 |
+
+検証スクリプトの依存: `python -m pip install -r scripts/requirements-dev.txt`
 
 Python は 3.12 系。Phase 0 時点では追加パッケージ不要（`sidecar/requirements.txt` は全てコメントアウト）。
 
@@ -165,6 +170,25 @@ Python は 3.12 系。Phase 0 時点では追加パッケージ不要（`sidecar
 > ⚠ 画素比較だけでは**フォントが正しく載ったかは分からない**（両方とも同じ Canvas を通るので、
 > フォールバックフォントでも一致してしまう）。生成 PNG の目視確認が必ず要る。
 
+### Windows と macOS の描画差（2026-08-18・CI 実測）
+
+「Canvas と ffmpeg が一致する」ことと「**Windows と Mac で同じ見た目になる**」ことは別問題。
+開発者が Windows でスタイルを作り、友達の Mac で書き出す構図なので、後者も確認した。
+
+| ケース | 外接矩形 Windows | 外接矩形 macOS | 輪郭の差 |
+|---|---|---|---|
+| normal | 656 × 230 px | 655 × 230 px | 0.378% |
+| note | 943 × 94 px | **943 × 94 px** | 0.485% |
+| emphasis | 565 × 140 px | **565 × 140 px** | 0.171% |
+
+**フォントメトリクスは一致する。** 文字サイズ・配置・改行位置が同じなので、
+Windows で見た目を作れば Mac でも同じレイアウトになる。
+違うのは輪郭のアンチエイリアスだけで、OS のラスタライザの差なので必ず出るもの。
+動画では知覚できず、最終書き出しは友達の Mac で行うので実害はない。
+
+CI の `t1-cross-platform` ジョブが**メトリクスの一致だけを守り、アンチエイリアス差は許す**。
+Mac を持っていない以上、「Mac だけレイアウトが崩れた」に気づく手段はこれしかない。
+
 ### 🔴 CI で検証できないこと（実機でしか分からない領域）
 
 CI は両 OS で動くが、**GitHub の macOS ランナーは VM のため VideoToolbox が実行時に使えない**。
@@ -177,7 +201,8 @@ ffmpeg にビルドされていても、実際にエンコードしようとす�
 | ffmpeg に GPL 汚染がない | ✅ | |
 | **VideoToolbox / ProRes の実動作** | ❌ VM で使えない | **T6 で確認** |
 | **処理速度・サーマルスロットリング** | ❌ 筐体が違う | **T6 で確認** |
-| **フォントのラスタライズ差・GUI の見た目** | ❌ ヘッドレス | **T6 で確認** |
+| フォントの**メトリクス**（サイズ・配置・改行） | ✅ `t1-cross-platform` で検査 | |
+| **フォントのラスタライズ（輪郭）・GUI の見た目** | ❌ ヘッドレス | **T6 で確認** |
 | 文字起こし精度・顔検出・話者判定 | ❌ 合成素材に顔も言葉もない | **T6 で確認** |
 
 `export_smoke.py` は `hardware_encoder` を結果 JSON に記録する。
