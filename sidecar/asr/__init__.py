@@ -41,16 +41,22 @@ def make_asr() -> Asr:
     """実行環境に応じた ASR バックエンドを返す。
 
     🔴 プラットフォーム分岐はここだけ。呼び出し側は戻り値の transcribe() しか見ない。
-    """
-    if _IS_MAC:
-        # Mac は CPU を空けるため CoreML/ANE を使う（ファンレス対策・§8.2）。T5 で実装。
-        return _NotImplementedAsr("pywhispercpp+coreml")
 
+    Mac も当面 faster-whisper（CPU）を使う。
+    faster-whisper は Apple Silicon でも動くので、**まず動く状態を作れる**。
+    pywhispercpp + CoreML/ANE への移行は「動くための前提」ではなく
+    **高速化とファンレス対策**（§8.2）として後から入れる。
+    こうしておくと、CoreML のビルドで詰まってもプロジェクトが止まらない。
+    """
     from .faster_whisper_backend import FasterWhisperAsr
+
+    if _IS_MAC:
+        # Apple Silicon では CUDA を探しに行かせない
+        return FasterWhisperAsr(device="cpu")
 
     return FasterWhisperAsr()
 
 
 def describe_backend() -> str:
     """診断情報用（§10.5）。"""
-    return "pywhispercpp+coreml" if _IS_MAC else "faster-whisper+cuda"
+    return "faster-whisper+cpu" if _IS_MAC else "faster-whisper+cuda"
