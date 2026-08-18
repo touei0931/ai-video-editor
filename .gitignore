@@ -36,13 +36,16 @@ proxies/
 exports/
 *.tmp
 
-# 動画・音声は samples/ 配下（Git LFS 管理）だけコミットする
+# 🔴 動画・音声は一切コミットしない。
+# テスト素材は scripts/make_test_media.py で生成する（samples/README.md）。
 *.mp4
 *.mov
 *.mkv
 *.wav
 *.m4a
-!samples/**
+
+# 🔴 実素材（友達が映っているもの）を置く場所。絶対に commit しない。
+fixtures-local/
 
 # --- Phase 0 の検証結果に付随する生成物 ---
 phase0-artifacts/
