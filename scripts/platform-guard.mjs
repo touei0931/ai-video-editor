@@ -40,6 +40,10 @@ const ALLOWLIST = [...RUNTIME_ALLOWLIST, ...TOOLING_EXEMPT];
 const SKIP_DIRS = new Set([
   'node_modules', '.git', 'dist', 'dist-electron', 'out', 'release',
   'docs', 'samples', '.venv', 'venv', '__pycache__', 'models', 'vendor',
+  // PyInstaller の出力。サードパーティのコードが丸ごと入るので走査対象外
+  'dist-sidecar', 'build-sidecar',
+  // 実素材を置く場所（.gitignore 済み）
+  'fixtures-local', 'phase0-artifacts',
 ]);
 
 const TARGET_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py'];
