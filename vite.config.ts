@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron/simple';
 
 export default defineConfig({
+  // 配布時は file:// で index.html を読むので、絶対パス参照だとドライブ直下を見に行ってしまう。
+  base: './',
+  // 同梱フォント（SIL OFL）を ./fonts/... で参照できるようにする。
+  // テロップ描画はフォントが載ってからでないと見た目が変わるので、配置場所は固定しておく。
+  publicDir: 'assets',
   plugins: [
     react(),
     electron({

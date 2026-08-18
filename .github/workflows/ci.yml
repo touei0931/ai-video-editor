@@ -108,6 +108,44 @@ jobs:
           path: phase0-artifacts/export-smoke.json
           if-no-files-found: warn
 
+  # 🔴 T1: テロップ WYSIWYG の回帰検出（§16 T1）
+  # Canvas で描いたテロップを PNG にして ffmpeg で overlay した結果が、
+  # ブラウザ上の合成結果と一致し続けることを守る。
+  # ここが崩れると「プレビューと書き出しが違う」というアプリの根幹が壊れる。
+  t1-wysiwyg:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: python scripts/fetch_ffmpeg.py
+      - run: python scripts/fetch_fonts.py
+      - run: python scripts/make_test_media.py
+      - run: npm run build
+      - run: npm run t1
+      - name: 結果を確認
+        shell: bash
+        run: |
+          cat phase0-artifacts/t1/t1-result.json
+          grep -q '"ok": *true' phase0-artifacts/t1/t1-result.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          # 両OSの成果物を見比べればフォントのラスタライズ差も分かる（§10.3）
+          name: t1-${{ matrix.os }}
+          path: phase0-artifacts/t1/
+          if-no-files-found: warn
+
   # 🔴 ライセンス上「最初から避けるもの」が混入していないかの検査（§13.1）
   # x264/x265 (GPL) と Ultralytics YOLO (AGPL) は収益化時に致命的になる。
   license-guard:

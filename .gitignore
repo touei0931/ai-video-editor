@@ -28,6 +28,10 @@ models/
 # ffmpeg バイナリ（OS別に vendoring するがコミットはしない）
 vendor/ffmpeg/
 
+# フォント（SIL OFL で再配布可だが、scripts/fetch_fonts.py で取得するので commit しない）
+assets/fonts/*.ttf
+assets/fonts/*.otf
+
 # --- 作業ファイル ---
 tmp/
 temp/

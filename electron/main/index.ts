@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { sidecar } from './sidecar.js';
 import { isDev } from './paths.js';
+import { runT1 } from './t1.js';
 
 // バンドル後は import.meta.url が当てにならないので、基準は必ず app.getAppPath() を使う
 // （パッケージ後は app.asar のルートを指すので、配布時も同じ相対関係で解決できる）
@@ -75,6 +76,21 @@ app
 
     if (process.env.SMOKE_TEST === '1' || process.argv.includes('--smoke-test')) {
       void runSmokeTest();
+      return;
+    }
+
+    if (process.argv.includes('--t1-wysiwyg')) {
+      void runT1(appRoot(), process.env.VITE_DEV_SERVER_URL)
+        .then((code) => {
+          sidecar.stop();
+          app.exit(code);
+        })
+        .catch((e: Error) => {
+          writeArtifact('t1-error.json', { message: e.message, stack: e.stack });
+          console.error('T1 に失敗しました:', e);
+          sidecar.stop();
+          app.exit(1);
+        });
       return;
     }
 

@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "guard": "node scripts/platform-guard.mjs",
     "smoke": "electron . --smoke-test",
+    "t1": "electron . --t1-wysiwyg",
     "sidecar:dev": "python -m sidecar"
   },
   "devDependencies": {

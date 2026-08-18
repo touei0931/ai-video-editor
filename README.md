@@ -150,6 +150,21 @@ Python は 3.12 系。Phase 0 時点では追加パッケージ不要（`sidecar
 テスト素材は `python scripts/make_test_media.py` で ffmpeg から合成生成する（`samples/README.md`）。
 実素材が必要な検証（文字起こし精度・顔検出・話者判定）は `fixtures-local/`（`.gitignore` 済み）か実機で行う。
 
+### T1 の結果（2026-08-18・Windows 実測）
+
+| ケース | スタイル | 最大画素差 | 差分画素 |
+|---|---|---|---|
+| normal | Zen Kaku Gothic New Black / 白＋黒縁 / 上部 | **1** / 255 | 11 / 2,073,600 |
+| note | Zen Old Mincho Bold / 水色＋黒縁 / 下部 | **1** / 255 | 36 / 2,073,600 |
+| emphasis | Dela Gothic One / 赤＋白縁 / 中央 | **1** / 255 | 2 / 2,073,600 |
+
+成功条件（最大画素差 ≤ 2）を満たした。**Canvas → 透過 PNG → ffmpeg overlay という経路は成立する。**
+`src/telop/render.ts` の `drawTelop()` をプレビューと書き出しの両方で通すことで、
+見た目の一致が「気をつける」ではなく構造として保証される。
+
+> ⚠ 画素比較だけでは**フォントが正しく載ったかは分からない**（両方とも同じ Canvas を通るので、
+> フォールバックフォントでも一致してしまう）。生成 PNG の目視確認が必ず要る。
+
 ### 🔴 CI で検証できないこと（実機でしか分からない領域）
 
 CI は両 OS で動くが、**GitHub の macOS ランナーは VM のため VideoToolbox が実行時に使えない**。
@@ -186,7 +201,7 @@ Mac 実機でデバッグできないため、「Mac で壊れうる範囲」を
 | # | タスク | 人日 | 状態 |
 |---|---|---|---|
 | T0 | 環境準備（リポジトリ、Electron + Python サイドカー雛形、`platform-guard` CI、テスト素材の生成スクリプト） | 1 | **✅ 済** |
-| **T1** | 🔴 **テロップ WYSIWYG の成立確認** — Canvas → PNG → ffmpeg overlay がブラウザ表示と一致するか | 2 |
+| **T1** | 🔴 **テロップ WYSIWYG の成立確認** — Canvas → PNG → ffmpeg overlay がブラウザ表示と一致するか | 2 | **✅ 合格**（最大画素差 1/255） |
 | T2 | BudouX 文節改行の検証 | 0.5 |
 | T3 | ffmpeg LGPL ビルドの確保（`libx264` 非搭載を CI で assert） | 2 | **✅ 済**（Windows は BtbN LGPL、macOS は自前ビルドを Release に公開） |
 | T4 | Python サイドカー + PyInstaller（Windows） | 1.5 |
