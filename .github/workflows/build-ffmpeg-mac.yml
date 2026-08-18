@@ -104,19 +104,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG=ffmpeg-lgpl-mac-arm64
+          {
+            echo 'macOS arm64 用の LGPL ffmpeg ビルド（Phase 0 T3）。'
+            echo
+            echo '- `--disable-gpl --disable-nonfree --disable-libx264 --disable-libx265`'
+            echo '- VideoToolbox / AudioToolbox のみ有効。外部ライブラリを一切リンクしていないため'
+            echo '  Homebrew に依存せず、そのまま配布できる。'
+            echo '- `scripts/fetch_ffmpeg.py` がこのアセットを取得する。'
+          } > release-notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" ffmpeg-lgpl-macos-arm64.tar.gz ffmpeg-lgpl-macos-arm64.sha256 --clobber
           else
             gh release create "$TAG" \
               ffmpeg-lgpl-macos-arm64.tar.gz ffmpeg-lgpl-macos-arm64.sha256 \
               --title "ffmpeg LGPL build for macOS arm64" \
-              --notes "$(cat <<'EOF'
-macOS arm64 用の LGPL ビルド（Phase 0 T3）。
-
-- `--disable-gpl --disable-nonfree --disable-libx264 --disable-libx265`
-- VideoToolbox / AudioToolbox のみ有効。**外部ライブラリを一切リンクしていない**ため
-  Homebrew に依存せず、そのまま配布できる。
-- `scripts/fetch_ffmpeg.py` がこのアセットを取得する。
-EOF
-)"
+              --notes-file release-notes.md
           fi
