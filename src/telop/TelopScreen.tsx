@@ -46,6 +46,11 @@ export interface TelopScreenProps {
   onBack?: () => void;
   onExport: (cards: TelopCard[]) => void;
   exporting?: boolean;
+  /**
+   * 書き出しに失敗したときの内容。
+   * ここに出さないと、失敗して画面が戻っただけに見えて原因が分からない。
+   */
+  error?: string | null;
 }
 
 export function TelopScreen({
@@ -56,6 +61,7 @@ export function TelopScreen({
   onBack,
   onExport,
   exporting,
+  error,
 }: TelopScreenProps) {
   const [cards, setCards] = useState(initial);
   const [index, setIndex] = useState(0);
@@ -255,6 +261,16 @@ export function TelopScreen({
           {exporting ? '書き出し中…' : '書き出す'}
         </button>
       </header>
+
+      {error && (
+        <p className="export-error">
+          書き出しに失敗しました: {error}
+          <br />
+          <small>
+            詳細は <code>phase0-artifacts/last-error.json</code> に記録しています。
+          </small>
+        </p>
+      )}
 
       <div className="body">
         <ul className="list" ref={listRef}>

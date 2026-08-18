@@ -11,36 +11,38 @@ import { drawTelop } from './render';
 import { DEFAULT_STYLES } from './style';
 import type { Frame, TelopCard } from './split';
 
-function makeCanvas(frame: Frame): OffscreenCanvas | HTMLCanvasElement {
-  if (typeof OffscreenCanvas !== 'undefined') {
-    return new OffscreenCanvas(frame.width, frame.height);
-  }
+type AnyCanvas = HTMLCanvasElement;
+
+/**
+ * 描画用の Canvas を作る。
+ *
+ * OffscreenCanvas は使わない。通常の canvas 要素なら
+ * `toDataURL` で base64 を直接取れて、T1 で実績のある経路をそのまま使える。
+ */
+function makeCanvas(frame: Frame): AnyCanvas {
   const canvas = document.createElement('canvas');
   canvas.width = frame.width;
   canvas.height = frame.height;
   return canvas;
 }
 
-async function toPngBytes(canvas: OffscreenCanvas | HTMLCanvasElement): Promise<Uint8Array> {
-  const blob =
-    'convertToBlob' in canvas
-      ? await canvas.convertToBlob({ type: 'image/png' })
-      : await new Promise<Blob>((resolve, reject) =>
-          canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG に変換できませんでした'))), 'image/png'),
-        );
-  return new Uint8Array(await blob.arrayBuffer());
+function toPngBase64(canvas: AnyCanvas): string {
+  return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
 }
 
 export interface RasterizedTelop {
   id: string;
   name: string;
-  bytes: Uint8Array;
+  base64: string;
 }
 
 /** 何も描かれていない透過 PNG。テロップとテロップの間を埋めるのに使う。 */
-export async function renderBlank(frame: Frame): Promise<Uint8Array> {
+export function renderBlank(frame: Frame): string {
   const canvas = makeCanvas(frame);
-  return toPngBytes(canvas);
+  // 空のままでも透過 PNG になるが、コンテキストを取っておかないと
+  // 環境によっては書き出しが失敗する
+  canvas.getContext('2d');
+  return toPngBase64(canvas);
 }
 
 /**
@@ -53,7 +55,7 @@ export async function renderTelopPngs(
   onProgress?: (done: number, total: number) => void,
 ): Promise<RasterizedTelop[]> {
   const canvas = makeCanvas(frame);
-  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas を使えません');
 
   const out: RasterizedTelop[] = [];
@@ -73,7 +75,7 @@ export async function renderTelopPngs(
       frame,
     );
 
-    out.push({ id: card.id, name: `${card.id}.png`, bytes: await toPngBytes(canvas) });
+    out.push({ id: card.id, name: `${card.id}.png`, base64: toPngBase64(canvas) });
 
     // 描画をブロックし続けると進捗が出ないので、たまに手放す
     if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));

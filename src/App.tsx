@@ -210,6 +210,7 @@ export function App() {
       const target = await window.app.pickOutput(`${base}_edited.mp4`);
       if (!target) return;
 
+      setError(null);
       setPhase('exporting');
       setProgress({ value: 0, message: 'テロップを描いています' });
 
@@ -222,13 +223,12 @@ export function App() {
           const rendered = await renderTelopPngs(finalCards, frame, (done, total) =>
             setProgress({ value: done / total, message: `テロップを描いています ${done}/${total}` }),
           );
-          const blank = await renderBlank(frame);
 
           const saved = await window.app.saveTelopFrames({
             dir,
             frames: [
-              ...rendered.map((r) => ({ name: r.name, bytes: r.bytes })),
-              { name: '_blank.png', bytes: blank },
+              ...rendered.map((r) => ({ name: r.name, base64: r.base64 })),
+              { name: '_blank.png', base64: renderBlank(frame) },
             ],
           });
 
@@ -306,6 +306,7 @@ export function App() {
         onBack={() => setPhase('review')}
         onExport={runExport}
         exporting={false}
+        error={error}
       />
     );
   }

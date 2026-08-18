@@ -15,7 +15,8 @@
     "t1": "electron . --t1-wysiwyg",
     "t2": "electron . --t2-budoux",
     "t4": "electron . --t4-sidecar",
-    "sidecar:dev": "python -m sidecar"
+    "sidecar:dev": "python -m sidecar",
+    "t5": "electron . --t5-telop"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

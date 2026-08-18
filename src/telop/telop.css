@@ -54,6 +54,21 @@
   color: #ff9d9d;
 }
 
+.export-error {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid #7a3b3b;
+  border-radius: 8px;
+  background: #241a1a;
+  color: #ffc9c9;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.export-error small {
+  color: #b09090;
+}
+
 .telop .body {
   flex: 1;
   display: grid;

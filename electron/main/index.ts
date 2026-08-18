@@ -7,6 +7,7 @@ import { isDev } from './paths.js';
 import { runT1 } from './t1.js';
 import { runT2 } from './t2.js';
 import { runT4 } from './t4.js';
+import { runTelopE2E } from './telop-e2e.js';
 
 // バンドル後は import.meta.url が当てにならないので、基準は必ず app.getAppPath() を使う
 // （パッケージ後は app.asar のルートを指すので、配布時も同じ相対関係で解決できる）
@@ -97,6 +98,22 @@ ipcMain.handle('app:buildTelops', async (e, params: Record<string, unknown>) => 
 });
 
 /**
+ * 失敗の記録を必ず残す。
+ * 画面に一瞬出て消えるだけだと、何が起きたか誰にも分からない。
+ * 友達の実機で起きた不具合を回収する唯一の手段でもある（§10.5）。
+ */
+function recordFailure(stage: string, error: unknown, params?: Record<string, unknown>): void {
+  const e = error as Error;
+  writeArtifact('last-error.json', {
+    stage,
+    at: new Date().toISOString(),
+    message: e?.message ?? String(error),
+    stack: e?.stack,
+    params,
+  });
+}
+
+/**
  * レンダラが Canvas で描いたテロップ PNG をディスクに落とす。
  *
  * 描画をレンダラでやるのは、プレビューと書き出しで**同じコードを通す**ため（§6）。
@@ -104,15 +121,23 @@ ipcMain.handle('app:buildTelops', async (e, params: Record<string, unknown>) => 
  */
 ipcMain.handle(
   'app:saveTelopFrames',
-  (_e, payload: { dir: string; frames: { name: string; bytes: Uint8Array }[] }) => {
-    mkdirSync(payload.dir, { recursive: true });
-    const paths: Record<string, string> = {};
-    for (const frame of payload.frames) {
-      const target = join(payload.dir, frame.name);
-      writeFileSync(target, Buffer.from(frame.bytes));
-      paths[frame.name] = target;
+  (_e, payload: { dir: string; frames: { name: string; base64: string }[] }) => {
+    try {
+      mkdirSync(payload.dir, { recursive: true });
+      const paths: Record<string, string> = {};
+      for (const frame of payload.frames) {
+        const target = join(payload.dir, frame.name);
+        // 🔴 PNG は base64 文字列で受け取る。
+        //    Uint8Array を contextBridge 越しに渡すのは Electron のバージョンで
+        //    挙動が変わる。文字列なら確実に渡る（T1 で実績のある経路）。
+        writeFileSync(target, Buffer.from(frame.base64, 'base64'));
+        paths[frame.name] = target;
+      }
+      return paths;
+    } catch (error) {
+      recordFailure('saveTelopFrames', error, { dir: payload?.dir, count: payload?.frames?.length });
+      throw error;
     }
-    return paths;
   },
 );
 
@@ -121,6 +146,13 @@ ipcMain.handle('app:export', async (e, params: Record<string, unknown>) => {
   const off = forwardProgress(win);
   try {
     return await sidecar.call('export', params);
+  } catch (error) {
+    recordFailure('export', error, {
+      ...params,
+      // テロップは件数が多いので、記録には最初の3件だけ残す
+      telops: (params.telops as unknown[])?.slice(0, 3),
+    });
+    throw error;
   } finally {
     off();
   }
@@ -269,6 +301,21 @@ app
         .catch((e: Error) => {
           writeArtifact('t2-error.json', { message: e.message, stack: e.stack });
           console.error('T2 に失敗しました:', e);
+          sidecar.stop();
+          app.exit(1);
+        });
+      return;
+    }
+
+    if (process.argv.includes('--t5-telop')) {
+      void runTelopE2E(appRoot(), process.env.VITE_DEV_SERVER_URL)
+        .then((code) => {
+          sidecar.stop();
+          app.exit(code);
+        })
+        .catch((e: Error) => {
+          writeArtifact('t5-error.json', { message: e.message, stack: e.stack });
+          console.error('T5 に失敗しました:', e);
           sidecar.stop();
           app.exit(1);
         });

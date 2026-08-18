@@ -18,13 +18,18 @@ contextBridge.exposeInMainWorld('t2', {
   submit: (payload: unknown) => ipcRenderer.invoke('t2:submit', payload),
 });
 
+contextBridge.exposeInMainWorld('telopE2E', {
+  workDir: () => ipcRenderer.invoke('telopE2E:workDir'),
+  submit: (payload: unknown) => ipcRenderer.invoke('telopE2E:submit', payload),
+});
+
 /** アプリ本体の操作 */
 contextBridge.exposeInMainWorld('app', {
   pickVideo: () => ipcRenderer.invoke('app:pickVideo'),
   pickOutput: (defaultPath: string) => ipcRenderer.invoke('app:pickOutput', defaultPath),
   analyze: (params: Record<string, unknown>) => ipcRenderer.invoke('app:analyze', params),
   buildTelops: (params: Record<string, unknown>) => ipcRenderer.invoke('app:buildTelops', params),
-  saveTelopFrames: (payload: { dir: string; frames: { name: string; bytes: Uint8Array }[] }) =>
+  saveTelopFrames: (payload: { dir: string; frames: { name: string; base64: string }[] }) =>
     ipcRenderer.invoke('app:saveTelopFrames', payload),
   exportVideo: (params: Record<string, unknown>) => ipcRenderer.invoke('app:export', params),
   revealFile: (filePath: string) => ipcRenderer.invoke('app:revealFile', filePath),
