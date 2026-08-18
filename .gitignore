@@ -1,0 +1,60 @@
+# --- Node / Electron ---
+node_modules/
+dist/
+out/
+release/
+.vite/
+*.log
+npm-debug.log*
+
+# --- Python サイドカー ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+build/
+
+# --- 大きすぎてコミットしないもの ---
+# モデルの重み（初回セットアップでDLする）
+models/
+*.bin
+*.gguf
+*.mlmodelc/
+*.onnx
+# ffmpeg バイナリ（OS別に vendoring するがコミットはしない）
+vendor/ffmpeg/
+
+# --- 作業ファイル ---
+tmp/
+temp/
+.cache/
+proxies/
+exports/
+*.tmp
+
+# 動画・音声は samples/ 配下（Git LFS 管理）だけコミットする
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.m4a
+!samples/**
+
+# --- Phase 0 の検証結果に付随する生成物 ---
+phase0-artifacts/
+
+# --- OS / エディタ ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# --- 秘密情報 ---
+.env
+.env.local
+*.pem
