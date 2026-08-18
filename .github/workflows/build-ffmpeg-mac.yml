@@ -1,0 +1,122 @@
+name: build-ffmpeg-mac
+
+# macOS arm64 用の LGPL ffmpeg を自前ビルドして Release に置く（Phase 0 T3）。
+#
+# なぜ自前ビルドか:
+#   信頼できて最新の「LGPL かつ x264 非搭載」な macOS arm64 の既製ビルドが見当たらないため。
+#   （Homebrew の ffmpeg は GPL、ColorsWind/FFmpeg-macOS は n5.0.1 で更新停止、
+#     evermeet.cx は GPL ビルド）
+#
+# 外部ライブラリを一切リンクしないのが要点:
+#   Apple Silicon では VideoToolbox が必ず使えるので libopenh264 が要らない。
+#   結果として Homebrew の dylib に依存しないバイナリになり、そのまま友達の Mac で動く。
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg_branch:
+        description: 'FFmpeg のブランチ（例: release/8.1）'
+        required: false
+        default: 'release/8.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: ビルド依存
+        run: brew install nasm pkg-config
+
+      - name: FFmpeg のソースを取得
+        run: |
+          git clone --depth 1 -b "${{ inputs.ffmpeg_branch || 'release/8.1' }}" \
+            https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
+          cd ffmpeg-src && git log -1 --oneline
+
+      # 🔴 --disable-gpl と --disable-nonfree が要点。x264/x265 は明示的に落とす。
+      # 外部ライブラリを足さないので LGPL v2.1 のままになる（--enable-version3 も不要）。
+      - name: configure
+        working-directory: ffmpeg-src
+        run: |
+          ./configure \
+            --prefix="$PWD/out" \
+            --disable-gpl \
+            --disable-nonfree \
+            --disable-libx264 \
+            --disable-libx265 \
+            --enable-videotoolbox \
+            --enable-audiotoolbox \
+            --enable-static \
+            --disable-shared \
+            --disable-doc \
+            --disable-debug \
+            --disable-ffplay
+          echo '--- configuration ---'
+          grep -m1 'configuration' config.h || true
+
+      - name: make
+        working-directory: ffmpeg-src
+        run: make -j$(sysctl -n hw.ncpu)
+
+      - name: vendor/ffmpeg に配置
+        run: |
+          mkdir -p vendor/ffmpeg
+          cp ffmpeg-src/ffmpeg ffmpeg-src/ffprobe vendor/ffmpeg/
+          chmod +x vendor/ffmpeg/*
+          file vendor/ffmpeg/ffmpeg
+          echo '--- 動的ライブラリ依存（システム以外が出たら NG）---'
+          otool -L vendor/ffmpeg/ffmpeg
+
+      # 🔴 T3 の受け入れ条件をこの場で検証する
+      - name: 構成を検証（GPL 汚染がないこと）
+        run: python scripts/verify_ffmpeg.py
+
+      - name: テスト素材を生成
+        run: python scripts/make_test_media.py
+
+      - name: 1080x1920 の書き出しと ProRes プロキシ
+        run: python scripts/export_smoke.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ffmpeg-mac-verification
+          path: phase0-artifacts/
+          if-no-files-found: warn
+
+      - name: 配布用に固める
+        run: |
+          cd vendor/ffmpeg
+          tar czf ../../ffmpeg-lgpl-macos-arm64.tar.gz ffmpeg ffprobe
+          cd ../..
+          shasum -a 256 ffmpeg-lgpl-macos-arm64.tar.gz | tee ffmpeg-lgpl-macos-arm64.sha256
+
+      - name: Release に公開
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=ffmpeg-lgpl-mac-arm64
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" ffmpeg-lgpl-macos-arm64.tar.gz ffmpeg-lgpl-macos-arm64.sha256 --clobber
+          else
+            gh release create "$TAG" \
+              ffmpeg-lgpl-macos-arm64.tar.gz ffmpeg-lgpl-macos-arm64.sha256 \
+              --title "ffmpeg LGPL build for macOS arm64" \
+              --notes "$(cat <<'EOF'
+macOS arm64 用の LGPL ビルド（Phase 0 T3）。
+
+- `--disable-gpl --disable-nonfree --disable-libx264 --disable-libx265`
+- VideoToolbox / AudioToolbox のみ有効。**外部ライブラリを一切リンクしていない**ため
+  Homebrew に依存せず、そのまま配布できる。
+- `scripts/fetch_ffmpeg.py` がこのアセットを取得する。
+EOF
+)"
+          fi

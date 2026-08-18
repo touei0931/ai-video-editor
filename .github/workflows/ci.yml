@@ -85,6 +85,29 @@ jobs:
           path: phase0-artifacts/
           if-no-files-found: warn
 
+  # ffmpeg の調達 → GPL 汚染の検証 → 1080x1920 の書き出し（Phase 0 T3）
+  # CI の Windows ランナーには GPU が無いので、§13.6 の libopenh264 フォールバック経路も
+  # ここで自動的に検証されることになる。
+  ffmpeg-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: LGPL ビルドを取得して検証
+        run: python scripts/fetch_ffmpeg.py
+      - name: テスト素材を生成
+        run: python scripts/make_test_media.py
+      - name: 1080x1920 の書き出し
+        run: python scripts/export_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ffmpeg-windows-verification
+          path: phase0-artifacts/export-smoke.json
+          if-no-files-found: warn
+
   # 🔴 ライセンス上「最初から避けるもの」が混入していないかの検査（§13.1）
   # x264/x265 (GPL) と Ultralytics YOLO (AGPL) は収益化時に致命的になる。
   license-guard:

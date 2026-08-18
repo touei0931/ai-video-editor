@@ -12,15 +12,30 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 
-/** ここだけがプラットフォーム差を知ってよい（§10.4） */
-const ALLOWLIST = [
+/**
+ * ここだけがプラットフォーム差を知ってよい（§10.4）。
+ * アプリのランタイムコードが対象。ここが4ファイルに収まっている限り、
+ * 「Macで壊れうる範囲」は予測可能に保たれる。
+ */
+const RUNTIME_ALLOWLIST = [
   'electron/main/paths.ts',
   'sidecar/asr/__init__.py',
   'sidecar/face/__init__.py',
   'sidecar/ffmpeg/platform_args.py',
-  // 検査スクリプト自身とCI定義は対象外
-  'scripts/platform-guard.mjs',
 ];
+
+/**
+ * ビルド・開発用ツールは対象外。
+ * 配布物に含まれず、実行するのは開発者かCIなので、§10.4 の趣旨（実機で壊れる範囲の限定）に関わらない。
+ * ただし「気づいたら増えていた」を防ぐため、暗黙に除外せず明示的に列挙する。
+ */
+const TOOLING_EXEMPT = [
+  'scripts/platform-guard.mjs',
+  'scripts/fetch_ffmpeg.py',
+  'scripts/verify_ffmpeg.py',
+];
+
+const ALLOWLIST = [...RUNTIME_ALLOWLIST, ...TOOLING_EXEMPT];
 
 const SKIP_DIRS = new Set([
   'node_modules', '.git', 'dist', 'dist-electron', 'out', 'release',
@@ -76,7 +91,7 @@ for (const v of violations) {
 }
 console.error(`
 プラットフォーム差は以下のファイルにのみ書いてください:
-${ALLOWLIST.filter((f) => !f.startsWith('scripts/')).map((f) => '  - ' + f).join('\n')}
+${RUNTIME_ALLOWLIST.map((f) => '  - ' + f).join('\n')}
 
 理由: 開発者は Mac を所持しておらず実機デバッグができないため、
       「Macで壊れうる範囲」を予測可能に保つことがプロジェクトの前提条件です。

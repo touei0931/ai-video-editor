@@ -126,6 +126,8 @@ FCPXML 関連のみ不要。
 
 ```bash
 npm install
+python scripts/fetch_ffmpeg.py    # LGPL ビルドの ffmpeg を vendor/ に用意
+python scripts/make_test_media.py # テスト素材を合成生成
 npm run build
 ```
 
@@ -137,6 +139,8 @@ npm run build
 | **`npm run guard`** | **プラットフォーム分岐が 4 ファイルに閉じ込められているか検査（§10.4）** |
 | `npm run smoke` | Electron → Python サイドカーの疎通確認（結果は `phase0-artifacts/smoke-result.json`） |
 | `npm run sidecar:dev` | Python サイドカー単体を起動（stdin に JSON-RPC を流す） |
+| **`python scripts/verify_ffmpeg.py`** | **同梱 ffmpeg に GPL 汚染がないか検証（§13.1）** |
+| `python scripts/export_smoke.py` | 1080×1920 の書き出しと ProRes プロキシの確認 |
 
 Python は 3.12 系。Phase 0 時点では追加パッケージ不要（`sidecar/requirements.txt` は全てコメントアウト）。
 
@@ -166,7 +170,7 @@ Mac 実機でデバッグできないため、「Mac で壊れうる範囲」を
 | T0 | 環境準備（リポジトリ、Electron + Python サイドカー雛形、`platform-guard` CI、テスト素材の生成スクリプト） | 1 | **✅ 済** |
 | **T1** | 🔴 **テロップ WYSIWYG の成立確認** — Canvas → PNG → ffmpeg overlay がブラウザ表示と一致するか | 2 |
 | T2 | BudouX 文節改行の検証 | 0.5 |
-| T3 | ffmpeg LGPL ビルドの確保（`libx264` 非搭載を CI で assert） | 2 |
+| T3 | ffmpeg LGPL ビルドの確保（`libx264` 非搭載を CI で assert） | 2 | **Windows ✅ / macOS ビルド中** |
 | T4 | Python サイドカー + PyInstaller（Windows） | 1.5 |
 | **T5** | 🔴 **GitHub Actions で Mac 版をビルド** — Windows からは作れないため、この経路の確立が全ての前提 | 2 |
 | **T6** | 🔴 **友達の M2 Air で実測（1 回目の往復）** — 6 項目をまとめて 1 回で投げる | 2 + 待ち |
