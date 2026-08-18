@@ -144,8 +144,21 @@ def main() -> int:
         print(f"  ✗ {proxy_result['encoder']}")
         print(proxy_result["error"])
 
+    # 🔴 ハードウェアエンコーダが実際に使えたかを明示的に記録する。
+    #
+    # GitHub の macOS ランナーは VM のため、ffmpeg に videotoolbox が
+    # ビルドされていても**実行時には使えず** mpeg4 まで落ちる。
+    # つまり CI は VideoToolbox 経路を検証できない。
+    # 友達の実機（T6）でここが false なら、それは本物の問題。
+    hw_encoders = ("videotoolbox", "nvenc", "qsv", "amf")
+    used_hw = any(k in main_result.get("encoder", "") for k in hw_encoders)
+    print(f"\nハードウェアエンコーダ: {'使用' if used_hw else '🔴 使われていない'}")
+    if not used_hw:
+        print("  → CI の仮想環境では想定内。**実機でこれが出たら異常**なので調査すること。")
+
     summary = {
         "platform": platform_name(),
+        "hardware_encoder": used_hw,
         "export_1080x1920": main_result,
         "proxy": proxy_result,
     }

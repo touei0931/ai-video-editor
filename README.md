@@ -150,6 +150,24 @@ Python は 3.12 系。Phase 0 時点では追加パッケージ不要（`sidecar
 テスト素材は `python scripts/make_test_media.py` で ffmpeg から合成生成する（`samples/README.md`）。
 実素材が必要な検証（文字起こし精度・顔検出・話者判定）は `fixtures-local/`（`.gitignore` 済み）か実機で行う。
 
+### 🔴 CI で検証できないこと（実機でしか分からない領域）
+
+CI は両 OS で動くが、**GitHub の macOS ランナーは VM のため VideoToolbox が実行時に使えない**。
+ffmpeg にビルドされていても、実際にエンコードしようとすると失敗し `mpeg4` までフォールバックする
+（2026-08-18 に実測して判明）。したがって以下は **T6（友達の M2 Air での実測）でしか確認できない**。
+
+| 項目 | CI | 実機 |
+|---|---|---|
+| ビルドが通る / 起動する / 疎通する | ✅ | |
+| ffmpeg に GPL 汚染がない | ✅ | |
+| **VideoToolbox / ProRes の実動作** | ❌ VM で使えない | **T6 で確認** |
+| **処理速度・サーマルスロットリング** | ❌ 筐体が違う | **T6 で確認** |
+| **フォントのラスタライズ差・GUI の見た目** | ❌ ヘッドレス | **T6 で確認** |
+| 文字起こし精度・顔検出・話者判定 | ❌ 合成素材に顔も言葉もない | **T6 で確認** |
+
+`export_smoke.py` は `hardware_encoder` を結果 JSON に記録する。
+**実機でこれが `false` なら本物の異常**なので調査すること（CI で false なのは想定内）。
+
 ### プラットフォーム分岐を書いてよいのはこの 4 ファイルだけ
 
 Mac 実機でデバッグできないため、「Mac で壊れうる範囲」を予測可能に保つのが前提条件（§10.4）。
@@ -170,7 +188,7 @@ Mac 実機でデバッグできないため、「Mac で壊れうる範囲」を
 | T0 | 環境準備（リポジトリ、Electron + Python サイドカー雛形、`platform-guard` CI、テスト素材の生成スクリプト） | 1 | **✅ 済** |
 | **T1** | 🔴 **テロップ WYSIWYG の成立確認** — Canvas → PNG → ffmpeg overlay がブラウザ表示と一致するか | 2 |
 | T2 | BudouX 文節改行の検証 | 0.5 |
-| T3 | ffmpeg LGPL ビルドの確保（`libx264` 非搭載を CI で assert） | 2 | **Windows ✅ / macOS ビルド中** |
+| T3 | ffmpeg LGPL ビルドの確保（`libx264` 非搭載を CI で assert） | 2 | **✅ 済**（Windows は BtbN LGPL、macOS は自前ビルドを Release に公開） |
 | T4 | Python サイドカー + PyInstaller（Windows） | 1.5 |
 | **T5** | 🔴 **GitHub Actions で Mac 版をビルド** — Windows からは作れないため、この経路の確立が全ての前提 | 2 |
 | **T6** | 🔴 **友達の M2 Air で実測（1 回目の往復）** — 6 項目をまとめて 1 回で投げる | 2 + 待ち |
