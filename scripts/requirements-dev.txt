@@ -1,0 +1,5 @@
+# 開発・CI の検証スクリプト用。アプリの配布物には含まれない。
+# （アプリ本体の依存は sidecar/requirements.txt）
+
+pyyaml   # scripts/validate_workflows.py — push 前のワークフロー構文チェック
+pillow   # scripts/compare_platform_render.py — 両OSのテロップ描画比較

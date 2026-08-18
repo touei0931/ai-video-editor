@@ -150,6 +150,35 @@ jobs:
           path: phase0-artifacts/t1/
           if-no-files-found: warn
 
+  # 🔴 Windows と macOS のテロップ描画を突き合わせる（§10.3）
+  # 開発者は Mac を持っていないので、「Mac だけ見た目が違う」に気づく手段がこれしかない。
+  # フォントメトリクス（サイズ・配置・改行位置）の一致を守り、
+  # 輪郭のアンチエイリアス差は許す。
+  t1-cross-platform:
+    needs: t1-wysiwyg
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r scripts/requirements-dev.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: t1-windows-latest
+          path: artifacts/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: t1-macos-14
+          path: artifacts/macos
+      - run: python scripts/compare_platform_render.py artifacts/windows artifacts/macos
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-render-compare
+          path: phase0-artifacts/platform-render-compare.json
+          if-no-files-found: warn
+
   # 🔴 ライセンス上「最初から避けるもの」が混入していないかの検査（§13.1）
   # x264/x265 (GPL) と Ultralytics YOLO (AGPL) は収益化時に致命的になる。
   license-guard:
