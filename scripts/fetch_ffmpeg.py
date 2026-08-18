@@ -27,6 +27,11 @@ import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _console import enable_utf8  # noqa: E402
+
+enable_utf8()
+
 ROOT = Path(__file__).resolve().parent.parent
 VENDOR = ROOT / "vendor" / "ffmpeg"
 

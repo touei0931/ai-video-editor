@@ -13,6 +13,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _console import enable_utf8  # noqa: E402
+
+enable_utf8()
+
 try:
     import yaml
 except ImportError:
