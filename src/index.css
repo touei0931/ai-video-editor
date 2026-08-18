@@ -1,0 +1,107 @@
+:root {
+  color-scheme: dark;
+  --bg: #101014;
+  --fg: #e6e6ea;
+  --muted: #8a8a96;
+  --accent: #6ea8fe;
+  --ok: #5fd08a;
+  --error: #ff7b72;
+  --border: #26262e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Yu Gothic UI", "Hiragino Sans", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0;
+}
+
+.phase {
+  color: var(--muted);
+  margin: 4px 0 32px;
+  font-size: 13px;
+}
+
+section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 0 0 12px;
+  color: var(--accent);
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 20px;
+  margin: 0 0 16px;
+}
+
+dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+dd {
+  margin: 0;
+}
+
+code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+button {
+  background: var(--accent);
+  color: #0b0b0f;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+.ok {
+  color: var(--ok);
+}
+.error {
+  color: var(--error);
+}
+
+ol {
+  margin: 0 0 8px;
+  padding-left: 1.4em;
+}

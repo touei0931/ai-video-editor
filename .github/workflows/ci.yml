@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # 🔴 プラットフォーム分岐が4ファイルに閉じ込められているかの検査（設計レポート §10.4）
+  # Mac 実機でデバッグできない体制のため、「Macで壊れうる範囲」を予測可能に保つのが前提条件。
+  platform-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/platform-guard.mjs
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  # サイドカーが両OSで起動し、stdio JSON-RPC が成立するか
+  sidecar:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 構文チェック
+        run: python -m compileall -q sidecar
+      - name: stdio JSON-RPC の疎通（ping / env）
+        shell: bash
+        run: |
+          printf '%s\n%s\n' \
+            '{"id":1,"method":"ping","params":{"message":"ci"}}' \
+            '{"id":2,"method":"env","params":{}}' \
+            | python -m sidecar | tee /tmp/out.jsonl
+          grep -q '"pong": *true' /tmp/out.jsonl
+          grep -q '"platform"' /tmp/out.jsonl
+
+  # Electron → Python サイドカー の疎通を実機OSで確認する。
+  # macos-14 は arm64 なので、T5（Mac版ビルド）の早期シグナルにもなる。
+  electron-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm run build
+      - run: npm run smoke
+      - name: 結果を確認
+        shell: bash
+        run: |
+          cat phase0-artifacts/smoke-result.json
+          grep -q '"ok": *true' phase0-artifacts/smoke-result.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.os }}
+          path: phase0-artifacts/
+          if-no-files-found: warn
+
+  # 🔴 ライセンス上「最初から避けるもの」が混入していないかの検査（§13.1）
+  # x264/x265 (GPL) と Ultralytics YOLO (AGPL) は収益化時に致命的になる。
+  license-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 禁止依存が入っていないこと
+        run: |
+          set -e
+          if grep -rniE '^\s*(ultralytics|yolov[0-9])' sidecar/requirements.txt; then
+            echo "::error::Ultralytics YOLO は AGPL のため使用禁止です（§13.1）"; exit 1
+          fi
+          if [ -f package.json ] && grep -niE '"(ultralytics|x264|x265)"' package.json; then
+            echo "::error::GPL/AGPL 汚染の恐れがある依存が package.json にあります（§13.1）"; exit 1
+          fi
+          echo "license-guard: OK"

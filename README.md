@@ -122,14 +122,42 @@ BudouX 文節改行 +1.5 / Windows 収益化対応 +1.5 / Phase 0 の検証項�
 
 FCPXML 関連のみ不要。
 
+## 開発の始め方
+
+```bash
+npm install
+npm run build
+```
+
+| コマンド | 内容 |
+|---|---|
+| `npm run dev` | Vite + Electron を起動（開発） |
+| `npm run build` | レンダラ / main / preload をビルド |
+| `npm run typecheck` | 型チェック |
+| **`npm run guard`** | **プラットフォーム分岐が 4 ファイルに閉じ込められているか検査（§10.4）** |
+| `npm run smoke` | Electron → Python サイドカーの疎通確認（結果は `phase0-artifacts/smoke-result.json`） |
+| `npm run sidecar:dev` | Python サイドカー単体を起動（stdin に JSON-RPC を流す） |
+
+Python は 3.12 系。Phase 0 時点では追加パッケージ不要（`sidecar/requirements.txt` は全てコメントアウト）。
+
+### プラットフォーム分岐を書いてよいのはこの 4 ファイルだけ
+
+Mac 実機でデバッグできないため、「Mac で壊れうる範囲」を予測可能に保つのが前提条件（§10.4）。
+`npm run guard` と CI で機械的に検査している。
+
+- `electron/main/paths.ts` — パス解決・サイドカー起動コマンド
+- `sidecar/asr/__init__.py` — ASR バックエンド
+- `sidecar/face/__init__.py` — 顔検出 delegate
+- `sidecar/ffmpeg/platform_args.py` — エンコーダ / デコーダ引数
+
 ## 次にやること — Phase 0（12 人日）
 
 **本実装 169.5 人日に入る前に、設計が成立するかと M2 Air の実性能を確定させる。**
 詳細な手順・成功条件・失敗時の分岐は `docs/design-report.md` §16 を参照。
 
-| # | タスク | 人日 |
-|---|---|---|
-| T0 | 環境準備（リポジトリ、Electron + Python サイドカー雛形、テスト素材 3 本、`platform-guard` CI） | 1 |
+| # | タスク | 人日 | 状態 |
+|---|---|---|---|
+| T0 | 環境準備（リポジトリ、Electron + Python サイドカー雛形、`platform-guard` CI） | 1 | **✅ 済**（テスト素材 3 本のみ未 → `samples/README.md`） |
 | **T1** | 🔴 **テロップ WYSIWYG の成立確認** — Canvas → PNG → ffmpeg overlay がブラウザ表示と一致するか | 2 |
 | T2 | BudouX 文節改行の検証 | 0.5 |
 | T3 | ffmpeg LGPL ビルドの確保（`libx264` 非搭載を CI で assert） | 2 |

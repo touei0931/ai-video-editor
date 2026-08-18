@@ -1,0 +1,22 @@
+# Phase 0 では疎通確認のみで、重い依存はまだ入れない。
+# Phase 1 以降で必要になるものをコメントで残しておく。
+#
+# ⚠ ライセンス上「最初から避けるもの」（§13.1）:
+#   - ultralytics（AGPL-3.0）→ MediaPipe を使う
+#   - x264 / x265 を含む ffmpeg ビルド（GPL）→ LGPL ビルドを vendoring する
+#   - libfdk-aac（非フリー）→ ネイティブ AAC を使う
+
+# --- Phase 1 ---
+# faster-whisper        # Windows 側 ASR（CUDA）
+# pywhispercpp          # Mac 側 ASR（CoreML/Metal）
+# silero-vad            # 無音検出
+# numpy
+
+# --- Phase 2 ---
+# librosa               # 韻律（RMS）
+# pyworld               # F0（DIO/StoneMask）
+# sudachipy             # 形態素解析（BudouX が使えない場合のフォールバック）
+
+# --- Phase 3 ---
+# mediapipe             # 顔検出・口唇ランドマーク
+# scenedetect           # シーンカット検出
