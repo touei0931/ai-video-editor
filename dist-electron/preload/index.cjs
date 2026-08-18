@@ -1,1 +1,0 @@
-let e=require("electron");e.contextBridge.exposeInMainWorld(`sidecar`,{call:(t,n={})=>e.ipcRenderer.invoke(`sidecar:call`,t,n)});
