@@ -79,6 +79,14 @@ export function ReviewScreen() {
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const liveRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * 「どこまで進んだか」を覚えておく。
+   * 前のほうに戻って直したあと、また最後尾から続けられるようにするため。
+   * これが無いと、戻るたびに以降を全部見直すことになる。
+   */
+  const [resumeIndex, setResumeIndex] = useState(0);
+  const revisiting = index < resumeIndex;
+
   const current = toReview[index];
   const done = index >= toReview.length;
 
@@ -91,9 +99,28 @@ export function ReviewScreen() {
       if (!current) return;
       setDecisions((prev) => ({ ...prev, [current.id]: decision }));
       setHistory((prev) => [...prev, current.id]);
-      setIndex((i) => i + 1);
+
+      if (revisiting) {
+        // 戻って直していたのなら、元いた位置に復帰する
+        setIndex(resumeIndex);
+      } else {
+        setIndex((i) => {
+          const next = i + 1;
+          setResumeIndex((r) => Math.max(r, next));
+          return next;
+        });
+      }
     },
-    [current],
+    [current, revisiting, resumeIndex],
+  );
+
+  /** バーのクリックで任意の候補へ飛ぶ */
+  const jumpTo = useCallback(
+    (target: number) => {
+      setResumeIndex((r) => Math.max(r, index));
+      setIndex(Math.max(0, Math.min(toReview.length - 1, target)));
+    },
+    [index, toReview.length],
   );
 
   const undo = useCallback(() => {
@@ -144,6 +171,16 @@ export function ReviewScreen() {
         case 'enter':
           setIndex(toReview.length);
           break;
+        case '[':
+          jumpTo(index - 1);
+          break;
+        case ']':
+          jumpTo(index + 1);
+          break;
+        case 'escape':
+          // 戻って直していたのを取りやめて、元の位置に復帰する
+          if (revisiting) setIndex(resumeIndex);
+          break;
         default:
           return;
       }
@@ -151,7 +188,7 @@ export function ReviewScreen() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [decide, undo, nudge, toReview.length]);
+  }, [decide, undo, nudge, jumpTo, index, revisiting, resumeIndex, toReview.length]);
 
   const counts = useMemo(() => {
     const v = Object.values(decisions);
@@ -209,21 +246,54 @@ export function ReviewScreen() {
   return (
     <div className="review">
       <header>
-        <div className="progress">
-          <span className="counter">
-            カット候補 <strong>{index + 1}</strong> / {toReview.length}
-          </span>
-          <div className="bar-track">
-            <div className="bar-fill" style={{ width: `${(index / toReview.length) * 100}%` }} />
-          </div>
-          <span className="stats">
-            ✅ {counts.approved} ❌ {counts.rejected} ⏸ {counts.held}
-          </span>
-        </div>
-        <div className="pace">
-          {history.length > 0 && <>1件 {perItem.toFixed(2)} 秒</>}
-        </div>
+        <span className="counter">
+          カット候補 <strong>{index + 1}</strong> / {toReview.length}
+        </span>
+        <span className="stats">
+          ✅ {counts.approved} ❌ {counts.rejected} ⏸ {counts.held}
+        </span>
+        <div className="pace">{history.length > 0 && <>1件 {perItem.toFixed(2)} 秒</>}</div>
       </header>
+
+      {/*
+        候補を並べたバー。クリックで直接そこへ飛べる。
+        1件ずつ取り消して戻るのは苦痛なので、任意の位置へ移動できるようにした。
+      */}
+      <nav className="seekbar" aria-label="カット候補の一覧">
+        {toReview.map((c, i) => {
+          const d = decisions[c.id];
+          const cls = [
+            'tick',
+            d ?? 'pending',
+            c.kind,
+            i === index ? 'current' : '',
+            i === resumeIndex && revisiting ? 'resume' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          const label =
+            `${i + 1}件目 ${KIND_LABEL[c.kind]} ${formatTime(c.srcStart)} ` +
+            `確信度${c.confidence.toFixed(2)}` +
+            (d ? ` / ${d === 'approved' ? '承認' : d === 'rejected' ? '却下' : '保留'}` : ' / 未処理');
+          return (
+            <button
+              key={c.id}
+              type="button"
+              className={cls}
+              title={label}
+              aria-label={label}
+              aria-current={i === index}
+              onClick={() => jumpTo(i)}
+            />
+          );
+        })}
+      </nav>
+
+      {revisiting && (
+        <div className="revisit-note">
+          {index + 1} 件目に戻って確認中 — 決定するか <kbd>Esc</kbd> で {resumeIndex + 1} 件目に戻ります
+        </div>
+      )}
 
       <section className="stage">
         <div className="preview">
@@ -272,8 +342,10 @@ export function ReviewScreen() {
         <kbd>Y</kbd> 承認 <kbd>N</kbd> 却下 <kbd>Space</kbd> 再生
         <span className="sep" />
         <kbd>←</kbd>
-        <kbd>→</kbd> 境界±1F <kbd>Shift</kbd>+←→ ±5F <kbd>S</kbd> 保留 <kbd>U</kbd> 取消{' '}
-        <kbd>Enter</kbd> 残り一括承認
+        <kbd>→</kbd> 境界±1F <kbd>Shift</kbd>+←→ ±5F <kbd>S</kbd> 保留
+        <span className="sep" />
+        <kbd>[</kbd>
+        <kbd>]</kbd> 前後へ移動 <kbd>U</kbd> 直前を取消 <kbd>Enter</kbd> 残り一括承認
       </footer>
 
       <div ref={liveRef} aria-live="polite" className="sr-only" />
