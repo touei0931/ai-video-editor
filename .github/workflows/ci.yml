@@ -128,7 +128,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
-      - run: python scripts/fetch_ffmpeg.py
+      - name: ffmpeg を用意
+        # private リポジトリの Release から取るため gh の認証が要る
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/fetch_ffmpeg.py
       - run: python scripts/fetch_fonts.py
       - run: python scripts/make_test_media.py
       - run: npm run build

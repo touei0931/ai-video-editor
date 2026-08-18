@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import platform
 import shutil
@@ -82,18 +83,55 @@ def fetch_windows(work: Path) -> list[Path]:
     return extract_binaries(archive, work / "x")
 
 
-def fetch_macos(work: Path) -> list[Path]:
-    archive = work / MAC_ASSET
-    url = f"https://github.com/{REPO}/releases/download/{MAC_RELEASE_TAG}/{MAC_ASSET}"
-    try:
-        download(url, archive)
-    except Exception as e:  # noqa: BLE001
+def verify_sha256(archive: Path, sha_file: Path) -> None:
+    """配布バイナリなので取得後にハッシュを検証する。"""
+    expected = sha_file.read_text(encoding="utf-8").split()[0].strip()
+    actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if actual != expected:
         sys.exit(
-            f"macOS 版の取得に失敗しました: {e}\n\n"
-            "まだビルドしていない可能性があります。GitHub Actions で\n"
-            "  build-ffmpeg-mac ワークフローを手動実行（workflow_dispatch）してください。\n"
-            "  gh workflow run build-ffmpeg-mac.yml\n"
+            f"SHA256 が一致しません。取得したファイルが壊れているか差し替えられています。\n"
+            f"  期待値: {expected}\n"
+            f"  実際  : {actual}"
         )
+    print(f"  SHA256 検証 OK ({actual[:16]}…)")
+
+
+def fetch_macos(work: Path) -> list[Path]:
+    # 🔴 このリポジトリは private なので、Release アセットの直リンクは 404 になる。
+    #    gh 経由なら認証付きで取得できる（CI では GH_TOKEN、手元では gh のログインを使う）。
+    archive = work / MAC_ASSET
+    sha_file = work / f"{MAC_ASSET.replace('.tar.gz', '')}.sha256"
+
+    if shutil.which("gh"):
+        print(f"gh で取得: {REPO} {MAC_RELEASE_TAG}")
+        result = subprocess.run(
+            ["gh", "release", "download", MAC_RELEASE_TAG,
+             "--repo", REPO,
+             "--pattern", MAC_ASSET,
+             "--pattern", sha_file.name,
+             "--dir", str(work)],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            sys.exit(
+                f"macOS 版の取得に失敗しました:\n{result.stderr.strip()}\n\n"
+                "まだビルドしていない場合は、GitHub Actions で build-ffmpeg-mac を実行してください:\n"
+                "  gh workflow run build-ffmpeg-mac.yml\n"
+                "CI で失敗する場合は、ジョブに GH_TOKEN が渡っているか確認してください。"
+            )
+    else:
+        url = f"https://github.com/{REPO}/releases/download/{MAC_RELEASE_TAG}/{MAC_ASSET}"
+        try:
+            download(url, archive)
+        except Exception as e:  # noqa: BLE001
+            sys.exit(
+                f"macOS 版の取得に失敗しました: {e}\n"
+                "private リポジトリのため、gh CLI を入れて認証してください。"
+            )
+
+    if archive.exists() and sha_file.exists():
+        verify_sha256(archive, sha_file)
+
     return extract_binaries(archive, work / "x")
 
 
