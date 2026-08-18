@@ -13,9 +13,9 @@ const mode = new URLSearchParams(location.search).get('mode');
 function Root() {
   if (mode === 't1') return <T1Wysiwyg />;
   if (mode === 't2') return <T2Budoux />;
-  if (mode === 'status') return <App />;
-  // 既定はカットレビュー画面（操作感の確認用・モックデータ）
-  return <ReviewScreen />;
+  // モックデータでレビューUIの操作感だけ見たいとき
+  if (mode === 'review-demo') return <ReviewScreen />;
+  return <App />;
 }
 
 createRoot(document.getElementById('root')!).render(

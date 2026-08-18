@@ -105,3 +105,33 @@ ol {
   margin: 0 0 8px;
   padding-left: 1.4em;
 }
+
+.progress-track {
+  height: 8px;
+  background: #26262e;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+button.primary {
+  background: var(--ok);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

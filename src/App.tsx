@@ -1,83 +1,213 @@
-import { useEffect, useState } from 'react';
+/**
+ * アプリ本体の流れ（①カット）。
+ *
+ *   動画を選ぶ → 解析（音声抽出→文字起こし→カット候補検出）
+ *     → レビュー（Y/N で承認・却下）→ 書き出し
+ *
+ * テロップ（②）とズーム（③）は Phase 2 以降。
+ */
+import { useCallback, useEffect, useState } from 'react';
+import { ReviewScreen } from './review/ReviewScreen';
+import type { CutCandidate, CutKind } from './review/mockCandidates';
 
-type Env = {
-  platform: string;
-  python: string;
-  machine: string;
-  asr_backend: string;
-  face_backend: string;
-  encoder_args: string[];
-};
+type Phase = 'idle' | 'analyzing' | 'review' | 'exporting' | 'done';
+
+interface AnalyzeResult {
+  video_path: string;
+  duration: number;
+  candidate_count: number;
+  kinds: Record<string, number>;
+  transcript: { text: string; realtime_factor: number; elapsed_seconds: number; model: string };
+  candidates: {
+    id: string;
+    kind: CutKind;
+    src_start: number;
+    src_end: number;
+    confidence: number;
+    before?: string;
+    after?: string;
+    word?: string;
+  }[];
+}
+
+interface ExportResult {
+  out_path: string;
+  encoder: string;
+  kept_seconds: number;
+  original_seconds: number;
+  cut_count: number;
+  segments: number;
+  size_mb: number;
+}
+
+function toCandidate(c: AnalyzeResult['candidates'][number]): CutCandidate {
+  return {
+    id: c.id,
+    kind: c.kind,
+    srcStart: c.src_start,
+    srcEnd: c.src_end,
+    confidence: c.confidence,
+    before: c.before ?? '',
+    after: c.after ?? '',
+    word: c.word,
+  };
+}
+
+function formatDuration(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}分${String(s).padStart(2, '0')}秒`;
+}
 
 export function App() {
-  const [env, setEnv] = useState<Env | null>(null);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [progress, setProgress] = useState({ value: 0, message: '' });
+  const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
+  const [exported, setExported] = useState<ExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [echo, setEcho] = useState<string>('');
+  const [startedAt, setStartedAt] = useState(0);
 
-  useEffect(() => {
-    window.sidecar
-      .call('env')
-      .then((r) => setEnv(r as Env))
-      .catch((e: Error) => setError(e.message));
-  }, []);
+  useEffect(() => window.app.onProgress(setProgress), []);
 
-  async function ping() {
+  const pickAndAnalyze = useCallback(async () => {
+    setError(null);
+    const path = await window.app.pickVideo();
+    if (!path) return;
+
+    setPhase('analyzing');
+    setProgress({ value: 0, message: '準備しています' });
+    setStartedAt(Date.now());
+
     try {
-      const r = (await window.sidecar.call('ping', { message: 'hello from renderer' })) as {
-        echo: string;
-      };
-      setEcho(r.echo);
+      const result = (await window.app.analyze({ video_path: path, model: 'base' })) as AnalyzeResult;
+      setAnalysis(result);
+      setPhase('review');
     } catch (e) {
       setError((e as Error).message);
+      setPhase('idle');
     }
+  }, []);
+
+  const runExport = useCallback(
+    async (approved: CutCandidate[]) => {
+      if (!analysis) return;
+      const base = analysis.video_path.replace(/\.[^.]+$/, '');
+      const target = await window.app.pickOutput(`${base}_cut.mp4`);
+      if (!target) return;
+
+      setPhase('exporting');
+      setProgress({ value: 0, message: '書き出しています' });
+
+      try {
+        const result = (await window.app.exportVideo({
+          video_path: analysis.video_path,
+          out_path: target,
+          duration: analysis.duration,
+          cuts: approved.map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd })),
+        })) as ExportResult;
+        setExported(result);
+        setPhase('done');
+      } catch (e) {
+        setError((e as Error).message);
+        setPhase('review');
+      }
+    },
+    [analysis],
+  );
+
+  if (phase === 'review' && analysis) {
+    return (
+      <ReviewScreen
+        candidates={analysis.candidates.map(toCandidate)}
+        onExport={runExport}
+        exporting={false}
+      />
+    );
   }
 
   return (
     <main>
-      <h1>AI動画編集アプリ</h1>
-      <p className="phase">Phase 0 — 技術検証スパイク</p>
+      <h1>AI動画編集</h1>
+      <p className="phase">無音・フィラー・言い直しを自動で見つけてカットします</p>
 
-      <section>
-        <h2>サイドカー疎通</h2>
-        {error && <p className="error">エラー: {error}</p>}
-        {!env && !error && <p className="muted">接続中…</p>}
-        {env && (
+      {error && <p className="error">エラー: {error}</p>}
+
+      {phase === 'idle' && (
+        <section>
+          <h2>動画を読み込む</h2>
+          <p className="muted">
+            読み込むと、音声を文字起こししてカット候補を作ります。
+            <br />
+            候補は1件ずつ確認して、Y / N で承認・却下できます。
+          </p>
+          <button onClick={pickAndAnalyze}>動画を選ぶ</button>
+        </section>
+      )}
+
+      {(phase === 'analyzing' || phase === 'exporting') && (
+        <section>
+          <h2>{phase === 'analyzing' ? '解析中' : '書き出し中'}</h2>
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${progress.value * 100}%` }} />
+          </div>
+          <p className="muted">
+            {progress.message}（{Math.round(progress.value * 100)}%・
+            {Math.round((Date.now() - startedAt) / 1000)}秒経過）
+          </p>
+          <p className="muted">他のアプリを使っていて構いません。</p>
+        </section>
+      )}
+
+      {phase === 'done' && exported && analysis && (
+        <section>
+          <h2>書き出しました</h2>
           <dl>
-            <dt>プラットフォーム</dt>
-            <dd>{env.platform}</dd>
-            <dt>Python</dt>
+            <dt>元の長さ</dt>
+            <dd>{formatDuration(exported.original_seconds)}</dd>
+            <dt>カット後</dt>
             <dd>
-              {env.python} ({env.machine})
+              {formatDuration(exported.kept_seconds)}
+              <span className="muted">
+                {' '}
+                （{Math.round((1 - exported.kept_seconds / exported.original_seconds) * 100)}% 短縮）
+              </span>
             </dd>
-            <dt>ASR バックエンド</dt>
-            <dd>{env.asr_backend}</dd>
-            <dt>顔検出バックエンド</dt>
-            <dd>{env.face_backend}</dd>
-            <dt>エンコーダ引数</dt>
+            <dt>適用したカット</dt>
+            <dd>{exported.cut_count} 箇所</dd>
+            <dt>エンコーダ</dt>
+            <dd>{exported.encoder}</dd>
+            <dt>ファイル</dt>
             <dd>
-              <code>{env.encoder_args.join(' ')}</code>
+              <code>{exported.out_path}</code>（{exported.size_mb} MB）
             </dd>
           </dl>
-        )}
-        <button onClick={ping}>ping を送る</button>
-        {echo && <p className="ok">応答: {echo}</p>}
-      </section>
+          <div className="actions">
+            <button className="primary" onClick={() => window.app.revealFile(exported.out_path)}>
+              フォルダを開く
+            </button>
+            <button
+              onClick={() => {
+                setAnalysis(null);
+                setExported(null);
+                setPhase('idle');
+              }}
+            >
+              別の動画を編集する
+            </button>
+          </div>
+        </section>
+      )}
 
-      <section>
-        <h2>次のタスク</h2>
-        <ol>
-          <li>
-            <strong>T1</strong> テロップ WYSIWYG の成立確認（Canvas → PNG → ffmpeg overlay）
-          </li>
-          <li>
-            <strong>T2</strong> BudouX 文節改行の検証
-          </li>
-          <li>
-            <strong>T3</strong> ffmpeg LGPL ビルドの確保
-          </li>
-        </ol>
-        <p className="muted">詳細は docs/design-report.md §16</p>
-      </section>
+      {analysis && phase !== 'review' && (
+        <section>
+          <h2>文字起こし</h2>
+          <p className="muted">
+            {analysis.transcript.model} / {analysis.transcript.elapsed_seconds}秒（
+            {analysis.transcript.realtime_factor}倍速）
+          </p>
+          <p>{analysis.transcript.text}</p>
+        </section>
+      )}
     </main>
   );
 }

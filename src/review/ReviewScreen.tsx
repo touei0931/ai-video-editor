@@ -63,8 +63,16 @@ function Waveform({ candidate }: { candidate: CutCandidate }) {
   );
 }
 
-export function ReviewScreen() {
-  const all = useMemo(() => generateMockCandidates(118), []);
+export interface ReviewScreenProps {
+  /** 実データ。省略するとモックで動く（操作感の確認用） */
+  candidates?: CutCandidate[];
+  /** 書き出しへ進む。省略すると書き出しボタンを出さない */
+  onExport?: (approved: CutCandidate[]) => void;
+  exporting?: boolean;
+}
+
+export function ReviewScreen({ candidates, onExport, exporting }: ReviewScreenProps = {}) {
+  const all = useMemo(() => candidates ?? generateMockCandidates(118), [candidates]);
 
   // 確信度で3分割（§3.3.1）。人間が1件ずつ見るのは中間層だけ。
   const { autoApproved, toReview, autoRejected, fillers } = useMemo(() => {
@@ -283,7 +291,28 @@ export function ReviewScreen() {
           使うほど自動承認の範囲が広がり、確認する件数が減っていく設計です。
         </p>
 
-        <button onClick={() => window.location.reload()}>もう一度</button>
+        <div className="actions">
+          {onExport && (
+            <button
+              className="primary"
+              disabled={exporting}
+              onClick={() => {
+                // 自動承認された分と、人間が承認した分をまとめて適用する
+                const approved = [
+                  ...autoApproved,
+                  ...fillers,
+                  ...toReview.filter((c) => decisions[c.id] === 'approved'),
+                ];
+                onExport(approved);
+              }}
+            >
+              {exporting ? '書き出し中…' : `承認した ${
+                autoApproved.length + fillers.length + counts.approved
+              } 箇所をカットして書き出す`}
+            </button>
+          )}
+          <button onClick={() => window.location.reload()}>最初から</button>
+        </div>
       </div>
     );
   }

@@ -28,7 +28,7 @@ from typing import Any, Callable
 ProgressFn = Callable[[float, str], None]
 CancelFn = Callable[[], bool]
 
-HEAVY_METHODS = {"transcribe"}
+HEAVY_METHODS = {"transcribe", "analyze", "export"}
 
 
 def worker_command() -> list[str]:

@@ -13,5 +13,13 @@ declare global {
     t2: {
       submit: (payload: unknown) => Promise<void>;
     };
+    app: {
+      pickVideo: () => Promise<string | null>;
+      pickOutput: (defaultPath: string) => Promise<string | null>;
+      analyze: (params: Record<string, unknown>) => Promise<unknown>;
+      exportVideo: (params: Record<string, unknown>) => Promise<unknown>;
+      revealFile: (filePath: string) => Promise<void>;
+      onProgress: (cb: (p: { value: number; message: string }) => void) => () => void;
+    };
   }
 }

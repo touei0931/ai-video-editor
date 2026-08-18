@@ -61,11 +61,24 @@ def _transcribe(params: dict[str, Any], on_progress: ProgressFn, is_cancelled: C
     return run_in_subprocess("transcribe", params, on_progress, is_cancelled)
 
 
+def _heavy(method: str):
+    """重い処理は別プロセスへ回す（worker.py の冒頭に理由を書いてある）。"""
+
+    def handler(params: dict[str, Any], on_progress: ProgressFn, is_cancelled: CancelFn) -> dict:
+        from .worker import run_in_subprocess
+
+        return run_in_subprocess(method, params, on_progress, is_cancelled)
+
+    return handler
+
+
 HANDLERS: dict[str, Callable[..., Any]] = {
     "ping": _ping,
     "env": _env,
     "sleep": _sleep,
     "transcribe": _transcribe,
+    "analyze": _heavy("analyze"),
+    "export": _heavy("export"),
 }
 
 

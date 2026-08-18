@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { sidecar } from './sidecar.js';
@@ -47,6 +47,57 @@ function createWindow(): void {
 ipcMain.handle('sidecar:call', (_e, method: string, params: Record<string, unknown>) =>
   sidecar.call(method, params),
 );
+
+// ── アプリの操作（①カットの一連の流れ）──────────────────────
+
+ipcMain.handle('app:pickVideo', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '編集する動画を選ぶ',
+    properties: ['openFile'],
+    filters: [{ name: '動画', extensions: ['mp4', 'mov', 'mkv', 'm4v', 'avi', 'webm'] }],
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('app:pickOutput', async (_e, defaultPath: string) => {
+  const result = await dialog.showSaveDialog({
+    title: '書き出し先',
+    defaultPath,
+    filters: [{ name: 'MP4', extensions: ['mp4'] }],
+  });
+  return result.canceled ? null : result.filePath;
+});
+
+/** 進捗はレンダラへ素通しする。解析中に画面が固まらないことが体験の要（§8.6） */
+function forwardProgress(win: BrowserWindow | null) {
+  return sidecar.onProgress((p) => {
+    if (win && !win.isDestroyed()) win.webContents.send('app:progress', p);
+  });
+}
+
+ipcMain.handle('app:analyze', async (e, params: Record<string, unknown>) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const off = forwardProgress(win);
+  try {
+    return await sidecar.call('analyze', params);
+  } finally {
+    off();
+  }
+});
+
+ipcMain.handle('app:export', async (e, params: Record<string, unknown>) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const off = forwardProgress(win);
+  try {
+    return await sidecar.call('export', params);
+  } finally {
+    off();
+  }
+});
+
+ipcMain.handle('app:revealFile', (_e, filePath: string) => {
+  shell.showItemInFolder(filePath);
+});
 
 /**
  * SMOKE_TEST=1 で起動すると、ウィンドウを出さずに
