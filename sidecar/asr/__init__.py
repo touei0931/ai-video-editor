@@ -26,20 +26,29 @@ class Asr(Protocol):
 
 
 class _NotImplementedAsr:
-    """Phase 0 のスタブ。実装は Phase 1（T4/T5 で疎通だけ確認する）。"""
+    """まだ実装していないバックエンド用のスタブ。"""
 
     def __init__(self, backend: str) -> None:
         self.backend = backend
 
-    def transcribe(self, audio_path: str, model: str = "large-v3-turbo") -> dict:
+    def transcribe(self, audio_path: str, model: str = "large-v3-turbo", **kwargs) -> dict:
         raise NotImplementedError(
-            f"ASR は Phase 1 で実装します（backend={self.backend}, model={model}）"
+            f"{self.backend} はまだ実装していません（T5 で対応する）"
         )
 
 
 def make_asr() -> Asr:
-    """実行環境に応じた ASR バックエンドを返す。"""
-    return _NotImplementedAsr("pywhispercpp+coreml" if _IS_MAC else "faster-whisper+cuda")
+    """実行環境に応じた ASR バックエンドを返す。
+
+    🔴 プラットフォーム分岐はここだけ。呼び出し側は戻り値の transcribe() しか見ない。
+    """
+    if _IS_MAC:
+        # Mac は CPU を空けるため CoreML/ANE を使う（ファンレス対策・§8.2）。T5 で実装。
+        return _NotImplementedAsr("pywhispercpp+coreml")
+
+    from .faster_whisper_backend import FasterWhisperAsr
+
+    return FasterWhisperAsr()
 
 
 def describe_backend() -> str:

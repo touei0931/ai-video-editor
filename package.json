@@ -13,6 +13,7 @@
     "smoke": "electron . --smoke-test",
     "t1": "electron . --t1-wysiwyg",
     "t2": "electron . --t2-budoux",
+    "t4": "electron . --t4-sidecar",
     "sidecar:dev": "python -m sidecar"
   },
   "devDependencies": {

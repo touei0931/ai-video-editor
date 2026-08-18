@@ -32,6 +32,13 @@ export function resourceRoot(): string {
  * - 配布時: PyInstaller onedir でビルドした実行ファイルを直接叩く
  */
 export function sidecarCommand(): { command: string; args: string[]; cwd: string } {
+  // PyInstaller でビルドしたバイナリを開発中に試すための逃げ道。
+  // 「配布形態でだけ壊れる」を開発中に踏めるようにしておく（Mac を触れない体制では特に重要）。
+  const override = process.env.SIDECAR_BIN;
+  if (override) {
+    return { command: override, args: [], cwd: app.getAppPath() };
+  }
+
   if (isDev) {
     const python = currentPlatform() === 'windows' ? 'python' : 'python3';
     return { command: python, args: ['-m', 'sidecar'], cwd: app.getAppPath() };

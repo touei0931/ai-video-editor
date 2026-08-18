@@ -5,6 +5,7 @@ import { sidecar } from './sidecar.js';
 import { isDev } from './paths.js';
 import { runT1 } from './t1.js';
 import { runT2 } from './t2.js';
+import { runT4 } from './t4.js';
 
 // バンドル後は import.meta.url が当てにならないので、基準は必ず app.getAppPath() を使う
 // （パッケージ後は app.asar のルートを指すので、配布時も同じ相対関係で解決できる）
@@ -73,6 +74,9 @@ async function runSmokeTest(): Promise<never> {
 app
   .whenReady()
   .then(() => {
+    // 起動時の引数を必ず残す。診断情報として友達の実機からも回収する（§10.5）
+    writeArtifact('last-launch.json', { argv: process.argv, cwd: process.cwd() });
+
     sidecar.start();
 
     if (process.env.SMOKE_TEST === '1' || process.argv.includes('--smoke-test')) {
@@ -104,6 +108,21 @@ app
         .catch((e: Error) => {
           writeArtifact('t2-error.json', { message: e.message, stack: e.stack });
           console.error('T2 に失敗しました:', e);
+          sidecar.stop();
+          app.exit(1);
+        });
+      return;
+    }
+
+    if (process.argv.includes('--t4-sidecar')) {
+      void runT4(appRoot())
+        .then((code) => {
+          sidecar.stop();
+          app.exit(code);
+        })
+        .catch((e: Error) => {
+          writeArtifact('t4-error.json', { message: e.message, stack: e.stack });
+          console.error('T4 に失敗しました:', e);
           sidecar.stop();
           app.exit(1);
         });

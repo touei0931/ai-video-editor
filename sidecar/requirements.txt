@@ -6,9 +6,11 @@
 #   - x264 / x265 を含む ffmpeg ビルド（GPL）→ LGPL ビルドを vendoring する
 #   - libfdk-aac（非フリー）→ ネイティブ AAC を使う
 
+# --- Phase 0 T4 で導入済み ---
+faster-whisper          # Windows 側 ASR。CUDA が使えなければ自動で CPU に落ちる
+
 # --- Phase 1 ---
-# faster-whisper        # Windows 側 ASR（CUDA）
-# pywhispercpp          # Mac 側 ASR（CoreML/Metal）
+# pywhispercpp          # Mac 側 ASR（CoreML/Metal）。T5 で対応
 # silero-vad            # 無音検出
 # numpy
 
