@@ -229,6 +229,33 @@ python scripts/sidecar_probe.py dist-sidecar/sidecar/sidecar.exe # 固めたバ�
 python scripts/heavy_probe.py path/to/audio.wav                  # 同一プロセス vs 子プロセス
 ```
 
+### T5 の途中経過（2026-08-18・macOS arm64 CI 実測）
+
+**Mac を持たずに arm64 バイナリを作って動作確認する経路が確立した。** これが T5 の中核。
+
+| 項目 | 結果 |
+|---|---|
+| arm64 で PyInstaller ビルド | ✅ 17 秒 / 66 MB（tar.gz） |
+| 固めたバイナリが起動・応答 | ✅ `frozen=True` |
+| `--worker` の子プロセス方式が固めた後も機能 | ✅ |
+| 日本語の文字起こしが返る | ✅ 12.9 秒の音声 → **x1.96**（base・CPU） |
+
+検証音声は macOS の `say -v Kyoko` で合成する（実素材を置かない方針のため）。
+
+#### ⚠ 速度は楽観できない
+
+Windows CPU が x11.4 だったのに対し、macOS CI は **x1.96**。
+CI ランナーは vCPU の少ない VM なので実機はもっと速いはずだが、
+本番モデル（large-v3-turbo）は base より数倍重い。
+§8.3 の見積もり（持続実効 4.3〜6.8x）が楽観的でないかは、**T6 の実機測定でしか分からない**。
+
+#### T5 の残り
+
+- Electron アプリ（未署名 .app / dmg）の macOS ビルド
+- pywhispercpp + CoreML/ANE への移行 — **動作の前提ではなく高速化**に格下げ済み。
+  faster-whisper が Apple Silicon でも動くため、詰まってもプロジェクトは止まらない。
+- MediaPipe arm64 + Metal delegate（Phase 3 で実際に使うときに追加）
+
 ### Windows と macOS の描画差（2026-08-18・CI 実測）
 
 「Canvas と ffmpeg が一致する」ことと「**Windows と Mac で同じ見た目になる**」ことは別問題。
@@ -289,7 +316,7 @@ Mac 実機でデバッグできないため、「Mac で壊れうる範囲」を
 | T2 | BudouX 文節改行の検証 | 0.5 | **✅ 合格**（文節途中の改行 0%） |
 | T3 | ffmpeg LGPL ビルドの確保（`libx264` 非搭載を CI で assert） | 2 | **✅ 済**（Windows は BtbN LGPL、macOS は自前ビルドを Release に公開） |
 | T4 | Python サイドカー + PyInstaller（Windows） | 1.5 | **✅ 合格**（下記） |
-| **T5** | 🔴 **GitHub Actions で Mac 版をビルド** — Windows からは作れないため、この経路の確立が全ての前提 | 2 |
+| **T5** | 🔴 **GitHub Actions で Mac 版をビルド** — Windows からは作れないため、この経路の確立が全ての前提 | 2 | **サイドカーは ✅ 済 / Electron .app は未** |
 | **T6** | 🔴 **友達の M2 Air で実測（1 回目の往復）** — 6 項目をまとめて 1 回で投げる | 2 + 待ち |
 | T7 | 判断とドキュメント化（`docs/phase0-result.md`） | 1 |
 
