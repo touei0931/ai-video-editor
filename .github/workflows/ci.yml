@@ -137,11 +137,24 @@ jobs:
       - run: python scripts/make_test_media.py
       - run: npm run build
       - run: npm run t1
-      - name: 結果を確認
+      - name: T1 の結果を確認
         shell: bash
         run: |
           cat phase0-artifacts/t1/t1-result.json
           grep -q '"ok": *true' phase0-artifacts/t1/t1-result.json
+      # T2: BudouX の文節改行。フォントとビルドが揃っているのでこのジョブで一緒に回す。
+      - run: npm run t2
+      - name: T2 の結果を確認
+        shell: bash
+        run: |
+          python -c "import json;d=json.load(open('phase0-artifacts/t2/t2-result.json',encoding='utf-8'));print('forcedRatio',d['forcedRatio'],'naive',d['naive'])"
+          grep -q '"ok": *true' phase0-artifacts/t2/t2-result.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t2-${{ matrix.os }}
+          path: phase0-artifacts/t2/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:

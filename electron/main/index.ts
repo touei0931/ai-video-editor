@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { sidecar } from './sidecar.js';
 import { isDev } from './paths.js';
 import { runT1 } from './t1.js';
+import { runT2 } from './t2.js';
 
 // バンドル後は import.meta.url が当てにならないので、基準は必ず app.getAppPath() を使う
 // （パッケージ後は app.asar のルートを指すので、配布時も同じ相対関係で解決できる）
@@ -88,6 +89,21 @@ app
         .catch((e: Error) => {
           writeArtifact('t1-error.json', { message: e.message, stack: e.stack });
           console.error('T1 に失敗しました:', e);
+          sidecar.stop();
+          app.exit(1);
+        });
+      return;
+    }
+
+    if (process.argv.includes('--t2-budoux')) {
+      void runT2(appRoot(), process.env.VITE_DEV_SERVER_URL)
+        .then((code) => {
+          sidecar.stop();
+          app.exit(code);
+        })
+        .catch((e: Error) => {
+          writeArtifact('t2-error.json', { message: e.message, stack: e.stack });
+          console.error('T2 に失敗しました:', e);
           sidecar.stop();
           app.exit(1);
         });

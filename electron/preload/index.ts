@@ -8,10 +8,14 @@ const api = {
 
 contextBridge.exposeInMainWorld('sidecar', api);
 
-/** Phase 0 T1（テロップ WYSIWYG 検証）専用。本番機能ではない。 */
+/** Phase 0 の検証モード専用。本番機能ではない。 */
 contextBridge.exposeInMainWorld('t1', {
   getFrame: () => ipcRenderer.invoke('t1:frame'),
   submit: (payload: unknown) => ipcRenderer.invoke('t1:submit', payload),
+});
+
+contextBridge.exposeInMainWorld('t2', {
+  submit: (payload: unknown) => ipcRenderer.invoke('t2:submit', payload),
 });
 
 export type SidecarApi = typeof api;
