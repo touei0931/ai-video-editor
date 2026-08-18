@@ -429,8 +429,7 @@ export function ReviewScreen() {
         <kbd>→</kbd> 境界±1F <kbd>Shift</kbd>+←→ ±5F <kbd>S</kbd> 保留
         <span className="sep" />
         <kbd>[</kbd>
-        <kbd>]</kbd> 前後へ移動 <kbd>U</kbd> 直前に下した判定を取消（そこへ飛びます）{' '}
-        <kbd>Enter</kbd> 残り一括承認
+        <kbd>]</kbd> 前後へ移動 <kbd>U</kbd> 直前判定を取消 <kbd>Enter</kbd> 残り一括承認
       </footer>
 
       <div ref={liveRef} aria-live="polite" className="sr-only" />
