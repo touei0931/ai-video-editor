@@ -12,7 +12,12 @@
  *    （sidecar/telop.py の _clean_word を参照）。
  */
 import { telopFontSize } from './render';
-import { DEFAULT_STYLES, type TelopPosition, type TelopStyleName } from './style';
+import {
+  DEFAULT_STYLES,
+  type TelopOverride,
+  type TelopPosition,
+  type TelopStyleName,
+} from './style';
 import { fitJapanese, fitToLines } from './wrap';
 
 export interface TelopWord {
@@ -54,6 +59,13 @@ export interface TelopCard {
   lowWords: number;
   /** 文節途中の改行を避けるために縮めた倍率（1.0 なら等倍） */
   fontScale: number;
+  /** 既定位置からのずらし量（画面サイズに対する比率） */
+  offsetX: number;
+  offsetY: number;
+  /** この1枚だけのスタイル上書き */
+  override?: TelopOverride;
+  /** 人間が手で足したテロップか */
+  manual?: boolean;
 }
 
 export interface Frame {
@@ -164,6 +176,8 @@ export function splitIntoCards(
       confidence: unit.confidence,
       lowWords: unit.lowWords,
       fontScale: fit.fontScale,
+      offsetX: 0,
+      offsetY: 0,
     });
   });
 

@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ReviewScreen } from './review/ReviewScreen';
 import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
-import { TelopScreen } from './telop/TelopScreen';
+import { TelopScreen, type StyleMap } from './telop/TelopScreen';
 import { loadTelopFonts } from './telop/fonts';
 import { renderBlank, renderTelopPngs } from './telop/rasterize';
 import {
@@ -225,7 +225,7 @@ export function App() {
   );
 
   const runExport = useCallback(
-    async (finalCards: TelopCard[]) => {
+    async (finalCards: TelopCard[], styles: StyleMap) => {
       if (!analysis) return;
       const base = analysis.video_path.replace(/\.[^.]+$/, '');
       const target = await window.app.pickOutput(`${base}_edited.mp4`);
@@ -241,7 +241,7 @@ export function App() {
 
         if (finalCards.length > 0) {
           const dir = `${analysis.work_dir}/telops`;
-          const rendered = await renderTelopPngs(finalCards, frame, (done, total) =>
+          const rendered = await renderTelopPngs(finalCards, frame, styles, (done, total) =>
             setProgress({ value: done / total, message: `テロップを描いています ${done}/${total}` }),
           );
 

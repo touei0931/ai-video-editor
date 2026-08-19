@@ -12,9 +12,17 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { drawTelop } from './render';
-import { DEFAULT_STYLES, type TelopPosition, type TelopStyleName } from './style';
+import {
+  DEFAULT_STYLES,
+  resolveStyle,
+  type TelopStyle,
+  type TelopPosition,
+  type TelopStyleName,
+} from './style';
 import type { Frame, TelopCard } from './split';
 import './telop.css';
+
+export type StyleMap = Record<TelopStyleName, TelopStyle>;
 
 const STYLE_LABEL: Record<TelopStyleName, string> = {
   normal: '通常',
@@ -53,7 +61,7 @@ export interface TelopScreenProps {
   /** 実測幅で折り返す関数（編集したテキストを折り返し直すのに使う） */
   rewrap: (text: string, style: TelopStyleName) => { lines: string[]; fontScale: number };
   onBack?: () => void;
-  onExport: (cards: TelopCard[]) => void;
+  onExport: (cards: TelopCard[], styles: StyleMap) => void;
   exporting?: boolean;
   /**
    * 書き出しに失敗したときの内容。
@@ -76,6 +84,17 @@ export function TelopScreen({
   const [index, setIndex] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  /**
+   * スタイルの雛形。ここを変えると、そのスタイルのテロップが全部変わる。
+   * 「通常のテロップの色を変えたい」は1枚ずつ直す作業ではないので、雛形側で持つ。
+   */
+  const [styles, setStyles] = useState<StyleMap>(() => structuredClone(DEFAULT_STYLES));
+  /** 雛形の編集パネルで今どのスタイルを触っているか */
+  const [editingStyle, setEditingStyle] = useState<TelopStyleName>('normal');
+
+  const patchStyle = useCallback((name: TelopStyleName, patch: Partial<TelopStyle>) => {
+    setStyles((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
+  }, []);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -119,8 +138,93 @@ export function TelopScreen({
       // スタイルが変わるとフォントも大きさも変わるので、折り返しを計算し直す
       const fit = rewrap(current.text, name);
       update({ style: name, lines: fit.lines, fontScale: fit.fontScale, reason: '手動で変更' });
+      setEditingStyle(name);
     },
     [current, rewrap, update],
+  );
+
+  /** 表示時刻をずらす / 伸縮する */
+  const shiftTime = useCallback(
+    (deltaStart: number, deltaEnd: number) => {
+      if (!current) return;
+      const start = Math.max(0, current.srcStart + deltaStart);
+      const end = Math.max(start + 0.2, current.srcEnd + deltaEnd);
+      update({ srcStart: Number(start.toFixed(3)), srcEnd: Number(end.toFixed(3)) });
+    },
+    [current, update],
+  );
+
+  /**
+   * 今の再生位置に空のテロップを足す。
+   *
+   * 文字起こしが拾えなかった発言や、後から入れたい一言のため。
+   * 既存の並びに割り込ませるので、追加後は時刻順に並べ直す。
+   */
+  const addTelop = useCallback(() => {
+    const at = videoRef.current?.currentTime ?? current?.srcStart ?? 0;
+    const card: TelopCard = {
+      id: `manual-${Date.now()}`,
+      unitId: `manual-${Date.now()}`,
+      srcStart: Number(at.toFixed(3)),
+      srcEnd: Number((at + 2).toFixed(3)),
+      text: '新しいテロップ',
+      lines: ['新しいテロップ'],
+      style: 'normal',
+      position: 'bottom',
+      reason: '手で追加',
+      needsCheck: false,
+      confidence: 1,
+      lowWords: 0,
+      fontScale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      manual: true,
+    };
+    setCards((prev) => {
+      const next = [...prev, card].sort((a, b) => a.srcStart - b.srcStart);
+      setIndex(next.findIndex((c) => c.id === card.id));
+      return next;
+    });
+    setDraft(card.text);
+    setEditing(true);
+  }, [current]);
+
+  // ── プレビュー上でテロップを掴んで動かす ──
+  //
+  // 🔴 ドラッグ中は state を更新しない。
+  //    1回動かすたびにテロップ一覧（数百件）ごと再描画されて引っかかる。
+  //    動かしている間は Canvas を CSS でずらすだけにして、離したときに確定する。
+  const dragRef = useRef<{ x: number; y: number; dx: number; dy: number } | null>(null);
+
+  const onDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { x: e.clientX, y: e.clientY, dx: 0, dy: 0 };
+  }, []);
+
+  const onDragMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || !canvasRef.current) return;
+    drag.dx = e.clientX - drag.x;
+    drag.dy = e.clientY - drag.y;
+    canvasRef.current.style.transform = `translate(${drag.dx}px, ${drag.dy}px)`;
+  }, []);
+
+  const onDragEnd = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current;
+      dragRef.current = null;
+      if (!drag || !current) return;
+      if (canvasRef.current) canvasRef.current.style.transform = '';
+      if (Math.abs(drag.dx) < 2 && Math.abs(drag.dy) < 2) return;
+
+      // 画面サイズに対する比率で持つので、解像度が変わっても同じ位置になる
+      const box = e.currentTarget.getBoundingClientRect();
+      update({
+        offsetX: Number((current.offsetX + drag.dx / box.width).toFixed(4)),
+        offsetY: Number((current.offsetY + drag.dy / box.height).toFixed(4)),
+      });
+    },
+    [current, update],
   );
 
   const commitEdit = useCallback(() => {
@@ -194,17 +298,19 @@ export function TelopScreen({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, frame.width, frame.height);
-    const base = DEFAULT_STYLES[current.style];
     drawTelop(
       ctx,
       {
         lines: current.lines,
-        style: { ...base, fontSizeRatio: base.fontSizeRatio * current.fontScale },
+        // 🔴 書き出しと同じ resolveStyle を通す（rasterize.ts と対）
+        style: resolveStyle(styles, current.style, current.override, current.fontScale),
         position: current.position,
+        offsetX: current.offsetX,
+        offsetY: current.offsetY,
       },
       frame,
     );
-  }, [current, frame.width, frame.height]);
+  }, [current, styles, frame.width, frame.height]);
 
   // 選択中の項目が一覧の外に出たら追従させる
   useEffect(() => {
@@ -293,7 +399,7 @@ export function TelopScreen({
         <p className="muted">文字起こしから作れるテロップがありませんでした。</p>
         <div className="actions">
           {onBack && <button onClick={onBack}>戻る</button>}
-          <button className="primary" onClick={() => onExport([])}>
+          <button className="primary" onClick={() => onExport([], styles)}>
             テロップ無しで書き出す
           </button>
         </div>
@@ -320,8 +426,9 @@ export function TelopScreen({
           </button>
         )}
         <div className="grow" />
+        <button onClick={addTelop} title="今の再生位置にテロップを足す">＋ テロップを追加</button>
         {onBack && <button onClick={onBack}>カットに戻る</button>}
-        <button className="primary" disabled={exporting} onClick={() => onExport(cards)}>
+        <button className="primary" disabled={exporting} onClick={() => onExport(cards, styles)}>
           {exporting ? '書き出し中…' : '書き出す'}
         </button>
       </header>
@@ -359,7 +466,15 @@ export function TelopScreen({
         </ul>
 
         <section className="stage">
-          <div className="canvas-wrap" style={{ aspectRatio: `${frame.width} / ${frame.height}` }}>
+          <div
+            className="canvas-wrap"
+            style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
+            onPointerDown={onDragStart}
+            onPointerMove={onDragMove}
+            onPointerUp={onDragEnd}
+            onPointerCancel={onDragEnd}
+            title="ドラッグでテロップの位置を動かせます"
+          >
             <video
               ref={videoRef}
               className="bg"
@@ -407,11 +522,6 @@ export function TelopScreen({
             )}
 
             <div className="meta">
-              <span className="time">
-                {formatTime(current.srcStart)} → {formatTime(current.srcEnd)}（
-                {(current.srcEnd - current.srcStart).toFixed(1)}秒）
-              </span>
-              <span className="pos">位置 {POSITION_LABEL[current.position]}</span>
               {current.fontScale < 1 && (
                 <span className="scale">収めるため {Math.round(current.fontScale * 100)}% に縮小</span>
               )}
@@ -422,6 +532,146 @@ export function TelopScreen({
                   {current.lowWords > 0 && ` / 怪しい語 ${current.lowWords}`}）
                 </span>
               )}
+            </div>
+
+            {/* ── この1枚の調整 ── */}
+            <div className="panel">
+              <div className="row">
+                <label>表示時刻</label>
+                <span className="value">
+                  {formatTime(current.srcStart)} → {formatTime(current.srcEnd)}
+                  （{(current.srcEnd - current.srcStart).toFixed(1)}秒）
+                </span>
+                <button type="button" onClick={() => shiftTime(-0.1, -0.1)} title="全体を早める">
+                  ←
+                </button>
+                <button type="button" onClick={() => shiftTime(0.1, 0.1)} title="全体を遅らせる">
+                  →
+                </button>
+                <button type="button" onClick={() => shiftTime(0, -0.2)} title="表示時間を短く">
+                  短く
+                </button>
+                <button type="button" onClick={() => shiftTime(0, 0.2)} title="表示時間を長く">
+                  長く
+                </button>
+              </div>
+
+              <div className="row">
+                <label>位置</label>
+                {POSITION_ORDER.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={current.position === p ? 'on' : ''}
+                    onClick={() => update({ position: p })}
+                  >
+                    {POSITION_LABEL[p]}
+                  </button>
+                ))}
+                <span className="hint">
+                  {current.offsetX || current.offsetY
+                    ? `ずらし ${(current.offsetX * 100).toFixed(0)}%, ${(current.offsetY * 100).toFixed(0)}%`
+                    : 'プレビューをドラッグでも動かせます'}
+                </span>
+                {(current.offsetX !== 0 || current.offsetY !== 0) && (
+                  <button type="button" onClick={() => update({ offsetX: 0, offsetY: 0 })}>
+                    位置を戻す
+                  </button>
+                )}
+              </div>
+
+              <div className="row">
+                <label>この1枚の色</label>
+                <input
+                  type="color"
+                  value={current.override?.color ?? styles[current.style].color}
+                  onChange={(e) =>
+                    update({ override: { ...current.override, color: e.target.value } })
+                  }
+                  title="文字色"
+                />
+                <input
+                  type="color"
+                  value={
+                    current.override?.strokeColor ?? styles[current.style].stroke?.color ?? '#000000'
+                  }
+                  onChange={(e) =>
+                    update({ override: { ...current.override, strokeColor: e.target.value } })
+                  }
+                  title="縁の色"
+                />
+                <label className="sub">大きさ</label>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={1.8}
+                  step={0.05}
+                  value={current.override?.sizeScale ?? 1}
+                  onChange={(e) =>
+                    update({
+                      override: { ...current.override, sizeScale: Number(e.target.value) },
+                    })
+                  }
+                />
+                {current.override && (
+                  <button type="button" onClick={() => update({ override: undefined })}>
+                    既定に戻す
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* ── スタイルの雛形（同じスタイルのテロップすべてに効く）── */}
+            <div className="panel">
+              <div className="row">
+                <label>雛形を編集</label>
+                {STYLE_ORDER.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={editingStyle === s ? 'on' : ''}
+                    onClick={() => setEditingStyle(s)}
+                  >
+                    {STYLE_LABEL[s]}
+                  </button>
+                ))}
+                <span className="hint">このスタイルのテロップすべてに効きます</span>
+              </div>
+              <div className="row">
+                <label className="sub">文字色</label>
+                <input
+                  type="color"
+                  value={styles[editingStyle].color}
+                  onChange={(e) => patchStyle(editingStyle, { color: e.target.value })}
+                />
+                <label className="sub">縁の色</label>
+                <input
+                  type="color"
+                  value={styles[editingStyle].stroke?.color ?? '#000000'}
+                  onChange={(e) =>
+                    patchStyle(editingStyle, {
+                      stroke: {
+                        widthRatio: styles[editingStyle].stroke?.widthRatio ?? 0.16,
+                        color: e.target.value,
+                      },
+                    })
+                  }
+                />
+                <label className="sub">大きさ</label>
+                <input
+                  type="range"
+                  min={0.04}
+                  max={0.16}
+                  step={0.005}
+                  value={styles[editingStyle].fontSizeRatio}
+                  onChange={(e) =>
+                    patchStyle(editingStyle, { fontSizeRatio: Number(e.target.value) })
+                  }
+                />
+                <button type="button" onClick={() => patchStyle(editingStyle, DEFAULT_STYLES[editingStyle])}>
+                  既定に戻す
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -434,6 +684,8 @@ export function TelopScreen({
         <kbd>Space</kbd> 一時停止 <kbd>R</kbd> 頭から再生
         <span className="sep" />
         <kbd>1</kbd> 通常 <kbd>2</kbd> 補足 <kbd>3</kbd> 強調 <kbd>P</kbd> 位置 <kbd>Del</kbd> 削除
+        <span className="sep" />
+        プレビューをドラッグで位置調整
         <span className="sep" />
         直さなかったものはそのまま焼き込まれます
       </footer>

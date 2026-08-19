@@ -8,7 +8,7 @@
  * 違う大きさで描くと overlay 側で拡大縮小され、縁取りの太さが変わる。
  */
 import { drawTelop } from './render';
-import { DEFAULT_STYLES } from './style';
+import { DEFAULT_STYLES, resolveStyle, type TelopStyle, type TelopStyleName } from './style';
 import type { Frame, TelopCard } from './split';
 
 type AnyCanvas = HTMLCanvasElement;
@@ -52,6 +52,7 @@ export function renderBlank(frame: Frame): string {
 export async function renderTelopPngs(
   cards: TelopCard[],
   frame: Frame,
+  styles: Record<TelopStyleName, TelopStyle> = DEFAULT_STYLES,
   onProgress?: (done: number, total: number) => void,
 ): Promise<RasterizedTelop[]> {
   const canvas = makeCanvas(frame);
@@ -63,14 +64,15 @@ export async function renderTelopPngs(
     const card = cards[i];
     ctx.clearRect(0, 0, frame.width, frame.height);
 
-    const base = DEFAULT_STYLES[card.style];
     drawTelop(
       ctx,
       {
         lines: card.lines,
-        // 縮小して収めた場合はその倍率を反映する。プレビューと同じ計算にすること。
-        style: { ...base, fontSizeRatio: base.fontSizeRatio * card.fontScale },
+        // 🔴 プレビューと同じ resolveStyle を通す。ここで別計算をしたら WYSIWYG が崩れる。
+        style: resolveStyle(styles, card.style, card.override, card.fontScale),
         position: card.position,
+        offsetX: card.offsetX,
+        offsetY: card.offsetY,
       },
       frame,
     );

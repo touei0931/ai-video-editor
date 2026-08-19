@@ -72,7 +72,7 @@
 .telop .body {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(320px, 1fr) minmax(360px, 460px);
+  grid-template-columns: minmax(260px, 1fr) minmax(430px, 580px);
   gap: 16px;
   min-height: 0;
 }
@@ -153,14 +153,17 @@
 .telop .stage {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .telop .canvas-wrap {
   position: relative;
   width: 100%;
-  max-height: 62vh;
+  max-height: 44vh;
+  flex-shrink: 0;
   align-self: center;
   background: #000;
   border-radius: 10px;
@@ -230,6 +233,83 @@
 .telop .editor input:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
+}
+
+/* 調整パネル */
+.telop .panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.telop .panel .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.telop .panel label {
+  color: var(--muted);
+  min-width: 78px;
+  font-size: 12px;
+}
+
+.telop .panel label.sub {
+  min-width: 0;
+  margin-left: 6px;
+}
+
+.telop .panel button {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 5px;
+}
+
+.telop .panel button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0b0f;
+  font-weight: 700;
+}
+
+.telop .panel .value {
+  font-variant-numeric: tabular-nums;
+  color: #d0d0d8;
+  margin-right: 4px;
+}
+
+.telop .panel .hint {
+  color: #6a6a76;
+  font-size: 11px;
+}
+
+.telop .panel input[type='color'] {
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+}
+
+.telop .panel input[type='range'] {
+  width: 96px;
+  accent-color: var(--accent);
+}
+
+/* ドラッグで動かせることを示す */
+.telop .canvas-wrap {
+  cursor: grab;
+  touch-action: none;
+}
+.telop .canvas-wrap:active {
+  cursor: grabbing;
 }
 
 .telop .editor .meta {

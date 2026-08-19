@@ -71,4 +71,44 @@ export interface TelopSpec {
   lines: string[];
   style: TelopStyle;
   position: TelopPosition;
+  /**
+   * 既定位置からのずらし量。画面の幅・高さに対する比率。
+   * 顔にかぶるときなど、人間が手で動かすために使う（§1.3）。
+   */
+  offsetX?: number;
+  offsetY?: number;
+}
+
+/** 1枚だけ既定スタイルから変えたいときの上書き。 */
+export interface TelopOverride {
+  color?: string;
+  strokeColor?: string;
+  /** 文字の大きさ。既定に対する倍率 */
+  sizeScale?: number;
+}
+
+/**
+ * 実際に描くスタイルを決める。
+ *
+ * 🔴 プレビューも書き出しも必ずこの関数を通すこと。
+ *    どちらかが別の計算をした瞬間に「プレビューと書き出しが違う」が始まる（§6）。
+ */
+export function resolveStyle(
+  styles: Record<TelopStyleName, TelopStyle>,
+  name: TelopStyleName,
+  override?: TelopOverride,
+  fontScale = 1,
+): TelopStyle {
+  const base = styles[name];
+  const size = base.fontSizeRatio * fontScale * (override?.sizeScale ?? 1);
+  return {
+    ...base,
+    fontSizeRatio: size,
+    color: override?.color ?? base.color,
+    stroke: base.stroke
+      ? { ...base.stroke, color: override?.strokeColor ?? base.stroke.color }
+      : override?.strokeColor
+        ? { color: override.strokeColor, widthRatio: 0.16 }
+        : undefined,
+  };
 }

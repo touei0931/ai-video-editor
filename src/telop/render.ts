@@ -62,10 +62,12 @@ export function drawTelop(ctx: Ctx2D, spec: TelopSpec, frame: Frame): void {
   ctx.miterLimit = 2;
 
   const blockHeight = lineHeight * (lines.length - 1);
-  const baseY = Math.round(frame.height * POSITION_RATIO[position]);
+  // 人間が手で動かした分を足す。既定位置からの相対なので、
+  // 解像度が変わっても同じ見え方になる。
+  const baseY = Math.round(frame.height * (POSITION_RATIO[position] + (spec.offsetY ?? 0)));
   // middle のときだけ、ブロック全体が中央に来るように上へずらす
   const startY = position === 'middle' ? baseY - blockHeight / 2 : baseY;
-  const centerX = Math.round(frame.width / 2);
+  const centerX = Math.round(frame.width * (0.5 + (spec.offsetX ?? 0)));
 
   lines.forEach((line, i) => {
     const y = Math.round(startY + lineHeight * i);
