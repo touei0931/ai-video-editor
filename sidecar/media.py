@@ -56,14 +56,23 @@ def probe_video_info(path: str) -> dict[str, Any]:
 
     テロップの PNG は**この解像度ちょうどで描く**必要がある。
     ずれると overlay で拡大縮小され、縁取りの太さが変わって見た目が崩れる。
+
+    🔴 回転情報（Display Matrix）を必ず見ること。
+       iPhone の縦動画はストリーム自体は 1920x1080 のまま、
+       「-90度回して表示せよ」という情報が付いている。
+       ffmpeg は書き出し時にこれを自動で適用するので、
+       出来上がる映像は 1080x1920 になる。
+       ストリームの数値をそのまま信じると、横長のテロップを縦長の映像に重ねることになり、
+       テロップがずれて画面から見切れる（実際に起きた）。
     """
     ffmpeg = find_ffmpeg()
     result = subprocess.run(
         [ffmpeg, "-hide_banner", "-i", path],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
-    info: dict[str, Any] = {"width": 0, "height": 0, "fps": 30.0, "duration": 0.0}
+    info: dict[str, Any] = {"width": 0, "height": 0, "fps": 30.0, "duration": 0.0, "rotation": 0}
 
+    in_video = False
     for line in (result.stderr or "").splitlines():
         if "Duration:" in line:
             token = line.split("Duration:")[1].split(",")[0].strip()
@@ -72,18 +81,35 @@ def probe_video_info(path: str) -> dict[str, Any]:
                 info["duration"] = int(h) * 3600 + int(m) * 60 + float(s)
             except ValueError:
                 pass
-        if "Video:" in line and not info["width"]:
-            # 「1920x1080」を拾う。SAR/DAR は「1280:1281」形式なので誤爆しない。
-            size = re.search(r"\b(\d{2,5})x(\d{2,5})\b", line)
-            if size:
-                info["width"] = int(size.group(1))
-                info["height"] = int(size.group(2))
-            fps = re.search(r"([\d.]+) fps", line)
-            if fps:
+
+        if "Stream #" in line:
+            # 映像ストリームの行から次のストリームまでが、そのストリームの付随情報
+            in_video = "Video:" in line
+            if in_video and not info["width"]:
+                # 「1920x1080」を拾う。SAR/DAR は「1280:1281」形式なので誤爆しない。
+                size = re.search(r"\b(\d{2,5})x(\d{2,5})\b", line)
+                if size:
+                    info["width"] = int(size.group(1))
+                    info["height"] = int(size.group(2))
+                fps = re.search(r"([\d.]+) fps", line)
+                if fps:
+                    try:
+                        info["fps"] = float(fps.group(1))
+                    except ValueError:
+                        pass
+            continue
+
+        if in_video and not info["rotation"]:
+            # 「Display Matrix: rotation of -90.00 degrees」または「rotate : 90」
+            rot = re.search(r"rotation of\s+(-?[\d.]+)", line) or re.search(r"rotate\s*:\s*(-?\d+)", line)
+            if rot:
                 try:
-                    info["fps"] = float(fps.group(1))
+                    info["rotation"] = int(round(float(rot.group(1)))) % 360
                 except ValueError:
                     pass
+
+    if info["rotation"] in (90, 270):
+        info["width"], info["height"] = info["height"], info["width"]
 
     return info
 
@@ -106,6 +132,15 @@ def extract_audio(video_path: str, out_wav: str, on_progress: ProgressFn | None 
         out_wav,
     ])
     return out_wav
+
+
+def png_size(path: str) -> tuple[int, int]:
+    """PNG の縦横を読む。IHDR はファイル先頭の決まった位置にある。"""
+    with open(path, "rb") as f:
+        head = f.read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError(f"PNG ではありません: {path}")
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
 
 
 def _concat_path(path: str) -> str:

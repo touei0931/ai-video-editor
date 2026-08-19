@@ -239,7 +239,7 @@ def _build_telops(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, 
 def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     """承認されたカットとテロップを適用して書き出す。"""
     from .cut import keep_ranges, map_time_to_output
-    from .media import export_cut_video, write_telop_track
+    from .media import export_cut_video, png_size, probe_video_info, write_telop_track
 
     video_path = params["video_path"]
     out_path = params["out_path"]
@@ -255,6 +255,19 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     telops = params.get("telops") or []
     if telops:
         on_progress(0.02, "テロップを配置しています")
+
+        # 🔴 テロップの大きさが映像と一致していることを確かめる。
+        #    ずれていると overlay は黙って左上に貼り付けるだけなので、
+        #    「テロップがずれて見切れる」という形で書き出したあとに初めて気づく。
+        #    実際に iPhone の縦動画（回転情報つき）で起きた。
+        info = probe_video_info(video_path)
+        pw, ph = png_size(telops[0]["png"])
+        if (pw, ph) != (info["width"], info["height"]):
+            raise ValueError(
+                f"テロップの大きさが映像と違います（テロップ {pw}x{ph} / 映像 {info['width']}x{info['height']}）。"
+                "動画を読み込み直してください。"
+            )
+
         placed: list[dict[str, Any]] = []
         for t in telops:
             out_start = map_time_to_output(keeps, float(t["src_start"]))
