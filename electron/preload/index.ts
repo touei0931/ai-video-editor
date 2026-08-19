@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('t2', {
 
 contextBridge.exposeInMainWorld('telopE2E', {
   workDir: () => ipcRenderer.invoke('telopE2E:workDir'),
+  mediaProbePath: () => ipcRenderer.invoke('telopE2E:mediaProbePath'),
   submit: (payload: unknown) => ipcRenderer.invoke('telopE2E:submit', payload),
 });
 

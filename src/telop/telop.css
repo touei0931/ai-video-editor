@@ -176,6 +176,38 @@
   object-fit: contain;
 }
 
+/* 再生位置と、テロップが出ている区間 */
+.telop .playbar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: #26262e;
+  overflow: hidden;
+  align-self: stretch;
+}
+
+.telop .playbar .played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #55606f;
+}
+
+/* テロップが出ている区間。ここに来たら文字が現れる */
+.telop .playbar .band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  opacity: 0.85;
+  border-radius: 3px;
+}
+
+.telop .canvas-wrap .overlay {
+  transition: opacity 0.06s linear;
+}
+
 .telop .editor {
   display: flex;
   flex-direction: column;

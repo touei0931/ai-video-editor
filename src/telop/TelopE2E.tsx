@@ -74,6 +74,58 @@ const UNITS: TelopUnit[] = [
   },
 ];
 
+export interface SeekProbe {
+  skipped?: string;
+  error?: string;
+  duration?: number;
+  target?: number;
+  landedAt?: number;
+}
+
+/**
+ * media:// 経由の動画を途中までシークできるか確かめる。
+ *
+ * fetch で Range を叩く方法は使えない。
+ * ページの生成元は file:// なので、media:// への fetch は CORS で弾かれる。
+ * （動画要素の読み込みは CORS の対象外なので、アプリの再生自体は成立する）
+ * ここで見たいのは動画要素の挙動そのものなので、動画要素で確かめる。
+ */
+function probeSeek(path: string): Promise<SeekProbe> {
+  if (!path) return Promise.resolve({ skipped: '検証用の素材がありません' });
+
+  return new Promise<SeekProbe>((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    const done = (r: SeekProbe) => {
+      video.removeAttribute('src');
+      resolve(r);
+    };
+
+    const timer = setTimeout(() => done({ error: 'シークが返ってきませんでした' }), 20_000);
+
+    video.addEventListener('error', () => {
+      clearTimeout(timer);
+      done({ error: `読み込みに失敗しました（code ${video.error?.code}）` });
+    });
+
+    video.addEventListener('loadedmetadata', () => {
+      const target = video.duration * 0.6;
+      video.addEventListener(
+        'seeked',
+        () => {
+          clearTimeout(timer);
+          done({ duration: video.duration, target, landedAt: video.currentTime });
+        },
+        { once: true },
+      );
+      video.currentTime = target;
+    });
+
+    video.src = `media://local/${encodeURIComponent(path.replace(/\\/g, '/'))}`;
+  });
+}
+
 export function TelopE2E() {
   const [status, setStatus] = useState('準備中');
 
@@ -90,6 +142,13 @@ export function TelopE2E() {
         const rendered = await renderTelopPngs(cards, FRAME);
         const blank = renderBlank(FRAME);
 
+        // 🔴 元素材の任意の時刻へシークできるかを確かめる。
+        //    テロップ確認画面は「テロップの2.5秒前から再生」するので、
+        //    シークできなければ画面ごと成立しない。
+        //    シークは media:// が Range に応えて初めて動く。
+        setStatus('元素材のシークを確認中');
+        const seek = await probeSeek(await window.telopE2E.mediaProbePath());
+
         setStatus('保存中');
         const dir = await window.telopE2E.workDir();
         const saved = await window.app.saveTelopFrames({
@@ -103,6 +162,7 @@ export function TelopE2E() {
         await window.telopE2E.submit({
           families,
           frame: FRAME,
+          seek,
           cards: cards.map((c) => ({
             id: c.id,
             srcStart: c.srcStart,

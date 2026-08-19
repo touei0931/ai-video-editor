@@ -23,6 +23,15 @@ const STYLE_LABEL: Record<TelopStyleName, string> = {
 };
 
 const STYLE_ORDER: TelopStyleName[] = ['normal', 'note', 'emphasis'];
+
+/**
+ * 再生する範囲。テロップの表示区間の前後にこれだけ足す。
+ *
+ * テロップだけを見せても「その文言で合っているか」は判断できない。
+ * 前の会話が聞こえて初めて、聞き取りが正しいか・区切りが自然かが分かる。
+ */
+const LEAD_IN = 2.5;
+const TAIL = 1.0;
 const POSITION_ORDER: TelopPosition[] = ['bottom', 'middle', 'top'];
 const POSITION_LABEL: Record<TelopPosition, string> = {
   top: '上',
@@ -72,6 +81,7 @@ export function TelopScreen({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const barRef = useRef<HTMLSpanElement>(null);
 
   const current = cards[index];
   const checkCount = useMemo(() => cards.filter((c) => c.needsCheck).length, [cards]);
@@ -123,13 +133,57 @@ export function TelopScreen({
   }, [current, draft, rewrap, update]);
 
   // ── プレビュー ─────────────────────────────────────────
-  // 元素材を該当時刻へシークして、その上に Canvas でテロップを描く。
-  useEffect(() => {
+  // 元素材の該当箇所を、前後の会話込みでループ再生し、その上に Canvas で描く。
+  const windowStart = Math.max(0, (current?.srcStart ?? 0) - LEAD_IN);
+  const windowEnd = (current?.srcEnd ?? 0) + TAIL;
+  const restart = useCallback(() => {
     const video = videoRef.current;
-    if (!video || !current) return;
-    // 表示区間の少し内側を狙う。境界ちょうどだと前後のフレームが出ることがある。
-    video.currentTime = Math.max(0, current.srcStart + 0.15);
-  }, [current?.id, current?.srcStart]);
+    if (!video) return;
+    video.currentTime = windowStart;
+    // 自動再生が拒否される環境でも、画面が止まるだけで済むようにする
+    void video.play().catch(() => undefined);
+  }, [windowStart]);
+
+  useEffect(() => {
+    if (current) restart();
+  }, [current?.id, restart]);
+
+  /**
+   * 再生位置に応じて、テロップの表示/非表示と再生バーを更新する。
+   *
+   * 🔴 React の state ではなく DOM を直接触る。
+   *    timeupdate イベントは 4回/秒 程度しか来ないので、テロップの出方が最大 250ms ずれる。
+   *    かといって毎フレーム state を更新すると、テロップ数百件の一覧ごと再描画されて重くなる。
+   *    ここで見たいのは「出るタイミングが合っているか」なので、精度が要る。
+   */
+  useEffect(() => {
+    if (!current) return;
+    let raf = 0;
+    const span = windowEnd - windowStart;
+
+    const tick = () => {
+      const video = videoRef.current;
+      if (video) {
+        let t = video.currentTime;
+        // 範囲を区切ったループ再生。前後の会話ごと繰り返す。
+        if (t >= windowEnd || t < windowStart - 0.5) {
+          video.currentTime = windowStart;
+          t = windowStart;
+        }
+        if (canvasRef.current) {
+          canvasRef.current.style.opacity =
+            t >= current.srcStart && t <= current.srcEnd ? '1' : '0';
+        }
+        if (barRef.current) {
+          barRef.current.style.width = `${Math.max(0, Math.min(1, (t - windowStart) / span)) * 100}%`;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [current, windowStart, windowEnd]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -208,6 +262,16 @@ export function TelopScreen({
           update({ position: next });
           break;
         }
+        case ' ': {
+          const video = videoRef.current;
+          if (!video) return;
+          if (video.paused) void video.play().catch(() => undefined);
+          else video.pause();
+          break;
+        }
+        case 'r':
+          restart();
+          break;
         case 'delete':
         case 'backspace':
           setCards((prev) => prev.filter((_, i) => i !== index));
@@ -220,7 +284,7 @@ export function TelopScreen({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editing, commitEdit, move, nextCheck, cycleStyle, update, current, index, cards.length]);
+  }, [editing, commitEdit, move, nextCheck, cycleStyle, update, restart, current, index, cards.length]);
 
   if (!current) {
     return (
@@ -300,11 +364,28 @@ export function TelopScreen({
               ref={videoRef}
               className="bg"
               src={`media://local/${encodeURIComponent(videoPath.replace(/\\/g, '/'))}`}
-              muted
               playsInline
-              preload="metadata"
+              preload="auto"
+              onLoadedMetadata={restart}
             />
-            <canvas ref={canvasRef} className="overlay" />
+            {/*
+              テロップは表示区間の間だけ出す。
+              ずっと出しっぱなしにすると「出るタイミングが正しいか」を確認できない。
+              opacity は上の requestAnimationFrame が直接書き換える。
+            */}
+            <canvas ref={canvasRef} className="overlay" style={{ opacity: 0 }} />
+          </div>
+
+          {/* 再生位置と、テロップが出ている区間 */}
+          <div className="playbar" aria-hidden>
+            <span ref={barRef} className="played" />
+            <span
+              className="band"
+              style={{
+                left: `${((current.srcStart - windowStart) / (windowEnd - windowStart)) * 100}%`,
+                width: `${((current.srcEnd - current.srcStart) / (windowEnd - windowStart)) * 100}%`,
+              }}
+            />
           </div>
 
           <div className="editor">
@@ -349,6 +430,8 @@ export function TelopScreen({
       <footer>
         <kbd>↑</kbd>
         <kbd>↓</kbd> 移動 <kbd>Tab</kbd> 次の要確認 <kbd>E</kbd> 文言を直す
+        <span className="sep" />
+        <kbd>Space</kbd> 一時停止 <kbd>R</kbd> 頭から再生
         <span className="sep" />
         <kbd>1</kbd> 通常 <kbd>2</kbd> 補足 <kbd>3</kbd> 強調 <kbd>P</kbd> 位置 <kbd>Del</kbd> 削除
         <span className="sep" />

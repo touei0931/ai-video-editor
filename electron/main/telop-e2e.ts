@@ -1,11 +1,12 @@
 /**
  * テロップ書き出し経路の検証（`npm run t5`）。
  *
- * 見るのは3点:
+ * 見るのは4点:
  *   1. レンダラで PNG が作れて、ディスクに落ちるか
  *   2. その PNG に**中身があるか**（透明なだけの画像だと ffmpeg は何も合成しない。
  *      これは実際に踏んだ罠で、エラーにならないので気付けない）
- *   3. その PNG を焼き込んだ動画が書き出せるか
+ *   3. 元素材の途中へシークできるか（テロップ確認画面がこれに依存している）
+ *   4. その PNG を焼き込んだ動画が書き出せるか
  *
  * 2 は ffmpeg の alphaextract で不透明画素を数えて確かめる。
  */
@@ -33,6 +34,7 @@ interface Submission {
   frame?: { width: number; height: number };
   cards?: Card[];
   blankPng?: string;
+  seek?: { skipped?: string; error?: string; duration?: number; target?: number; landedAt?: number };
 }
 
 function findFfmpeg(appRoot: string): string | null {
@@ -61,8 +63,14 @@ export async function runTelopE2E(appRoot: string, devUrl?: string): Promise<num
   const workDir = join(outDir, 'telops');
   mkdirSync(workDir, { recursive: true });
 
+  const fixture = join(appRoot, 'fixtures-local', 'test_video_ja.mp4');
+  // CI には実素材を置かないので、生成した検証用素材で代用する
+  const sample = join(appRoot, 'samples', 'sample_landscape_solo.mp4');
+  const probeVideo = existsSync(fixture) ? fixture : existsSync(sample) ? sample : '';
+
   const submission = await new Promise<Submission>((resolve, reject) => {
     ipcMain.handle('telopE2E:workDir', () => workDir);
+    ipcMain.handle('telopE2E:mediaProbePath', () => probeVideo);
     ipcMain.handle('telopE2E:submit', (_e, payload: Submission) => resolve(payload));
 
     const win = new BrowserWindow({
@@ -121,9 +129,22 @@ export async function runTelopE2E(appRoot: string, devUrl?: string): Promise<num
     problems.push('隙間埋め用の画像が保存されていません');
   }
 
+  // ── 元素材の途中へシークできるか ──
+  // できないと、テロップ確認画面（テロップの2.5秒前から再生する）が成立しない。
+  const seek = submission.seek;
+  if (!seek) {
+    problems.push('シークの確認が返ってきていません');
+  } else if (seek.error) {
+    problems.push(`元素材をシークできません: ${seek.error}`);
+  } else if (!seek.skipped) {
+    const off = Math.abs((seek.landedAt ?? -1) - (seek.target ?? 0));
+    if (off > 0.5) {
+      problems.push(`シーク位置がずれています（${seek.target?.toFixed(2)}秒 → ${seek.landedAt?.toFixed(2)}秒）`);
+    }
+  }
+
   // ── 実際に焼き込んで書き出せるところまで確認する ──
   let exported: Record<string, unknown> | null = null;
-  const fixture = join(appRoot, 'fixtures-local', 'test_video_ja.mp4');
   if (problems.length === 0 && existsSync(fixture)) {
     try {
       exported = (await sidecar.call('export', {
@@ -147,13 +168,19 @@ export async function runTelopE2E(appRoot: string, devUrl?: string): Promise<num
   const ok = problems.length === 0;
   writeFileSync(
     join(outDir, 't5-result.json'),
-    JSON.stringify({ ok, problems, families: submission.families, cards: details, exported }, null, 2),
+    JSON.stringify(
+      { ok, problems, families: submission.families, seek, cards: details, exported },
+      null,
+      2,
+    ),
     'utf8',
   );
 
   for (const d of details) {
     console.error(`[t5] ${d.id}: ${(d.lines as string[]).join(' / ')} — ${d.bytes}B 不透明${d.opaquePixels}px`);
   }
+  if (seek?.skipped) console.error(`[t5] シーク確認: 省略（${seek.skipped}）`);
+  else if (seek) console.error(`[t5] シーク: ${seek.target?.toFixed(2)}秒 → ${seek.landedAt?.toFixed(2)}秒（尺 ${seek.duration?.toFixed(2)}秒）`);
   if (exported) console.error(`[t5] 書き出し: ${exported.encoder} / テロップ ${exported.telop_count} 枚`);
   else if (!existsSync(fixture)) console.error('[t5] 素材が無いので書き出しは省略しました');
 

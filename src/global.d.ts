@@ -15,6 +15,7 @@ declare global {
     };
     telopE2E: {
       workDir: () => Promise<string>;
+      mediaProbePath: () => Promise<string>;
       submit: (payload: unknown) => Promise<void>;
     };
     app: {
