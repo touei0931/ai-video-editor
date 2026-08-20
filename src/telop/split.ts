@@ -68,6 +68,11 @@ export interface TelopCard {
   lowWords: number;
   /** 文節途中の改行を避けるために縮めた倍率（1.0 なら等倍） */
   fontScale: number;
+  /**
+   * 手で決めた改行位置（本文の先頭から数えた文字数）。
+   * 未指定なら、幅に収まらなくなったところで自動的に折り返す。
+   */
+  breaks?: number[];
   /** 既定位置からのずらし量（画面サイズに対する比率） */
   offsetX: number;
   offsetY: number;
@@ -207,14 +212,49 @@ export function splitIntoCards(
     });
   });
 
-  // 分割で伸ばした結果、隣と重なることがある。後ろを優先して押し戻す。
-  for (let i = 0; i < cards.length - 1; i++) {
-    if (cards[i].srcEnd > cards[i + 1].srcStart) {
-      cards[i].srcEnd = Number(Math.max(cards[i].srcStart + 0.1, cards[i + 1].srcStart - 0.02).toFixed(3));
+  return resolveOverlaps(cards);
+}
+
+/** 重なりを直したあと、1枚に最低限見せる時間 */
+const MIN_VISIBLE = 0.25;
+
+/**
+ * テロップが時間的に重ならないように直す。
+ *
+ * 🔴 **遅らせるのではなく、前を切り上げること。**
+ *    書き出しのテロップ列は1本の帯（concat）なので、重なりがあると
+ *    「前が消えるまで次が出ない」という形で必ず後ろへずれる。
+ *    テロップの開始時刻はその言葉が発せられた時刻そのものなので、
+ *    ずらすと声と文字が合わなくなる。**開始時刻は動かさない**のが正しい。
+ *    前のテロップは、次が出るまで表示されていれば役目を果たしている。
+ *
+ * 例外は「次が始まるまでに前が一瞬しか映らない」場合だけ。
+ * 切り上げると点滅にしか見えないので、そこだけは次を少し（最大 0.25 秒）待たせる。
+ */
+export function resolveOverlaps(cards: TelopCard[]): TelopCard[] {
+  const out = [...cards]
+    .sort((a, b) => a.srcStart - b.srcStart || a.srcEnd - b.srcEnd)
+    .map((c) => ({ ...c }));
+
+  for (let i = 0; i < out.length - 1; i++) {
+    const cur = out[i];
+    const next = out[i + 1];
+    if (cur.srcEnd <= next.srcStart) continue;
+
+    if (next.srcStart - cur.srcStart >= MIN_VISIBLE) {
+      // 次が出る瞬間まで出しておく。声と文字のずれはここでは生まれない。
+      cur.srcEnd = Number(next.srcStart.toFixed(3));
+    } else {
+      // 前が一瞬になってしまう。ここだけは次を待たせる。
+      cur.srcEnd = Number((cur.srcStart + MIN_VISIBLE).toFixed(3));
+      next.srcStart = cur.srcEnd;
+      if (next.srcEnd < next.srcStart + MIN_VISIBLE) {
+        next.srcEnd = Number((next.srcStart + MIN_VISIBLE).toFixed(3));
+      }
     }
   }
 
-  return cards;
+  return out;
 }
 
 /** 全ユニットを画面単位に展開する。隣り合うユニット間の重なりもここで解消する。 */
@@ -224,15 +264,7 @@ export function buildCards(
   frame: Frame,
   options: SplitOptions = {},
 ): TelopCard[] {
-  const cards = units.flatMap((u) => splitIntoCards(u, measure, frame, options));
-  cards.sort((a, b) => a.srcStart - b.srcStart);
-
-  for (let i = 0; i < cards.length - 1; i++) {
-    if (cards[i].srcEnd > cards[i + 1].srcStart) {
-      cards[i].srcEnd = Number(Math.max(cards[i].srcStart + 0.1, cards[i + 1].srcStart - 0.02).toFixed(3));
-    }
-  }
-  return cards;
+  return resolveOverlaps(units.flatMap((u) => splitIntoCards(u, measure, frame, options)));
 }
 
 /** Canvas を使った幅の実測関数を作る。フォントの読み込みは呼び出し側で済ませておくこと。 */
@@ -267,15 +299,24 @@ export function rewrapCard(
    *    プレビューと書き出しは一致するので、両方おかしいことに気づけない。
    */
   styles?: Record<TelopStyleName, TelopStyle>,
+  /**
+   * この1枚だけの事情。
+   *
+   * 🔴 sizeScale を渡さないと、「この1枚の大きさ」を変えたときに折り返しが古いままになる。
+   *    小さくしたのに 2行のまま、大きくしたら画面からはみ出す、という形で出る。
+   *    描画側（resolveStyle）は sizeScale を掛けるので、測るほうも掛けないと合わない。
+   */
+  card: { sizeScale?: number; breaks?: number[] } = {},
 ): { lines: string[]; fontScale: number } {
   const marginRatio = options.marginRatio ?? 0.08;
   const style = styles?.[styleName] ?? DEFAULT_STYLES[styleName];
-  const fontPx = telopFontSize(style, frame);
+  const fontPx = telopFontSize(style, frame) * (card.sizeScale ?? 1);
   const fit = fitToLines(
     (t, scale) => measure(t, fontPx * scale, style.fontFamily),
     text,
     frame.width * (1 - marginRatio * 2),
     options.maxLines ?? 2,
+    { breaks: card.breaks },
   );
   return { lines: fit.lines.map((l) => l.trim()).filter(Boolean), fontScale: fit.fontScale };
 }

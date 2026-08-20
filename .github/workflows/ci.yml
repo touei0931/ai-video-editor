@@ -30,6 +30,9 @@ jobs:
       - run: npm run typecheck
       # 下書きの索引。壊れると「保存したのに一覧に出ない」という気づきにくい壊れ方をする
       - run: npm run test:drafts
+      # 🔴 改行位置と表示時刻の重なり。どちらも画面上は普通に見えるので手では見つからない。
+      #    重なりを放置すると、書き出した動画の後半でテロップが軒並みずれる。
+      - run: npm run test:telop
 
   # サイドカーが両OSで起動し、stdio JSON-RPC が成立するか
   sidecar:
@@ -56,6 +59,9 @@ jobs:
       # Final Cut へ渡すタイムライン。フレーム境界と file:// URL が要点
       - name: FCPXML の書き出し
         run: python scripts/test_fcpxml.py
+      # 🔴 テロップの帯は1本しかない。重なりを並べると後半が芋づる式にずれる
+      - name: テロップの帯と字幕
+        run: python scripts/test_telop_track.py
       - name: stdio JSON-RPC の疎通（ping / env）
         shell: bash
         run: |

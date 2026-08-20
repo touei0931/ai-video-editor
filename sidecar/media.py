@@ -273,6 +273,11 @@ def write_telop_track(
 
     透明な blank.png で隙間を埋め、全体が動画の尺と同じ長さになるようにする。
     尺を合わせておかないと、overlay が最後のテロップを最後まで出しっぱなしにする。
+
+    🔴 重なっているテロップは、**前を切り上げて**次を定刻に出すこと。
+    この帯は1本しかないので、重なりをそのまま並べると後ろへずれていく。
+    テロップの開始時刻は声が出た時刻なので、ずらすと声と文字が合わなくなる。
+    しかも1枚ずれると以降が芋づる式にずれるため、後半ほど大きく狂う。
     """
     lines: list[str] = []
     cursor = 0.0
@@ -282,9 +287,13 @@ def write_telop_track(
             lines.append(f"file '{_concat_path(blank_png)}'")
             lines.append(f"duration {seconds:.3f}")
 
-    for t in sorted(telops, key=lambda x: x["out_start"]):
+    ordered = sorted(telops, key=lambda x: float(x["out_start"]))
+    for i, t in enumerate(ordered):
         start = max(cursor, float(t["out_start"]))
         end = max(start, float(t["out_end"]))
+        # 次が始まる時刻で必ず打ち切る（次を待たせない）
+        if i + 1 < len(ordered):
+            end = min(end, float(ordered[i + 1]["out_start"]))
         if end - start < 0.02:
             continue
         blank(start - cursor)
@@ -636,9 +645,20 @@ def write_srt(path: str, entries: list[dict[str, Any]]) -> str:
     カットを適用した動画に読み込んだ瞬間にずれる。
     """
     lines: list[str] = []
-    for i, e in enumerate(sorted(entries, key=lambda x: x["out_start"]), start=1):
-        lines.append(str(i))
-        lines.append(f"{_srt_time(e['out_start'])} --> {_srt_time(e['out_end'])}")
+    # 重なりは前を切り上げて解消する。焼き込みと同じ見え方にするため。
+    # 重なった字幕を出しっぱなしにすると、読み込んだ先の挙動（後ろを待たせる／
+    # 2行重ねて出す）がソフトごとに変わり、どれも意図した見え方にならない。
+    ordered = sorted(entries, key=lambda x: float(x["out_start"]))
+    number = 0
+    for i, e in enumerate(ordered):
+        end = float(e["out_end"])
+        if i + 1 < len(ordered):
+            end = min(end, float(ordered[i + 1]["out_start"]))
+        if end - float(e["out_start"]) < 0.02:
+            continue
+        number += 1
+        lines.append(str(number))
+        lines.append(f"{_srt_time(e['out_start'])} --> {_srt_time(end)}")
         lines.append(str(e["text"]).replace("\r", ""))
         lines.append("")
 

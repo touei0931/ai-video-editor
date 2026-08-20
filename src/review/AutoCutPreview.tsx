@@ -313,9 +313,20 @@ export function AutoCutPreview({
         case 'O':
           mark('out');
           break;
+        /*
+          🔴 Esc でこの画面を閉じない。
+
+          ここは「通しで見ながら直す」画面で、数十分いることもある。
+          その間ずっと、指1本で画面ごと終われるキーが生きているのは危ない
+          （範囲選択をやめるつもりで押して、確認そのものが終わる）。
+          画面を出るのは「確認を終える」を押したときだけにする。
+
+          Esc は範囲選択の取り消しに使う。「ここから」を押したあとで
+          やっぱりやめるときに、いちばん押したくなるキーがこれ。
+        */
         case 'Escape':
-          if (markIn !== null || markOut !== null) clearMarks();
-          else onClose();
+          if (markIn === null && markOut === null) return;
+          clearMarks();
           break;
         default:
           return;
@@ -327,7 +338,7 @@ export function AutoCutPreview({
     //    そちらに届くと候補の判定が書き換わる。
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [toggle, step, near, toggleAndReplay, onClose, mark, clearMarks, cutRange, canCutRange, markIn, markOut]);
+  }, [toggle, step, near, toggleAndReplay, mark, clearMarks, cutRange, canCutRange, markIn, markOut]);
 
   /** バーの空いている場所を押したらその位置へ飛ぶ */
   const seekTo = useCallback(
@@ -549,10 +560,13 @@ export function AutoCutPreview({
           バーの印を押すと、その場で切る／戻すが切り替わり、
           <strong>その少し手前から流し直します</strong>。
           <kbd>Space</kbd> 一時停止 / <kbd>←</kbd>
-          <kbd>→</kbd> 前後のカットへ / <kbd>Enter</kbd> 切る・戻す / <kbd>Esc</kbd> 閉じる
+          <kbd>→</kbd> 前後のカットへ / <kbd>Enter</kbd> 切る・戻す
           <br />
           要らない箇所は <kbd>I</kbd>（ここから）と <kbd>O</kbd>（ここまで）で範囲を決めて、
-          <kbd>Enter</kbd> で切れます。無音やフィラーでなくても切れます。
+          <kbd>Enter</kbd> で切れます。無音やフィラーでなくても切れます。 選び直すときは{' '}
+          <kbd>Esc</kbd>。
+          <br />
+          この画面を出るときは、右上の<strong>「確認を終える」</strong>を押してください。
         </p>
       </div>
     </div>

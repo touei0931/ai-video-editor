@@ -10,9 +10,10 @@
  *   - 認識が怪しい箇所（needs_check）だけ赤く出し、そこへ直接飛べるようにする
  *   - プレビューは**実際の映像の上に**出す。文字だけ見ても顔にかぶるか分からない。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { shouldIgnoreKey } from '../keys';
 import { buildLines, drawTelop } from './render';
+import { phraseBoundaries } from './wrap';
 import {
   DEFAULT_STYLES,
   resolveStyle,
@@ -21,7 +22,7 @@ import {
   type TelopPosition,
   type TelopStyleName,
 } from './style';
-import type { Frame, TelopCard } from './split';
+import { resolveOverlaps, type Frame, type TelopCard } from './split';
 import './telop.css';
 
 export type StyleMap = Record<TelopStyleName, TelopStyle>;
@@ -69,6 +70,20 @@ function formatTime(sec: number): string {
 }
 
 /**
+ * 文言を直したあとも生きている改行位置だけを残す。
+ *
+ * 改行位置は文字数で持っているので、文言が変わると指している場所がずれる。
+ * 直したあとの本文でも文節の切れ目になっている位置だけを残せば、
+ * 「直した箇所より前の指定はそのまま」「おかしな位置には残らない」の両方になる。
+ */
+function keepBreaks(breaks: number[] | undefined, text: string): number[] | undefined {
+  if (!breaks || breaks.length === 0) return undefined;
+  const usable = new Set(phraseBoundaries(text));
+  const kept = breaks.filter((b) => usable.has(b));
+  return kept.length > 0 ? kept : undefined;
+}
+
+/**
  * 画面を離れるときに持ち出す状態。
  *
  * 🔴 カットに戻ってまた来たときに、直した内容が消えてはいけない。
@@ -98,6 +113,7 @@ export interface TelopScreenProps {
     text: string,
     style: TelopStyleName,
     styles?: StyleMap,
+    card?: { sizeScale?: number; breaks?: number[] },
   ) => { lines: string[]; fontScale: number };
   onBack?: (edits: TelopEdits) => void;
   /**
@@ -178,12 +194,15 @@ export function TelopScreen({
    */
   const shiftAll = useCallback((delta: number) => {
     setCards((prev) =>
-      prev.map((c) => ({
-        ...c,
-        srcStart: Number(Math.max(0, c.srcStart + delta).toFixed(3)),
-        srcEnd: Number(Math.max(0.2, c.srcEnd + delta).toFixed(3)),
-        edited: true,
-      })),
+      // 全部同じだけ動かすので普通は重ならないが、先頭が 0 秒で止まると詰まる
+      resolveOverlaps(
+        prev.map((c) => ({
+          ...c,
+          srcStart: Number(Math.max(0, c.srcStart + delta).toFixed(3)),
+          srcEnd: Number(Math.max(0.2, c.srcEnd + delta).toFixed(3)),
+          edited: true,
+        })),
+      ),
     );
   }, []);
 
@@ -204,7 +223,10 @@ export function TelopScreen({
           setCards((cs) =>
             cs.map((c) => {
               if (c.style !== name) return c;
-              const fit = rewrap(c.text, name, next);
+              const fit = rewrap(c.text, name, next, {
+                sizeScale: c.override?.sizeScale,
+                breaks: c.breaks,
+              });
               return { ...c, lines: fit.lines, fontScale: fit.fontScale };
             }),
           );
@@ -253,6 +275,27 @@ export function TelopScreen({
     [index],
   );
 
+  /**
+   * 折り返しを計算し直したうえでの変更内容を作る。
+   *
+   * 🔴 文言・スタイル・**大きさ**・改行位置のどれを変えてもここを通すこと。
+   *    描画は resolveStyle で「雛形 × 縮小率 × この1枚の倍率」を掛けるのに、
+   *    折り返しの計算だけ倍率を見ていなかった。そのため「この1枚の大きさ」を
+   *    小さくしても行の分け方は大きいときのままで、**縮めたのに2行のまま**になる。
+   *    逆に大きくすると、行の幅は小さいとき基準のまま文字だけ育って画面から溢れる。
+   */
+  const refit = useCallback(
+    (card: TelopCard, patch: Partial<TelopCard>): Partial<TelopCard> => {
+      const text = patch.text ?? card.text;
+      const style = patch.style ?? card.style;
+      const override = 'override' in patch ? patch.override : card.override;
+      const breaks = 'breaks' in patch ? patch.breaks : card.breaks;
+      const fit = rewrap(text, style, styles, { sizeScale: override?.sizeScale, breaks });
+      return { ...patch, lines: fit.lines, fontScale: fit.fontScale };
+    },
+    [rewrap, styles],
+  );
+
   const move = useCallback(
     (delta: number) => {
       setIndex((i) => Math.max(0, Math.min(cards.length - 1, i + delta)));
@@ -282,22 +325,41 @@ export function TelopScreen({
     (name: TelopStyleName) => {
       if (!current) return;
       // スタイルが変わるとフォントも大きさも変わるので、折り返しを計算し直す
-      const fit = rewrap(current.text, name, styles);
-      update({ style: name, lines: fit.lines, fontScale: fit.fontScale, reason: '手動で変更' });
+      update(refit(current, { style: name, reason: '手動で変更' }));
       setEditingStyle(name);
     },
-    [current, rewrap, update],
+    [current, refit, update],
   );
 
-  /** 表示時刻をずらす / 伸縮する */
+  /**
+   * 表示時刻をずらす / 伸縮する。
+   *
+   * 🔴 動かしたあとは必ず重なりを解消する。
+   *    重なったまま書き出すと、テロップの帯は1本なので
+   *    「前が消えるまで次が出ない」という形で後ろが軒並みずれる。
+   */
   const shiftTime = useCallback(
     (deltaStart: number, deltaEnd: number) => {
       if (!current) return;
       const start = Math.max(0, current.srcStart + deltaStart);
       const end = Math.max(start + 0.2, current.srcEnd + deltaEnd);
-      update({ srcStart: Number(start.toFixed(3)), srcEnd: Number(end.toFixed(3)) });
+      const id = current.id;
+      const fixed = resolveOverlaps(
+        cards.map((c) =>
+          c.id === id
+            ? {
+                ...c,
+                srcStart: Number(start.toFixed(3)),
+                srcEnd: Number(end.toFixed(3)),
+                edited: true,
+              }
+            : c,
+        ),
+      );
+      setCards(fixed);
+      setIndex(fixed.findIndex((c) => c.id === id));
     },
-    [current, update],
+    [current, cards],
   );
 
   /**
@@ -326,14 +388,13 @@ export function TelopScreen({
       manual: true,
     };
     remember();
-    setCards((prev) => {
-      const next = [...prev, card].sort((a, b) => a.srcStart - b.srcStart);
-      setIndex(next.findIndex((c) => c.id === card.id));
-      return next;
-    });
+    // 割り込ませた場所に既にテロップがあることは珍しくない。重なりはここで解消する
+    const next = resolveOverlaps([...cards, card]);
+    setCards(next);
+    setIndex(next.findIndex((c) => c.id === card.id));
     setDraft(card.text);
     setEditing(true);
-  }, [current, remember]);
+  }, [cards, current, remember]);
 
   // ── プレビュー上でテロップを掴んで動かす ──
   //
@@ -378,9 +439,29 @@ export function TelopScreen({
     const text = draft.trim();
     setEditing(false);
     if (!text || text === current.text) return;
-    const fit = rewrap(text, current.style, styles);
-    update({ text, lines: fit.lines, fontScale: fit.fontScale, needsCheck: false });
-  }, [current, draft, rewrap, update]);
+    // 文言が変われば文節の切れ目も変わる。指したままにできる改行位置だけ残す
+    update(refit(current, { text, breaks: keepBreaks(current.breaks, text), needsCheck: false }));
+  }, [current, draft, refit, update]);
+
+  // ── 改行位置を自分で決める ──
+  //
+  // 🔴 どこでも切れるようにはしない。文節の切れ目だけを選ばせる。
+  //    自由に切れると「お前顔映ってもい / いな」のような改行が作れてしまい、
+  //    自動改行より悪い結果を手で作れることになる。
+  const boundaries = useMemo(() => phraseBoundaries(current?.text ?? ''), [current?.text]);
+  const chosenBreaks = useMemo(() => new Set(current?.breaks ?? []), [current?.breaks]);
+
+  const toggleBreak = useCallback(
+    (at: number) => {
+      if (!current) return;
+      const next = new Set(current.breaks ?? []);
+      if (next.has(at)) next.delete(at);
+      else next.add(at);
+      const sorted = [...next].sort((a, b) => a - b);
+      update(refit(current, { breaks: sorted.length > 0 ? sorted : undefined }));
+    },
+    [current, refit, update],
+  );
 
   // ── プレビュー ─────────────────────────────────────────
   // 元素材の該当箇所を、前後の会話込みでループ再生し、その上に Canvas で描く。
@@ -799,6 +880,57 @@ export function TelopScreen({
                 <button type="button" onClick={() => shiftTime(0, 0.2)} title="表示時間を長く">
                   長く
                 </button>
+                {/*
+                  次のテロップに接していると「長く」を押しても伸びない。
+                  黙って何も起きないと壊れて見えるので、理由を出す。
+                */}
+                {cards[index + 1] && current.srcEnd >= cards[index + 1].srcStart - 0.001 && (
+                  <span className="hint">次のテロップが始まるまで出ています</span>
+                )}
+              </div>
+
+              {/*
+                ② 改行位置を自分で決める。
+                自動でも文節の切れ目で折り返すが、「ここで切りたい」は人によって違う。
+              */}
+              <div className="row breaks">
+                <label>改行位置</label>
+                {boundaries.length === 0 ? (
+                  <span className="hint">短いので改行しません</span>
+                ) : (
+                  <span className="breakpicker">
+                    {boundaries.map((at, i) => (
+                      <Fragment key={at}>
+                        <span className="ph">
+                          {current.text.slice(i === 0 ? 0 : boundaries[i - 1], at)}
+                        </span>
+                        <button
+                          type="button"
+                          className={`br ${chosenBreaks.has(at) ? 'on' : ''}`}
+                          title={chosenBreaks.has(at) ? 'ここの改行をやめる' : 'ここで改行する'}
+                          aria-label={chosenBreaks.has(at) ? 'ここの改行をやめる' : 'ここで改行する'}
+                          onClick={() => toggleBreak(at)}
+                        >
+                          {chosenBreaks.has(at) ? '↵' : '·'}
+                        </button>
+                      </Fragment>
+                    ))}
+                    <span className="ph">
+                      {current.text.slice(boundaries[boundaries.length - 1])}
+                    </span>
+                  </span>
+                )}
+                {current.breaks && current.breaks.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => update(refit(current, { breaks: undefined }))}
+                  >
+                    自動に戻す
+                  </button>
+                )}
+                <span className="hint">
+                  今 {current.lines.length}行（{current.lines.join(' / ')}）
+                </span>
               </div>
 
               <div className="row">
@@ -863,6 +995,10 @@ export function TelopScreen({
                   title="縁の色"
                 />
                 <label className="sub">大きさ</label>
+                {/*
+                  🔴 大きさを変えたら折り返しを計算し直す（refit）。
+                     小さくしたのに2行のまま、大きくしたら画面からはみ出す、を防ぐ。
+                */}
                 <input
                   type="range"
                   min={0.6}
@@ -870,13 +1006,15 @@ export function TelopScreen({
                   step={0.05}
                   value={current.override?.sizeScale ?? 1}
                   onChange={(e) =>
-                    update({
-                      override: { ...current.override, sizeScale: Number(e.target.value) },
-                    })
+                    update(
+                      refit(current, {
+                        override: { ...current.override, sizeScale: Number(e.target.value) },
+                      }),
+                    )
                   }
                 />
                 {current.override && (
-                  <button type="button" onClick={() => update({ override: undefined })}>
+                  <button type="button" onClick={() => update(refit(current, { override: undefined }))}>
                     既定に戻す
                   </button>
                 )}
@@ -967,7 +1105,7 @@ export function TelopScreen({
         <kbd>1</kbd> 通常 <kbd>2</kbd> 補足 <kbd>3</kbd> 強調 <kbd>P</kbd> 位置 <kbd>Del</kbd> 削除{' '}
         <kbd>Ctrl</kbd>+<kbd>Z</kbd> 取消
         <span className="sep" />
-        プレビューをドラッグで位置調整
+        プレビューをドラッグで位置調整 / 「改行位置」の <kbd>·</kbd> で改行する場所を決められます
         <span className="sep" />
         直さなかったものはそのまま焼き込まれます
       </footer>

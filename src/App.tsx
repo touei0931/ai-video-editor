@@ -28,6 +28,7 @@ import { renderBlank, renderTelopPngs } from './telop/rasterize';
 import {
   buildCards,
   makeMeasure,
+  resolveOverlaps,
   rewrapCard,
   type Frame,
   type TelopCard,
@@ -241,6 +242,8 @@ function mergeEdits(fresh: TelopCard[], previous: TelopCard[], removed: TelopCar
         offsetY: prev.offsetY,
         override: prev.override,
         highlight: prev.highlight,
+        // 手で決めた改行位置も引き継ぐ。文言が同じなら位置の意味も変わらない
+        breaks: prev.breaks,
         srcStart: prev.srcStart,
         srcEnd: prev.srcEnd,
         needsCheck: false,
@@ -250,7 +253,9 @@ function mergeEdits(fresh: TelopCard[], previous: TelopCard[], removed: TelopCar
 
   // 手で足したテロップは作り直しても出てこない。必ず持ち越す。
   const manual = previous.filter((p) => p.manual);
-  return [...carried, ...manual].sort((a, b) => a.srcStart - b.srcStart);
+  // 🔴 引き継いだ時刻と新しい時刻が混ざるので、重なりはここで解消しておく。
+  //    重なったまま渡すと、書き出しで後ろのテロップが軒並みずれる。
+  return resolveOverlaps([...carried, ...manual]);
 }
 
 function formatDuration(sec: number): string {
@@ -405,7 +410,10 @@ export function App() {
     setAnalysis(draft.analysis);
     setSavedReview(draft.review ?? null);
     setShots(draft.shots ?? []);
-    setCards(draft.cards ?? []);
+    // 🔴 重なりはここでも直す。この直しより前に保存された下書きには、
+    //    重なったままのテロップが入っている（そのまま書き出すと後半がずれる）。
+    const saved = resolveOverlaps(draft.cards ?? []);
+    setCards(saved);
     setPace(draft.pace ?? 'talk');
     setCuts(
       (draft.cuts ?? []).map((c) => ({
@@ -424,7 +432,7 @@ export function App() {
     // 🔴 これが無いと、下書きから再開しただけで文言もスタイルもやり直しになる。
     if (draft.cards?.length) {
       setFinalState({
-        cards: draft.cards,
+        cards: saved,
         styles: draft.styles ?? structuredClone(DEFAULT_STYLES),
         options: draft.options ?? { burn: true, srt: true, fcpxml: false },
         removed: draft.removed ?? [],
@@ -857,9 +865,14 @@ export function App() {
    *    折り返しだけ古い基準のままになり、テロップが画面外へはみ出す。
    */
   const rewrap = useCallback(
-    (text: string, style: TelopStyleName, styles?: StyleMap) =>
+    (
+      text: string,
+      style: TelopStyleName,
+      styles?: StyleMap,
+      card?: { sizeScale?: number; breaks?: number[] },
+    ) =>
       measure
-        ? rewrapCard(text, style, measure, frame, {}, styles)
+        ? rewrapCard(text, style, measure, frame, {}, styles, card)
         : { lines: [text], fontScale: 1 },
     [measure, frame],
   );

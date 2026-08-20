@@ -12,6 +12,8 @@
     "app": "npm run build && electron .",
     "guard": "node scripts/platform-guard.mjs",
     "test:drafts": "node scripts/test-drafts.mjs",
+    "test:telop": "node scripts/test-telop.mjs",
+    "test:track": "python scripts/test_telop_track.py",
     "test:graph": "python scripts/test_export_graph.py",
     "test:clip": "python scripts/test_review_clip.py",
     "test:cut": "python scripts/test_cut_confidence.py",

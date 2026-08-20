@@ -369,6 +369,54 @@
   accent-color: var(--accent);
 }
 
+/*
+  改行位置の選択。
+  本文を文節ごとに置き、その間だけを押せるようにする。
+  文節の中を押せてしまうと、自動改行より悪い改行を手で作れることになる。
+*/
+.telop .panel .breakpicker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #16161c;
+}
+
+.telop .panel .breakpicker .ph {
+  font-size: 13px;
+  color: #e6e6ee;
+  white-space: pre;
+}
+
+/* 押せる場所は、文字と同じ高さの細い帯にする（狙って押せる大きさが要る） */
+.telop .panel .breakpicker button.br {
+  min-width: 16px;
+  padding: 2px 0;
+  margin: 0 1px;
+  border: 1px dashed #3a3a44;
+  border-radius: 4px;
+  background: none;
+  color: #5c5c68;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.telop .panel .breakpicker button.br:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.telop .panel .breakpicker button.br.on {
+  border-style: solid;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0b0f;
+  font-weight: 700;
+}
+
 /* ドラッグで動かせることを示す */
 .telop .canvas-wrap {
   cursor: grab;

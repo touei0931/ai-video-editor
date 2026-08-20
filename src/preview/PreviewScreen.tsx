@@ -187,8 +187,16 @@ export function PreviewScreen({
 
         skipCuts();
 
-        // その時刻に出るテロップ
-        const card = cards.find((c) => t >= c.srcStart && t <= c.srcEnd) ?? null;
+        // その時刻に出るテロップ。
+        //
+        // 🔴 重なっているときは**後から始まったほう**を出す。
+        //    先に見つかったほうを出すと、前のテロップが消えるまで次が出てこない。
+        //    書き出し側も後ろを優先して前を切り上げるので、見え方をそれに合わせる。
+        let card: TelopCard | null = null;
+        for (const c of cards) {
+          if (c.srcStart > t) break; // 時刻順に並んでいる
+          if (t <= c.srcEnd) card = c;
+        }
         const key = card?.id ?? null;
         if (key !== drawnRef.current) {
           drawnRef.current = key;
