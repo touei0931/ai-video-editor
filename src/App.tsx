@@ -311,6 +311,7 @@ export function App() {
       <ReviewScreen
         candidates={analysis.candidates.map(toCandidate)}
         band={analysis.review_band}
+        fps={analysis.video.fps}
         onExport={buildTelops}
         exporting={false}
       />

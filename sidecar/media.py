@@ -221,9 +221,21 @@ def export_cut_video(
 
     parts: list[str] = []
     for i, (start, end) in enumerate(keeps):
+        # 🔴 繋ぎ目に短いフェードを入れる。
+        #    波形が0を跨がない位置で切ると「プチッ」というクリックノイズが乗る。
+        #    20分素材で100箇所カットすれば100回鳴るし、
+        #    書き出したあとに直すのは全繋ぎ目を手で探す作業になる。
+        #
+        #    クロスフェード（重ねる方式）にはしない。重ねると尺が縮み、
+        #    テロップの時刻対応（§11.2）が狂うため。
+        #    各区間の端を数フレームだけ絞れば、尺を変えずにクリックは消える。
+        length = end - start
+        fade = min(FADE_SECONDS, length / 4)
         parts.append(
             f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[v{i}];"
-            f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{i}];"
+            f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS,"
+            f"afade=t=in:st=0:d={fade:.4f},"
+            f"afade=t=out:st={max(0.0, length - fade):.4f}:d={fade:.4f}[a{i}];"
         )
     concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(len(keeps)))
 
@@ -266,6 +278,10 @@ def export_cut_video(
         "size_mb": round(os.path.getsize(out_path) / 1024 / 1024, 2),
     }
 
+
+#: 繋ぎ目のフェード長。30fps で約1フレーム。
+#: これ以上長いと語頭が痩せて聞こえ、短いとクリックが残る。
+FADE_SECONDS = 0.035
 
 #: レビュー用クリップで、カット前後をそれぞれ何秒ぶん見せるか。
 #: 短いと「無音だったか」しか分からない。前後の話が聞こえる長さが要る。
@@ -314,9 +330,17 @@ def make_review_clip(
         cmd += ["-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", video_path]
 
     filters: list[str] = []
-    for i in range(len(segments)):
+    for i, (_, length) in enumerate(segments):
         filters.append(f"[{i}:v]setpts=PTS-STARTPTS[v{i}]")
-        filters.append(f"[{i}:a]asetpts=PTS-STARTPTS[a{i}]")
+        # 🔴 書き出しと同じフェードを掛けること。
+        #    ここだけ素のまま繋ぐと、実際の書き出しには乗らないクリックノイズを
+        #    聞かせることになり、「繋ぎが不自然」という誤った判断をさせてしまう。
+        fade = min(FADE_SECONDS, length / 4)
+        filters.append(
+            f"[{i}:a]asetpts=PTS-STARTPTS,"
+            f"afade=t=in:st=0:d={fade:.4f},"
+            f"afade=t=out:st={max(0.0, length - fade):.4f}:d={fade:.4f}[a{i}]"
+        )
 
     if len(segments) > 1:
         joined = "".join(f"[v{i}][a{i}]" for i in range(len(segments)))

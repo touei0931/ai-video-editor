@@ -29,6 +29,38 @@ DEFAULTS = {
     "confident_silence": 0.8,
     # 動画の末尾の無音は文脈が無いので確信度を下げない
     "trim_tail": True,
+    # 言い直しとみなす繰り返しの最大語数
+    "restate_max_words": 4,
+    # 繰り返しの間がこれより空いていれば、言い直しではなく別の発言とみなす
+    "restate_max_gap": 1.2,
+    # 繰り返しとみなす最小の文字数
+    "restate_min_chars": 2,
+    # これより短くしかならないカットは候補にしない。
+    # 0.2秒詰めるためにジャンプカットを1つ増やすのは割に合わない。
+    "min_gain": 0.3,
+}
+
+#: 素材の種類で「間」の扱いはまるで違う。
+#:
+#: 🔴 解説・実況を既定にすること。
+#:    ショート向けの詰めた設定を長尺に当てると、
+#:    話の切れ目に**意図して置いた間まで全部消える**。
+#:    間は編集で作るものであって、機械的に消すものではない。
+PRESETS: dict[str, dict[str, Any]] = {
+    # 10〜20分の解説・実況。間を残す
+    "talk": {
+        "min_silence": 0.45,
+        "keep_padding": 0.22,
+        "confident_silence": 1.5,
+        "min_gain": 0.35,
+    },
+    # ショート動画。テンポ優先で詰める
+    "short": {
+        "min_silence": 0.3,
+        "keep_padding": 0.08,
+        "confident_silence": 0.8,
+        "min_gain": 0.2,
+    },
 }
 
 # 確信度による3分割の境目（§3.3.1）。
@@ -68,7 +100,8 @@ def detect_candidates(transcript: dict[str, Any], options: dict[str, Any] | None
     **元素材のタイムコード（src_*）だけを持つ**。編集後タイムラインの座標は
     ここでは一切扱わない（§11.2 二重座標系の分離）。
     """
-    opts = {**DEFAULTS, **(options or {})}
+    options = options or {}
+    opts = {**DEFAULTS, **PRESETS.get(str(options.get("preset", "talk")), {}), **options}
     segments = transcript.get("segments", [])
     duration = float(transcript.get("duration") or 0)
 
@@ -109,8 +142,14 @@ def detect_candidates(transcript: dict[str, Any], options: dict[str, Any] | None
             pad = opts["keep_padding"]
             start = prev_end + pad
             end = w["src_start"] - pad
-            # 長い無音ほど「切ってよい」と言い切れる
-            confidence = 0.6 + min(0.35, (gap - opts["min_silence"]) * 0.4)
+            # 詰まる量がわずかなら、ジャンプカットを増やすだけ損
+            if end - start < opts["min_gain"]:
+                prev_end = max(prev_end, w["src_end"])
+                continue
+            # 長い無音ほど「切ってよい」と言い切れる。
+            # confident_silence に達したところでちょうど自動承認（0.9）になる。
+            span = max(0.01, opts["confident_silence"] - opts["min_silence"])
+            confidence = 0.6 + 0.3 * min(1.0, (gap - opts["min_silence"]) / span)
             add(
                 "silence",
                 start,
@@ -148,22 +187,50 @@ def detect_candidates(transcript: dict[str, Any], options: dict[str, Any] | None
             after="".join(x["text"] for x in words[i + 1:i + 6]).strip(),
         )
 
-    # ── 言い直し（同じ語の繰り返し）────────────────────────
-    # 「これ、これが」のように、短い間隔で同じ語が続く場合。
-    # 本格的な判定は LLM に渡す（§11.4）。ここでは明らかなものだけ拾う。
-    for i in range(1, len(words)):
-        a, b = words[i - 1], words[i]
-        if _normalize(a["text"]) and _normalize(a["text"]) == _normalize(b["text"]):
-            if b["src_start"] - a["src_end"] < 0.6:
-                add(
-                    "restate",
-                    a["src_start"],
-                    a["src_end"],
-                    0.55,
-                    word=a["text"].strip(),
-                    before="".join(x["text"] for x in words[max(0, i - 5):i - 1]).strip(),
-                    after="".join(x["text"] for x in words[i:i + 5]).strip(),
-                )
+    # ── 言い直し（同じ語句の繰り返し）──────────────────────
+    #
+    # 「これ、これがですね」「ここの、ここのボルト」のように、
+    # 短い間隔で同じ語句が続く場合。最初の方を切る。
+    #
+    # 🔴 確信度は必ずレビュー対象の帯（0.6以上 0.9未満）に入れること。
+    #    以前は 0.55 固定だったため**常に自動却下**され、
+    #    検出しているのに結果に一切影響しない状態になっていた。
+    #    言い直しは文脈がないと判断できないので、人間に見せるのが正しい。
+    #
+    # 本格的な判定は LLM に渡す（§11.4）。ここでは形の上で明らかなものだけ拾う。
+    max_len = int(opts["restate_max_words"])
+    used: set[int] = set()
+    for n in range(max_len, 0, -1):
+        for i in range(len(words) - 2 * n + 1):
+            first = words[i:i + n]
+            second = words[i + n:i + 2 * n]
+            if any(j in used for j in range(i, i + 2 * n)):
+                continue
+
+            a = "".join(_normalize(w["text"]) for w in first)
+            b = "".join(_normalize(w["text"]) for w in second)
+            # 1文字の一致はただの偶然（Whisper は語をさらに細かく割る）。
+            # 「す」が2回続いただけで言い直し扱いにすると誤検出だらけになる。
+            if len(a) < opts["restate_min_chars"] or a != b:
+                continue
+            # 間が空きすぎていれば、繰り返しではなく別の発言
+            if second[0]["src_start"] - first[-1]["src_end"] > opts["restate_max_gap"]:
+                continue
+
+            used.update(range(i, i + 2 * n))
+            add(
+                "restate",
+                first[0]["src_start"],
+                # 2つ目の語句の直前まで切る（間の「えー」なども一緒に消える）。
+                # ここは無音ではなく発話を切るので、無音用の余白は使わない。
+                # 使うと talk プリセット（余白0.22秒）では区間が消えてしまう。
+                second[0]["src_start"] - 0.02,
+                # 語数が多い繰り返しほど「言い直し」らしい
+                0.62 + min(0.2, (n - 1) * 0.08),
+                word=a,
+                before="".join(x["text"] for x in words[max(0, i - 5):i]).strip(),
+                after="".join(x["text"] for x in words[i + n:i + n + 6]).strip(),
+            )
 
     candidates.sort(key=lambda c: c["src_start"])
     for i, c in enumerate(candidates):

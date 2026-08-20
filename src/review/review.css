@@ -1,9 +1,9 @@
 /* カットレビュー画面。キーボード操作中心なので、目線が動かない配置にする。 */
 
 .review {
-  max-width: 980px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 28px 24px 40px;
+  padding: 20px 24px 28px;
 }
 
 .review header {
@@ -165,8 +165,13 @@
   gap: 6px;
 }
 
+/*
+  プレビューは大きく。
+  縦動画を 169x300px で見せられても、顔がわずかに飛ぶタイプの
+  ジャンプカットは判別できない。ここが判断の材料そのもの。
+*/
 .preview-video {
-  max-height: 300px;
+  max-height: 52vh;
   max-width: 100%;
   border-radius: 10px;
   background: #000;
@@ -419,6 +424,100 @@ kbd {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.8;
+}
+
+/* フィラーの一括処理 */
+.fillers {
+  margin: 24px 0;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: left;
+}
+
+.fillers h2 {
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+
+.fillers ul {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.fillers > ul > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 5px 0;
+  border-bottom: 1px solid #1e1e26;
+}
+
+.fillers label.group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  flex: 1;
+}
+
+.fillers .word {
+  font-weight: 700;
+  color: #e0d08f;
+  min-width: 70px;
+}
+
+.fillers .count {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fillers .instances {
+  width: 100%;
+  margin: 4px 0 8px 24px;
+  padding-left: 10px;
+  border-left: 2px solid #26262e;
+}
+
+.fillers .instances li {
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.fillers .instances label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.fillers .instances .time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+}
+
+.fillers .instances .ctx {
+  color: #b0b0bc;
+}
+
+.fillers .instances .ctx em {
+  font-style: normal;
+  color: #e0d08f;
+  font-weight: 700;
+}
+
+button.link {
+  background: none;
+  border: 0;
+  padding: 0 4px;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .sr-only {

@@ -19,6 +19,9 @@ import './review.css';
 
 type Decision = 'approved' | 'rejected' | 'held';
 
+/** 繋ぎ目の何秒前から再生を始めるか */
+const LEAD_IN = 1.2;
+
 function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
@@ -70,14 +73,38 @@ export interface ReviewScreenProps {
    * ここが sidecar 側とずれると、プレビューの無い候補がレビューに出てくる。
    */
   band?: ReviewBand;
+  /** 素材のフレームレート。境界の微調整を秒に換算するのに使う */
+  fps?: number;
   /** 書き出しへ進む。省略すると書き出しボタンを出さない */
   onExport?: (approved: CutCandidate[]) => void;
   exporting?: boolean;
 }
 
+/** 境界の微調整量（フレーム単位）。前側と後側を別々に持つ。 */
+interface Trim {
+  start: number;
+  end: number;
+}
+
+/**
+ * 微調整を反映したカット区間を返す。
+ *
+ * 🔴 書き出しは必ずこの関数を通すこと。
+ *    以前は調整量を画面表示にしか使っておらず、
+ *    「←→ を押しても書き出しに反映されない」という状態だった。
+ *    しかも書き出すまで気づけない。
+ */
+function withTrim(c: CutCandidate, trim: Trim | undefined, fps: number): CutCandidate {
+  if (!trim || (trim.start === 0 && trim.end === 0)) return c;
+  const start = Math.max(0, c.srcStart + trim.start / fps);
+  const end = Math.max(start + 0.02, c.srcEnd + trim.end / fps);
+  return { ...c, srcStart: Number(start.toFixed(3)), srcEnd: Number(end.toFixed(3)) };
+}
+
 export function ReviewScreen({
   candidates,
   band = DEFAULT_BAND,
+  fps = 30,
   onExport,
   exporting,
 }: ReviewScreenProps = {}) {
@@ -112,7 +139,9 @@ export function ReviewScreen({
 
   const [index, setIndex] = useState(0);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
-  const [adjust, setAdjust] = useState<Record<string, number>>({});
+  const [adjust, setAdjust] = useState<Record<string, Trim>>({});
+  /** 一括処理から外したフィラー（誤爆を人間が救う手段） */
+  const [excludedFillers, setExcludedFillers] = useState<Set<string>>(() => new Set());
   const [history, setHistory] = useState<string[]>([]);
   const [startedAt] = useState(() => Date.now());
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
@@ -131,6 +160,10 @@ export function ReviewScreen({
 
   /** 直前の判定を取り消したときに、どれを取り消したかを知らせる */
   const [undoNotice, setUndoNotice] = useState<number | null>(null);
+  /** Enter でまとめて承認した件数（完了画面で明示する） */
+  const [bulkApproved, setBulkApproved] = useState(0);
+  /** フィラー一覧で開いている語 */
+  const [expandedWord, setExpandedWord] = useState<string | null>(null);
 
   /** タイムライン上のマーカーから「何件目か」を引くための対応表 */
   const reviewIndexById = useMemo(
@@ -206,10 +239,40 @@ export function ReviewScreen({
     });
   }, [toReview, index]);
 
+  /**
+   * 残りをまとめて承認して完了画面へ進む。
+   *
+   * 🔴 「完了画面に飛ぶ」だけにしてはいけない。
+   *    以前は画面遷移だけで判定を記録していなかったため、
+   *    「残り一括承認」と書いてあるのに**残りが全部カットされない**状態だった。
+   *    後半が丸ごと未カットの動画が出てきても、数字を見ても気づけない。
+   */
+  const approveRest = useCallback(() => {
+    const rest = toReview.slice(index).filter((c) => !decisions[c.id]);
+    if (rest.length > 0) {
+      setDecisions((prev) => {
+        const next = { ...prev };
+        for (const c of rest) next[c.id] = 'approved';
+        return next;
+      });
+      setHistory((prev) => [...prev, ...rest.map((c) => c.id)]);
+      setBulkApproved(rest.length);
+    }
+    setIndex(toReview.length);
+  }, [toReview, index, decisions]);
+
+  /**
+   * カットの境界を1フレーム単位で動かす。
+   * 前側（カットの始まり）と後側（カットの終わり）を別々に動かせないと、
+   * 「語尾が切れている」「次の語の頭が切れている」のどちらも直せない。
+   */
   const nudge = useCallback(
-    (frames: number) => {
+    (side: 'start' | 'end', frames: number) => {
       if (!current) return;
-      setAdjust((prev) => ({ ...prev, [current.id]: (prev[current.id] ?? 0) + frames }));
+      setAdjust((prev) => {
+        const t = prev[current.id] ?? { start: 0, end: 0 };
+        return { ...prev, [current.id]: { ...t, [side]: t[side] + frames } };
+      });
     },
     [current],
   );
@@ -223,9 +286,24 @@ export function ReviewScreen({
   const replayJoin = useCallback(() => {
     const video = videoRef.current;
     if (!video || !current?.clipJoinAt) return;
-    video.currentTime = Math.max(0, current.clipJoinAt - 1.0);
+    video.currentTime = Math.max(0, current.clipJoinAt - LEAD_IN);
     void video.play();
   }, [current]);
+
+  /**
+   * 🔴 クリップの先頭からではなく、繋ぎ目の少し手前から再生を始める。
+   *    先頭から流すと繋ぎ目に着くまで 2.5 秒待つことになり、
+   *    「1件2.2秒で判断する」という目標が物理的に成立しない。
+   *    前の会話は 1.2 秒も聞けば文脈は分かる。
+   */
+  const onClipReady = useCallback(
+    (e: React.SyntheticEvent<HTMLVideoElement>) => {
+      const at = current?.clipJoinAt ?? 0;
+      if (at > 0) e.currentTarget.currentTime = Math.max(0, at - LEAD_IN);
+      void e.currentTarget.play().catch(() => undefined);
+    },
+    [current],
+  );
 
   // キーボードだけで完結させる。マウスに手を伸ばした時点で2秒失う（§3.3.3）
   useEffect(() => {
@@ -245,10 +323,10 @@ export function ReviewScreen({
           undo();
           break;
         case 'arrowleft':
-          nudge(e.shiftKey ? -5 : -1);
+          nudge(e.shiftKey ? 'end' : 'start', -1);
           break;
         case 'arrowright':
-          nudge(e.shiftKey ? 5 : 1);
+          nudge(e.shiftKey ? 'end' : 'start', 1);
           break;
         case ' ':
           // 自動でループしているので、Space は一時停止/再開に使う
@@ -261,7 +339,7 @@ export function ReviewScreen({
           replayJoin();
           break;
         case 'enter':
-          setIndex(toReview.length);
+          approveRest();
           break;
         case '[':
           jumpTo(index - 1);
@@ -280,7 +358,7 @@ export function ReviewScreen({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [decide, undo, nudge, jumpTo, replayJoin, index, revisiting, resumeIndex, toReview.length]);
+  }, [decide, undo, nudge, jumpTo, replayJoin, approveRest, index, revisiting, resumeIndex, toReview.length]);
 
   const counts = useMemo(() => {
     const v = Object.values(decisions);
@@ -293,6 +371,64 @@ export function ReviewScreen({
 
   const elapsed = ((finishedAt ?? Date.now()) - startedAt) / 1000;
   const perItem = history.length > 0 ? elapsed / history.length : 0;
+
+  /** フィラーは語ごとにまとめて扱う。1件ずつ見るには件数が多すぎる。 */
+  const fillerGroups = useMemo(() => {
+    const map = new Map<string, CutCandidate[]>();
+    for (const c of fillers) {
+      const key = c.word ?? '(不明)';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(c);
+    }
+    return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [fillers]);
+
+  const toggleFiller = useCallback((id: string) => {
+    setExcludedFillers((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleFillerWord = useCallback(
+    (word: string, turnOn: boolean) => {
+      setExcludedFillers((prev) => {
+        const next = new Set(prev);
+        for (const c of fillers) {
+          if ((c.word ?? '(不明)') !== word) continue;
+          if (turnOn) next.delete(c.id);
+          else next.add(c.id);
+        }
+        return next;
+      });
+    },
+    [fillers],
+  );
+
+  const revisitHeld = useCallback(() => {
+    const target = toReview.findIndex((c) => decisions[c.id] === 'held');
+    if (target >= 0) {
+      setResumeIndex(toReview.length);
+      setIndex(target);
+      setFinishedAt(null);
+    }
+  }, [toReview, decisions]);
+
+  /**
+   * 実際に書き出すカット。
+   * 🔴 必ず withTrim を通す。ここを通さないと境界の微調整が消える。
+   */
+  const approvedCuts = useMemo(
+    () =>
+      [
+        ...autoApproved,
+        ...fillers.filter((c) => !excludedFillers.has(c.id)),
+        ...toReview.filter((c) => decisions[c.id] === 'approved'),
+      ].map((c) => withTrim(c, adjust[c.id], fps)),
+    [autoApproved, fillers, excludedFillers, toReview, decisions, adjust, fps],
+  );
 
   if (done) {
     return (
@@ -322,6 +458,82 @@ export function ReviewScreen({
           <dd>{all.length} 件</dd>
         </dl>
 
+        {bulkApproved > 0 && (
+          <p className="note">Enter で残り {bulkApproved} 件をまとめて承認しました。</p>
+        )}
+
+        {/*
+          フィラーの一括処理は確認できないと危ない。
+          「あの」は「**あの**人が言ってた」の「あの」も拾うので、
+          全部落とすと文が壊れる。語ごとにまとめて外せるようにする。
+        */}
+        {fillerGroups.length > 0 && (
+          <section className="fillers">
+            <h2>フィラーの一括カット</h2>
+            <p className="note">
+              語ごとにまとめて外せます。「あの」「その」は指示語と紛らわしいので、
+              おかしければ外してください。
+            </p>
+            <ul>
+              {fillerGroups.map(([word, items]) => {
+                const on = items.filter((c) => !excludedFillers.has(c.id)).length;
+                return (
+                  <li key={word}>
+                    <label className="group">
+                      <input
+                        type="checkbox"
+                        checked={on > 0}
+                        onChange={() => toggleFillerWord(word, on === 0)}
+                      />
+                      <span className="word">{word}</span>
+                      <span className="count">
+                        {on}/{items.length} 件をカット
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => setExpandedWord(expandedWord === word ? null : word)}
+                    >
+                      {expandedWord === word ? '閉じる' : '1件ずつ見る'}
+                    </button>
+                    {expandedWord === word && (
+                      <ul className="instances">
+                        {items.map((c) => (
+                          <li key={c.id}>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={!excludedFillers.has(c.id)}
+                                onChange={() => toggleFiller(c.id)}
+                              />
+                              <span className="time">{formatTime(c.srcStart)}</span>
+                              <span className="ctx">
+                                …{c.before}
+                                <em>{word}</em>
+                                {c.after}…
+                              </span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
+        {counts.held > 0 && (
+          <p className="warn">
+            保留が {counts.held} 件あります。保留はカットされません。
+            <button className="link" onClick={revisitHeld}>
+              最初の保留を見る
+            </button>
+          </p>
+        )}
+
         <p className="note">
           ここで押した Y / N が、そのまま「あなたのカットの好み」の学習データになります（§12）。
           使うほど自動承認の範囲が広がり、確認する件数が減っていく設計です。
@@ -332,21 +544,9 @@ export function ReviewScreen({
             <button
               className="primary"
               disabled={exporting}
-              onClick={() => {
-                // 自動承認された分と、人間が承認した分をまとめて適用する
-                const approved = [
-                  ...autoApproved,
-                  ...fillers,
-                  ...toReview.filter((c) => decisions[c.id] === 'approved'),
-                ];
-                onExport(approved);
-              }}
+              onClick={() => onExport(approvedCuts)}
             >
-              {exporting
-                ? '処理中…'
-                : `${
-                    autoApproved.length + fillers.length + counts.approved
-                  } 箇所をカットしてテロップへ進む`}
+              {exporting ? '処理中…' : `${approvedCuts.length} 箇所をカットしてテロップへ進む`}
             </button>
           )}
           <button onClick={() => window.location.reload()}>最初から</button>
@@ -355,8 +555,11 @@ export function ReviewScreen({
     );
   }
 
-  const offset = adjust[current.id] ?? 0;
-  const cutLength = current.srcEnd - current.srcStart + offset / 30;
+  const trim = adjust[current.id];
+  // 実際に書き出される区間。表示と書き出しで同じ関数を通す。
+  const trimmed = withTrim(current, trim, fps);
+  const cutLength = trimmed.srcEnd - trimmed.srcStart;
+  const trimmedFrames = (trim?.start ?? 0) !== 0 || (trim?.end ?? 0) !== 0;
   const joinAt = current.clipJoinAt ?? 0;
   const clipDuration = current.clipDuration ?? 0;
 
@@ -460,6 +663,7 @@ export function ReviewScreen({
                 autoPlay
                 loop
                 playsInline
+                onLoadedMetadata={onClipReady}
                 onTimeUpdate={(e) => setClipTime(e.currentTarget.currentTime)}
               />
 
@@ -497,14 +701,28 @@ export function ReviewScreen({
               <span className="keep">カット前 {joinAt.toFixed(1)}秒</span>
               <span className="cut">
                 ここで {cutLength.toFixed(2)} 秒カット
-                {offset !== 0 && <em> （{offset > 0 ? '+' : ''}{offset}F 調整）</em>}
+                {trimmedFrames && (
+                  <em>
+                    {' '}
+                    （始まり {trim!.start > 0 ? '+' : ''}
+                    {trim!.start}F / 終わり {trim!.end > 0 ? '+' : ''}
+                    {trim!.end}F）
+                  </em>
+                )}
               </span>
               <span className="keep">カット後 {(clipDuration - joinAt).toFixed(1)}秒</span>
             </>
           ) : (
             <span className="cut">
               カット {cutLength.toFixed(2)} 秒
-              {offset !== 0 && <em> （{offset > 0 ? '+' : ''}{offset}F 調整）</em>}
+              {trimmedFrames && (
+                <em>
+                  {' '}
+                  （始まり {trim!.start > 0 ? '+' : ''}
+                  {trim!.start}F / 終わり {trim!.end > 0 ? '+' : ''}
+                  {trim!.end}F）
+                </em>
+              )}
             </span>
           )}
         </div>
@@ -533,7 +751,7 @@ export function ReviewScreen({
         <kbd>Y</kbd> 承認 <kbd>N</kbd> 却下 <kbd>Space</kbd> 一時停止 <kbd>R</kbd> 繋ぎ目から再生
         <span className="sep" />
         <kbd>←</kbd>
-        <kbd>→</kbd> 境界±1F <kbd>Shift</kbd>+←→ ±5F <kbd>S</kbd> 保留
+        <kbd>→</kbd> カット始まり±1F <kbd>Shift</kbd>+←→ 終わり±1F <kbd>S</kbd> 保留
         <span className="sep" />
         <kbd>[</kbd>
         <kbd>]</kbd> 前後へ移動 <kbd>U</kbd> 直前判定を取消 <kbd>Enter</kbd> 残り一括承認
