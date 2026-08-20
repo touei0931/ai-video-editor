@@ -101,6 +101,38 @@ export function TelopScreen({
   /** 雛形の編集パネルで今どのスタイルを触っているか */
   const [editingStyle, setEditingStyle] = useState<TelopStyleName>('normal');
   const [exportOptions, setExportOptions] = useState<ExportOptions>({ burn: true, srt: true });
+  /**
+   * 直前の状態。Del で消したものを戻せないと、誤爆が怖くて Del を押せなくなる。
+   * テロップは数百枚あるので、履歴は直近だけで十分。
+   */
+  const undoStack = useRef<TelopCard[][]>([]);
+
+  const remember = useCallback(() => {
+    undoStack.current.push(cards);
+    if (undoStack.current.length > 30) undoStack.current.shift();
+  }, [cards]);
+
+  const undo = useCallback(() => {
+    const prev = undoStack.current.pop();
+    if (!prev) return;
+    setCards(prev);
+    setIndex((i) => Math.min(i, prev.length - 1));
+  }, []);
+
+  /**
+   * 全テロップの時刻をまとめてずらす。
+   * 文字起こしのタイムスタンプは全体的に数十〜百数十ms遅れることがあり、
+   * それを1枚ずつ直していたら数百回の操作になる。
+   */
+  const shiftAll = useCallback((delta: number) => {
+    setCards((prev) =>
+      prev.map((c) => ({
+        ...c,
+        srcStart: Number(Math.max(0, c.srcStart + delta).toFixed(3)),
+        srcEnd: Number(Math.max(0.2, c.srcEnd + delta).toFixed(3)),
+      })),
+    );
+  }, []);
 
   const patchStyle = useCallback((name: TelopStyleName, patch: Partial<TelopStyle>) => {
     setStyles((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
@@ -193,6 +225,7 @@ export function TelopScreen({
       offsetY: 0,
       manual: true,
     };
+    remember();
     setCards((prev) => {
       const next = [...prev, card].sort((a, b) => a.srcStart - b.srcStart);
       setIndex(next.findIndex((c) => c.id === card.id));
@@ -200,7 +233,7 @@ export function TelopScreen({
     });
     setDraft(card.text);
     setEditing(true);
-  }, [current]);
+  }, [current, remember]);
 
   // ── プレビュー上でテロップを掴んで動かす ──
   //
@@ -395,8 +428,13 @@ export function TelopScreen({
           break;
         case 'delete':
         case 'backspace':
+          remember();
           setCards((prev) => prev.filter((_, i) => i !== index));
           setIndex((i) => Math.max(0, Math.min(cards.length - 2, i)));
+          break;
+        case 'z':
+          if (e.ctrlKey || e.metaKey) undo();
+          else return;
           break;
         default:
           return;
@@ -405,7 +443,7 @@ export function TelopScreen({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editing, commitEdit, move, nextCheck, cycleStyle, update, restart, styles, current, index, cards.length]);
+  }, [editing, commitEdit, move, nextCheck, cycleStyle, update, restart, remember, undo, styles, current, index, cards.length]);
 
   if (!current) {
     return (
@@ -415,7 +453,7 @@ export function TelopScreen({
         <div className="actions">
           {onBack && <button onClick={onBack}>戻る</button>}
           <button className="primary" onClick={() => onExport([], styles, exportOptions)}>
-            テロップ無しで書き出す
+            テロップ無しで進む
           </button>
         </div>
       </div>
@@ -441,6 +479,11 @@ export function TelopScreen({
           </button>
         )}
         <div className="grow" />
+        <span className="shiftall" title="全テロップの表示時刻をまとめてずらします">
+          全体
+          <button onClick={() => shiftAll(-0.1)}>−0.1秒</button>
+          <button onClick={() => shiftAll(0.1)}>+0.1秒</button>
+        </span>
         <button onClick={addTelop} title="今の再生位置にテロップを足す">＋ テロップを追加</button>
         {/*
           焼き込み一択だと後工程が詰む。BGM も B-roll も足せず、
@@ -465,7 +508,7 @@ export function TelopScreen({
         </label>
         {onBack && <button onClick={onBack}>カットに戻る</button>}
         <button className="primary" disabled={exporting} onClick={() => onExport(cards, styles, exportOptions)}>
-          {exporting ? '書き出し中…' : '書き出す'}
+          {exporting ? '書き出し中…' : '通しで確認 →'}
         </button>
       </header>
 
@@ -764,7 +807,8 @@ export function TelopScreen({
         <span className="sep" />
         <kbd>Space</kbd> 一時停止 <kbd>R</kbd> 頭から再生
         <span className="sep" />
-        <kbd>1</kbd> 通常 <kbd>2</kbd> 補足 <kbd>3</kbd> 強調 <kbd>P</kbd> 位置 <kbd>Del</kbd> 削除
+        <kbd>1</kbd> 通常 <kbd>2</kbd> 補足 <kbd>3</kbd> 強調 <kbd>P</kbd> 位置 <kbd>Del</kbd> 削除{' '}
+        <kbd>Ctrl</kbd>+<kbd>Z</kbd> 取消
         <span className="sep" />
         プレビューをドラッグで位置調整
         <span className="sep" />

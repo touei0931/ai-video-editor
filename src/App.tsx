@@ -11,8 +11,9 @@
  *
  * ③ズーム・画角は Phase 3。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ReviewScreen } from './review/ReviewScreen';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PreviewScreen } from './preview/PreviewScreen';
+import { ReviewScreen, type ReviewState } from './review/ReviewScreen';
 import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
 import { TelopScreen, type ExportOptions, type StyleMap } from './telop/TelopScreen';
 import { loadTelopFonts } from './telop/fonts';
@@ -34,6 +35,7 @@ type Phase =
   | 'review'
   | 'telops-building'
   | 'telop'
+  | 'fullpreview'
   | 'exporting'
   | 'done';
 
@@ -146,6 +148,11 @@ export function App() {
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
   const [cuts, setCuts] = useState<CutCandidate[]>([]);
   const [cards, setCards] = useState<TelopCard[]>([]);
+  /** 通し確認・書き出しで使う、確認画面での最終状態 */
+  const [finalState, setFinalState] = useState<{ cards: TelopCard[]; styles: StyleMap; options: ExportOptions } | null>(null);
+  /** 前回の続き。解析後に作業フォルダから読み込む */
+  const [savedReview, setSavedReview] = useState<ReviewState | null>(null);
+  const [resumed, setResumed] = useState(false);
   const [exported, setExported] = useState<ExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(0);
@@ -171,6 +178,16 @@ export function App() {
     [analysis],
   );
 
+  /**
+   * 解析を途中でやめる。
+   * 間違ったファイルを選んだときに十数分待たされるのは、実用上ありえない。
+   */
+  const cancelAnalyze = useCallback(async () => {
+    await window.app.cancel();
+    setPhase('idle');
+    setError(null);
+  }, []);
+
   const pickAndAnalyze = useCallback(async () => {
     setError(null);
     const path = await window.app.pickVideo();
@@ -184,7 +201,23 @@ export function App() {
       // モデルは sidecar 側の既定（large-v3-turbo）に任せる。
       // 精度は文字起こし・カット・テロップのすべてに効くので、ここをケチらない。
       const result = (await window.app.analyze({ video_path: path })) as AnalyzeResult;
+      // 中断された場合は結果が来ない
+      if (!result || (result as unknown as { cancelled?: boolean }).cancelled) {
+        setPhase('idle');
+        return;
+      }
       setAnalysis(result);
+
+      // 前回の続きがあれば拾う。100件レビューした状態でアプリが落ちても、
+      // 解析からやり直しにはならない。
+      const project = (await window.app.loadProject(result.work_dir)) as
+        | { video_path?: string; review?: ReviewState }
+        | null;
+      const resume =
+        project?.video_path === result.video_path && project.review ? project.review : null;
+      setSavedReview(resume);
+      setResumed(Boolean(resume && Object.keys(resume.decisions).length > 0));
+
       // 使える発話がひとつも無い素材。ここで止めないと、
       // 素材全体が無音扱いになって「全部カット」という壊れた結果になる。
       setPhase(result.speech.kept === 0 ? 'no-speech' : 'review');
@@ -223,10 +256,39 @@ export function App() {
     [analysis, measure, frame],
   );
 
+  /**
+   * 判定を作業フォルダに書く。
+   * 押すたびに書くと I/O が多すぎるので、少し待ってからまとめて書く。
+   */
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveReview = useCallback(
+    (state: ReviewState) => {
+      if (!analysis) return;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        void window.app.saveProject({
+          workDir: analysis.work_dir,
+          data: { video_path: analysis.video_path, savedAt: new Date().toISOString(), review: state },
+        });
+      }, 800);
+    },
+    [analysis],
+  );
+
   const rewrap = useCallback(
     (text: string, style: TelopStyleName) =>
       measure ? rewrapCard(text, style, measure, frame) : { lines: [text], fontScale: 1 },
     [measure, frame],
+  );
+
+  /** テロップ確認のあとは、いきなり書き出さず通しで見せる */
+  const goFullPreview = useCallback(
+    (finalCards: TelopCard[], styles: StyleMap, options: ExportOptions) => {
+      setFinalState({ cards: finalCards, styles, options });
+      setCards(finalCards);
+      setPhase('fullpreview');
+    },
+    [],
   );
 
   const runExport = useCallback(
@@ -324,13 +386,20 @@ export function App() {
 
   if (phase === 'review' && analysis) {
     return (
-      <ReviewScreen
-        candidates={analysis.candidates.map(toCandidate)}
-        band={analysis.review_band}
-        fps={analysis.video.fps}
-        onExport={buildTelops}
-        exporting={false}
-      />
+      <>
+        {resumed && (
+          <p className="resumed">前回の続きから再開しました（判定済みの内容を復元しています）</p>
+        )}
+        <ReviewScreen
+          candidates={analysis.candidates.map(toCandidate)}
+          band={analysis.review_band}
+          fps={analysis.video.fps}
+          initialState={savedReview}
+          onStateChange={saveReview}
+          onExport={buildTelops}
+          exporting={false}
+        />
+      </>
     );
   }
 
@@ -342,9 +411,24 @@ export function App() {
         frame={frame}
         rewrap={rewrap}
         onBack={() => setPhase('review')}
-        onExport={runExport}
+        onExport={goFullPreview}
         exporting={false}
         error={error}
+      />
+    );
+  }
+
+  if (phase === 'fullpreview' && analysis && finalState) {
+    return (
+      <PreviewScreen
+        videoPath={analysis.video_path}
+        frame={frame}
+        duration={analysis.duration}
+        cuts={cuts}
+        cards={finalState.cards}
+        styles={finalState.styles}
+        onBack={() => setPhase('telop')}
+        onExport={() => void runExport(finalState.cards, finalState.styles, finalState.options)}
       />
     );
   }
@@ -423,6 +507,11 @@ export function App() {
             {Math.round((Date.now() - startedAt) / 1000)}秒経過）
           </p>
           <p className="muted">他のアプリを使っていて構いません。</p>
+          {phase === 'analyzing' && (
+            <div className="actions">
+              <button onClick={cancelAnalyze}>解析をやめる</button>
+            </div>
+          )}
         </section>
       )}
 

@@ -22,12 +22,15 @@ declare global {
       pickVideo: () => Promise<string | null>;
       pickOutput: (defaultPath: string) => Promise<string | null>;
       analyze: (params: Record<string, unknown>) => Promise<unknown>;
+      cancel: () => Promise<boolean>;
       buildTelops: (params: Record<string, unknown>) => Promise<unknown>;
       saveTelopFrames: (payload: {
         dir: string;
         frames: { name: string; base64: string }[];
       }) => Promise<Record<string, string>>;
       exportVideo: (params: Record<string, unknown>) => Promise<unknown>;
+      saveProject: (payload: { workDir: string; data: unknown }) => Promise<string>;
+      loadProject: (workDir: string) => Promise<unknown | null>;
       revealFile: (filePath: string) => Promise<void>;
       onProgress: (cb: (p: { value: number; message: string }) => void) => () => void;
     };

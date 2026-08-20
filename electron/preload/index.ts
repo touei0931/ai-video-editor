@@ -29,10 +29,14 @@ contextBridge.exposeInMainWorld('app', {
   pickVideo: () => ipcRenderer.invoke('app:pickVideo'),
   pickOutput: (defaultPath: string) => ipcRenderer.invoke('app:pickOutput', defaultPath),
   analyze: (params: Record<string, unknown>) => ipcRenderer.invoke('app:analyze', params),
+  cancel: () => ipcRenderer.invoke('app:cancel'),
   buildTelops: (params: Record<string, unknown>) => ipcRenderer.invoke('app:buildTelops', params),
   saveTelopFrames: (payload: { dir: string; frames: { name: string; base64: string }[] }) =>
     ipcRenderer.invoke('app:saveTelopFrames', payload),
   exportVideo: (params: Record<string, unknown>) => ipcRenderer.invoke('app:export', params),
+  saveProject: (payload: { workDir: string; data: unknown }) =>
+    ipcRenderer.invoke('app:saveProject', payload),
+  loadProject: (workDir: string) => ipcRenderer.invoke('app:loadProject', workDir),
   revealFile: (filePath: string) => ipcRenderer.invoke('app:revealFile', filePath),
   onProgress: (cb: (p: { value: number; message: string }) => void) => {
     const listener = (_e: unknown, p: { value: number; message: string }) => cb(p);

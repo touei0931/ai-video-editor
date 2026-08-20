@@ -1,0 +1,269 @@
+/**
+ * 通し確認（設計レポート §3.3.4）。
+ *
+ * 🔴 書き出す前に一度通しで見られること。
+ *    1件ずつのレビューで分かるのは「その繋ぎ目が自然か」だけで、
+ *    「カット後に話のテンポがどうなったか」は通してみないと分からない。
+ *    実際の編集でも、書き出す前に必ず1回通す。
+ *
+ * 🔴 プロキシ動画を書き出してから見せる方式にはしない。
+ *    それでは本番の書き出しとほぼ同じ待ち時間がかかり、
+ *    「確認してから書き出す」が二度手間になって使われなくなる。
+ *    元素材を再生しながらカット区間を飛ばせば、待ち時間ゼロで確認できる。
+ *    飛ぶ瞬間に一瞬引っかかるが、テンポの確認には十分。
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildLines, drawTelop } from '../telop/render';
+import { resolveStyle, SAFE_AREA_RATIO } from '../telop/style';
+import type { Frame, TelopCard } from '../telop/split';
+import type { StyleMap } from '../telop/TelopScreen';
+import './preview.css';
+
+export interface Keep {
+  start: number;
+  end: number;
+}
+
+/** カット区間から残る区間を求める（sidecar/cut.py の keep_ranges と同じ） */
+export function keepRanges(duration: number, cuts: { srcStart: number; srcEnd: number }[]): Keep[] {
+  if (cuts.length === 0) return [{ start: 0, end: duration }];
+
+  const merged: Keep[] = [];
+  for (const c of [...cuts].sort((a, b) => a.srcStart - b.srcStart)) {
+    const last = merged[merged.length - 1];
+    if (last && c.srcStart <= last.end + 0.001) last.end = Math.max(last.end, c.srcEnd);
+    else merged.push({ start: c.srcStart, end: c.srcEnd });
+  }
+
+  const keeps: Keep[] = [];
+  let cursor = 0;
+  for (const m of merged) {
+    if (m.start - cursor > 0.02) keeps.push({ start: cursor, end: m.start });
+    cursor = Math.max(cursor, m.end);
+  }
+  if (duration - cursor > 0.02) keeps.push({ start: cursor, end: duration });
+  return keeps;
+}
+
+function formatTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+const SPEEDS = [1, 1.3, 1.5, 2];
+
+export interface PreviewScreenProps {
+  videoPath: string;
+  frame: Frame;
+  duration: number;
+  cuts: { srcStart: number; srcEnd: number }[];
+  cards: TelopCard[];
+  styles: StyleMap;
+  onBack: () => void;
+  onExport: () => void;
+}
+
+export function PreviewScreen({
+  videoPath,
+  frame,
+  duration,
+  cuts,
+  cards,
+  styles,
+  onBack,
+  onExport,
+}: PreviewScreenProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const barRef = useRef<HTMLSpanElement>(null);
+  const labelRef = useRef<HTMLSpanElement>(null);
+  /** 今どのテロップを描いているか。毎フレーム描き直さないための記録 */
+  const drawnRef = useRef<string | null>(null);
+
+  const [speed, setSpeed] = useState(1);
+  const [playing, setPlaying] = useState(true);
+
+  const keeps = useMemo(() => keepRanges(duration, cuts), [duration, cuts]);
+  const keptTotal = useMemo(() => keeps.reduce((a, k) => a + (k.end - k.start), 0), [keeps]);
+
+  /** 元素材の時刻 → 編集後タイムラインの時刻 */
+  const toOutputTime = useCallback(
+    (t: number) => {
+      let acc = 0;
+      for (const k of keeps) {
+        if (t < k.start) return acc;
+        if (t <= k.end) return acc + (t - k.start);
+        acc += k.end - k.start;
+      }
+      return acc;
+    },
+    [keeps],
+  );
+
+  /**
+   * 毎フレーム、カット区間に入っていたら次の残存区間へ飛ぶ。
+   * あわせて、その時刻に出るテロップを描く。
+   */
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const video = videoRef.current;
+      if (video && !video.paused) {
+        const t = video.currentTime;
+
+        // カット区間に入ったら次へ飛ぶ
+        const keep = keeps.find((k) => t >= k.start && t < k.end);
+        if (!keep) {
+          const next = keeps.find((k) => k.start > t);
+          if (next) video.currentTime = next.start;
+          else video.pause();
+        }
+
+        // その時刻に出るテロップ
+        const card = cards.find((c) => t >= c.srcStart && t <= c.srcEnd) ?? null;
+        const key = card?.id ?? null;
+        if (key !== drawnRef.current) {
+          drawnRef.current = key;
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d');
+          if (canvas && ctx) {
+            ctx.clearRect(0, 0, frame.width, frame.height);
+            if (card) {
+              // 🔴 書き出しと同じ resolveStyle / buildLines / drawTelop を通す
+              const resolved = resolveStyle(styles, card.style, card.override, card.fontScale);
+              drawTelop(
+                ctx,
+                {
+                  lines: buildLines(card.lines, card.highlight ?? undefined, resolved),
+                  style: resolved,
+                  position: card.positionOverride ?? resolved.position,
+                  offsetX: card.offsetX,
+                  offsetY: card.offsetY,
+                },
+                frame,
+              );
+            }
+          }
+        }
+
+        const out = toOutputTime(t);
+        if (barRef.current) barRef.current.style.width = `${(out / Math.max(0.1, keptTotal)) * 100}%`;
+        if (labelRef.current) {
+          labelRef.current.textContent = `${formatTime(out)} / ${formatTime(keptTotal)}`;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [keeps, cards, styles, frame, toOutputTime, keptTotal]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) video.playbackRate = speed;
+  }, [speed]);
+
+  const toggle = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play().catch(() => undefined);
+      setPlaying(true);
+    } else {
+      video.pause();
+      setPlaying(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === ' ') {
+        toggle();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggle]);
+
+  const start = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = keeps[0]?.start ?? 0;
+    video.playbackRate = speed;
+    void video.play().catch(() => undefined);
+    setPlaying(true);
+  }, [keeps, speed]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+    }
+  }, [frame.width, frame.height]);
+
+  return (
+    <div className="fullpreview">
+      <header>
+        <span className="counter">
+          通し確認 <strong>{formatTime(keptTotal)}</strong>
+          <span className="muted">
+            {' '}
+            （元 {formatTime(duration)} から {Math.round((1 - keptTotal / duration) * 100)}% 短縮）
+          </span>
+        </span>
+        <div className="grow" />
+        <button onClick={onBack}>テロップに戻る</button>
+        <button className="primary" onClick={onExport}>
+          書き出す
+        </button>
+      </header>
+
+      <div className="stage">
+        <div className="canvas-wrap" style={{ aspectRatio: `${frame.width} / ${frame.height}` }}>
+          <video
+            ref={videoRef}
+            className="bg"
+            src={`media://local/${encodeURIComponent(videoPath.replace(/\\/g, '/'))}`}
+            playsInline
+            preload="auto"
+            onLoadedMetadata={start}
+            onClick={toggle}
+          />
+          <canvas ref={canvasRef} className="overlay" />
+          <div className="safe-area" aria-hidden>
+            <span className="band top" style={{ height: `${SAFE_AREA_RATIO.top * 100}%` }} />
+            <span className="band bottom" style={{ height: `${SAFE_AREA_RATIO.bottom * 100}%` }} />
+          </div>
+        </div>
+
+        <div className="controls">
+          <button onClick={toggle}>{playing ? '一時停止' : '再生'}</button>
+          <button onClick={start}>最初から</button>
+          <span className="bar">
+            <span ref={barRef} className="played" />
+          </span>
+          <span ref={labelRef} className="time">
+            0:00 / {formatTime(keptTotal)}
+          </span>
+          <span className="speeds">
+            {SPEEDS.map((s) => (
+              <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>
+                {s}x
+              </button>
+            ))}
+          </span>
+        </div>
+
+        <p className="note">
+          カットした部分を飛ばしながら再生しています。飛ぶ瞬間に一瞬引っかかりますが、
+          書き出した動画では滑らかに繋がります。
+          <br />
+          テンポと、テロップの出るタイミングを確認してください。<kbd>Space</kbd> で一時停止。
+        </p>
+      </div>
+    </div>
+  );
+}

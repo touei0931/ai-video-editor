@@ -78,6 +78,25 @@ export interface ReviewScreenProps {
   /** 書き出しへ進む。省略すると書き出しボタンを出さない */
   onExport?: (approved: CutCandidate[]) => void;
   exporting?: boolean;
+  /** 前回の続きから始める */
+  initialState?: ReviewState | null;
+  /** 判定が変わるたびに呼ばれる。呼び出し側で保存する */
+  onStateChange?: (state: ReviewState) => void;
+}
+
+/**
+ * 作業状態。保存して再開できるようにするため、判定はここに集める。
+ *
+ * 🔴 解析結果（文字起こし・候補・クリップ）は作業フォルダに残るので、
+ *    保存が必要なのは人間が下した判定だけ。
+ */
+export interface ReviewState {
+  decisions: Record<string, Decision>;
+  adjust: Record<string, Trim>;
+  excludedFillers: string[];
+  index: number;
+  resumeIndex: number;
+  history: string[];
 }
 
 /** 境界の微調整量（フレーム単位）。前側と後側を別々に持つ。 */
@@ -107,6 +126,8 @@ export function ReviewScreen({
   fps = 30,
   onExport,
   exporting,
+  initialState,
+  onStateChange,
 }: ReviewScreenProps = {}) {
   const all = useMemo(() => candidates ?? generateMockCandidates(118), [candidates]);
   const { low: LOW, high: HIGH } = band;
@@ -137,12 +158,16 @@ export function ReviewScreen({
     return marks;
   }, [duration]);
 
-  const [index, setIndex] = useState(0);
-  const [decisions, setDecisions] = useState<Record<string, Decision>>({});
-  const [adjust, setAdjust] = useState<Record<string, Trim>>({});
+  const [index, setIndex] = useState(initialState?.index ?? 0);
+  const [decisions, setDecisions] = useState<Record<string, Decision>>(
+    () => initialState?.decisions ?? {},
+  );
+  const [adjust, setAdjust] = useState<Record<string, Trim>>(() => initialState?.adjust ?? {});
   /** 一括処理から外したフィラー（誤爆を人間が救う手段） */
-  const [excludedFillers, setExcludedFillers] = useState<Set<string>>(() => new Set());
-  const [history, setHistory] = useState<string[]>([]);
+  const [excludedFillers, setExcludedFillers] = useState<Set<string>>(
+    () => new Set(initialState?.excludedFillers ?? []),
+  );
+  const [history, setHistory] = useState<string[]>(() => initialState?.history ?? []);
   const [startedAt] = useState(() => Date.now());
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const liveRef = useRef<HTMLDivElement>(null);
@@ -155,7 +180,7 @@ export function ReviewScreen({
    * 前のほうに戻って直したあと、また最後尾から続けられるようにするため。
    * これが無いと、戻るたびに以降を全部見直すことになる。
    */
-  const [resumeIndex, setResumeIndex] = useState(0);
+  const [resumeIndex, setResumeIndex] = useState(initialState?.resumeIndex ?? 0);
   const revisiting = index < resumeIndex;
 
   /** 直前の判定を取り消したときに、どれを取り消したかを知らせる */
@@ -177,6 +202,18 @@ export function ReviewScreen({
   useEffect(() => {
     if (done && finishedAt === null) setFinishedAt(Date.now());
   }, [done, finishedAt]);
+
+  // 判定が変わるたびに呼び出し側へ渡す。保存はそちらの責任。
+  useEffect(() => {
+    onStateChange?.({
+      decisions,
+      adjust,
+      excludedFillers: [...excludedFillers],
+      index,
+      resumeIndex,
+      history,
+    });
+  }, [decisions, adjust, excludedFillers, index, resumeIndex, history, onStateChange]);
 
   const decide = useCallback(
     (decision: Decision) => {

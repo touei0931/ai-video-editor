@@ -57,6 +57,20 @@
   white-space: nowrap;
 }
 
+.telop .shiftall {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.telop .shiftall button {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
 .check-jump {
   font-size: 12px;
   padding: 4px 10px;

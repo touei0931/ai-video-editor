@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import { extname, join } from 'node:path';
-import { createReadStream, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { sidecar } from './sidecar.js';
 import { isDev } from './paths.js';
@@ -77,15 +77,39 @@ function forwardProgress(win: BrowserWindow | null) {
   });
 }
 
-ipcMain.handle('app:analyze', async (e, params: Record<string, unknown>) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
+/**
+ * 実行中の重い処理。取り消しのために覚えておく。
+ *
+ * 🔴 中断できないと、間違ったファイルを選んだ時点で
+ *    解析が終わるまで（20分素材なら十数分）待つか、強制終了するしかない。
+ */
+let runningRequestId: number | null = null;
+
+async function runCancellable(
+  win: BrowserWindow | null,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
   const off = forwardProgress(win);
+  const { id, promise } = sidecar.callWithId(method, params);
+  runningRequestId = id;
   try {
-    return await sidecar.call('analyze', params);
+    return await promise;
   } finally {
+    runningRequestId = null;
     off();
   }
+}
+
+ipcMain.handle('app:cancel', async () => {
+  if (runningRequestId === null) return false;
+  await sidecar.cancel(runningRequestId);
+  return true;
 });
+
+ipcMain.handle('app:analyze', async (e, params: Record<string, unknown>) =>
+  runCancellable(BrowserWindow.fromWebContents(e.sender), 'analyze', params),
+);
 
 ipcMain.handle('app:buildTelops', async (e, params: Record<string, unknown>) => {
   const win = BrowserWindow.fromWebContents(e.sender);
@@ -155,6 +179,32 @@ ipcMain.handle('app:export', async (e, params: Record<string, unknown>) => {
     throw error;
   } finally {
     off();
+  }
+});
+
+/**
+ * 作業状態の保存と再開。
+ *
+ * 🔴 これが無いと、20分素材のレビューを100件終えた時点でアプリが落ちれば
+ *    解析からやり直しになる。人間は途中で席も立つ。
+ *    解析結果（文字起こし・候補・クリップ）は作業フォルダに残っているので、
+ *    判定の内容だけ保存すれば再開できる。
+ */
+ipcMain.handle('app:saveProject', (_e, payload: { workDir: string; data: unknown }) => {
+  const target = join(payload.workDir, 'project.json');
+  mkdirSync(payload.workDir, { recursive: true });
+  writeFileSync(target, JSON.stringify(payload.data, null, 2), 'utf8');
+  return target;
+});
+
+ipcMain.handle('app:loadProject', (_e, workDir: string) => {
+  const target = join(workDir, 'project.json');
+  if (!existsSync(target)) return null;
+  try {
+    return JSON.parse(readFileSync(target, 'utf8'));
+  } catch (e) {
+    recordFailure('loadProject', e, { workDir });
+    return null;
   }
 });
 

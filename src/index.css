@@ -135,3 +135,13 @@ button:disabled {
   opacity: 0.5;
   cursor: default;
 }
+
+/* 前回の続きから始めたことの通知 */
+.resumed {
+  margin: 0;
+  padding: 6px 24px;
+  background: #1f2733;
+  color: #9fd8ff;
+  font-size: 12px;
+  text-align: center;
+}
