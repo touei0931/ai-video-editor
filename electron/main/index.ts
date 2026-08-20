@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import {
   forgetDraft,
+  isSharedWorkDir,
   isWorkDir,
   listDrafts,
   rememberDraft,
@@ -281,20 +282,26 @@ ipcMain.handle('app:deleteDraft', async (e, workDir: string) => {
     return false;
   }
 
+  // 古い置き場所（素材ごとに分ける前）の下書きは、フォルダごと消すと
+  // 他の素材の作業フォルダまで巻き添えになる。判定の内容だけ消す。
+  const shared = isSharedWorkDir(workDir);
+
   const answer = await dialog.showMessageBox(win!, {
     type: 'warning',
     buttons: ['下書きを削除する', 'キャンセル'],
     defaultId: 1,
     cancelId: 1,
     message: 'この下書きを削除しますか？',
-    detail:
-      '判定した内容と、解析の結果（音声・プレビュー）をまとめて削除します。\n' +
-      '元の動画は消えません。もう一度編集するときは解析からやり直しになります。',
+    detail: shared
+      ? '判定した内容を削除します。\n' +
+        '元の動画は消えません。もう一度編集するときは解析からやり直しになります。'
+      : '判定した内容と、解析の結果（音声・プレビュー）をまとめて削除します。\n' +
+        '元の動画は消えません。もう一度編集するときは解析からやり直しになります。',
   });
   if (answer.response !== 0) return false;
 
   try {
-    rmSync(workDir, { recursive: true, force: true });
+    rmSync(shared ? join(workDir, 'project.json') : workDir, { recursive: true, force: true });
   } catch (err) {
     recordFailure('deleteDraft', err, { workDir });
   }

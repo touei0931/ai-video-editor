@@ -351,6 +351,20 @@ export function App() {
         await openDraft(found);
         return;
       }
+    } else {
+      // 作業フォルダを素材ごとに分ける前に保存した下書き。
+      // 索引にも載っていないので、動画を選んだときだけ拾う。
+      // 一度開けば以降は索引に載り、一覧から辿れるようになる。
+      const legacyDir = path.replace(/[/\\][^/\\]+$/, '') + '/.ai-video-editor';
+      const legacy = (await window.app.loadProject(legacyDir)) as Draft | null;
+      if (legacy?.analysis && legacy.video_path === path) {
+        const useIt = await window.app.confirmResume({
+          savedAt: legacy.savedAt,
+          decided: Object.keys(legacy.review?.decisions ?? {}).length,
+        });
+        if (useIt === 'cancel') return;
+        if (useIt === 'resume' && resumeDraft(legacy)) return;
+      }
     }
 
     setPhase('analyzing');
@@ -378,7 +392,7 @@ export function App() {
       setError((e as Error).message);
       setPhase('idle');
     }
-  }, [openDraft]);
+  }, [openDraft, resumeDraft]);
 
 
   /**

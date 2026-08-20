@@ -100,5 +100,18 @@ export function listDrafts(indexPath: string): DraftListItem[] {
  */
 export function isWorkDir(workDir: string | undefined | null): boolean {
   if (!workDir) return false;
-  return workDir.replace(/\\/g, '/').includes('/.ai-video-editor/');
+  const p = workDir.replace(/\\/g, '/');
+  return p.includes('/.ai-video-editor/') || isSharedWorkDir(workDir);
+}
+
+/**
+ * 作業フォルダを素材ごとに分ける前の置き場所（`<動画のフォルダ>/.ai-video-editor` そのもの）。
+ *
+ * 🔴 ここはフォルダごと消してはいけない。
+ *    素材ごとに分けたあとの作業フォルダが、この下にぶら下がっている。
+ *    1本の下書きを消したつもりで、他の素材の下書きまで消えることになる。
+ */
+export function isSharedWorkDir(workDir: string | undefined | null): boolean {
+  if (!workDir) return false;
+  return /(^|[/\\])\.ai-video-editor[/\\]?$/.test(workDir);
 }

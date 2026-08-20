@@ -128,8 +128,22 @@ check('作業フォルダと認める', drafts.isWorkDir('D:/picture/.ai-video-e
 check('区切り違いも認める', drafts.isWorkDir('D:\\picture\\.ai-video-editor\\a-1234'), true);
 check('ただのフォルダは認めない', drafts.isWorkDir('D:/picture'), false);
 check('似た名前でも認めない', drafts.isWorkDir('D:/ai-video-editor-backup'), false);
-check('親フォルダそのものは認めない', drafts.isWorkDir('D:/picture/.ai-video-editor'), false);
 check('空は認めない', drafts.isWorkDir(''), false);
+
+// 素材ごとに分ける前の置き場所。消してよいが、フォルダごとではいけない
+check('古い置き場所も下書きとしては認める', drafts.isWorkDir('D:/picture/.ai-video-editor'), true);
+check('古い置き場所だと分かる', drafts.isSharedWorkDir('D:/picture/.ai-video-editor'), true);
+check(
+  '末尾の区切りがあっても分かる',
+  drafts.isSharedWorkDir('D:\\picture\\.ai-video-editor\\'),
+  true,
+);
+check(
+  '素材ごとの作業フォルダは古い置き場所ではない',
+  drafts.isSharedWorkDir('D:/picture/.ai-video-editor/a-1234'),
+  false,
+);
+check('関係ないフォルダは古い置き場所でもない', drafts.isSharedWorkDir('D:/picture'), false);
 
 rmSync(sandbox, { recursive: true, force: true });
 rmSync(outDir, { recursive: true, force: true });
