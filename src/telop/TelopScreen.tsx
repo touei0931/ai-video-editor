@@ -302,10 +302,29 @@ export function TelopScreen({
     [cards, styles, exportOptions, removed],
   );
 
-  // 直した内容を、変わるたびに呼び出し側へ渡す。保存はそちらの責任。
+  /*
+    直した内容を、変わるたびに呼び出し側へ渡す。保存はそちらの責任。
+
+    🔴 渡す関数そのものを「変わったかどうか」の判定に入れてはいけない。
+
+    呼び出し側は受け取った内容を state に入れる。すると呼び出し側が再描画され、
+    渡ってくる関数の中身（識別子）も作り直される。それを判定に入れていると
+    **内容が1文字も変わっていないのにまた呼ぶ**ことになり、以後それが延々と続く。
+
+    実際に起きていたこと:
+      - テロップ画面にいるだけで CPU を1コア分（実測 107%）食い続ける。
+        ファンの無い MacBook Air では熱で本体ごと遅くなる。
+      - 自動保存は「最後の変更から 0.8 秒後に書く」ので、
+        呼ばれ続けるかぎり**永久に書かれない**。
+        100枚校正して閉じても、下書きには1文字も残らない。
+
+    関数は ref に置いて、判定は中身だけで行う。
+  */
+  const notifyRef = useRef(onEditsChange);
+  notifyRef.current = onEditsChange;
   useEffect(() => {
-    onEditsChange?.({ cards, styles, options: exportOptions, removed });
-  }, [cards, styles, exportOptions, removed, onEditsChange]);
+    notifyRef.current?.({ cards, styles, options: exportOptions, removed });
+  }, [cards, styles, exportOptions, removed]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);

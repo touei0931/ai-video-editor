@@ -305,9 +305,18 @@ export function ReviewScreen({
     if (done && finishedAt === null) setFinishedAt(Date.now());
   }, [done, finishedAt]);
 
-  // 判定が変わるたびに呼び出し側へ渡す。保存はそちらの責任。
+  /*
+    判定が変わるたびに呼び出し側へ渡す。保存はそちらの責任。
+
+    🔴 渡す関数そのものを「変わったかどうか」の判定に入れない
+       （理由は telop/TelopScreen.tsx の同じ場所に書いた。
+        呼び出し側が受け取った内容を state に入れると、内容が変わっていなくても
+        延々と呼び続けることになり、CPU を食い続けたうえ自動保存が永久に走らない）。
+  */
+  const notifyRef = useRef(onStateChange);
+  notifyRef.current = onStateChange;
   useEffect(() => {
-    onStateChange?.({
+    notifyRef.current?.({
       decisions,
       adjust,
       excludedFillers: [...excludedFillers],
@@ -317,17 +326,7 @@ export function ReviewScreen({
       autoOverride,
       manualCuts,
     });
-  }, [
-    decisions,
-    adjust,
-    excludedFillers,
-    index,
-    resumeIndex,
-    history,
-    autoOverride,
-    manualCuts,
-    onStateChange,
-  ]);
+  }, [decisions, adjust, excludedFillers, index, resumeIndex, history, autoOverride, manualCuts]);
 
   const decide = useCallback(
     (decision: Decision) => {

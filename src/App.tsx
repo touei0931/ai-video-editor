@@ -778,7 +778,7 @@ export function App() {
         duration: analysis.duration,
       },
     });
-  }, [analysis, phase, cuts, cards, finalState, shots]);
+  }, [analysis, phase, cuts, cards, finalState, shots, pace]);
 
   /**
    * 少し待ってからまとめて書く。押すたびに書くと I/O が多すぎる。
