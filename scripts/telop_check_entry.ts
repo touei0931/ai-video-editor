@@ -43,10 +43,12 @@ const units: TelopUnit[] = raw.telops.map((t) => ({
   words: t.words.map((w) => ({ text: w.text, srcStart: w.src_start, srcEnd: w.src_end })),
 }));
 
-const measure: Measure = (text, fontPx) => {
+// 太字なら少し広い、という程度の近似。ここで見たいのは分割位置と時刻の対応で、
+// 描画の正確さは T1 が別途保証している。
+const measure: Measure = (text, fontPx, font) => {
   let width = 0;
   for (const ch of text) width += (ch.codePointAt(0)! < 0x3000 ? 0.5 : 1) * fontPx;
-  return width;
+  return font.bold ? width * 1.02 : width;
 };
 
 const frame = { width: 1920, height: 1080 };

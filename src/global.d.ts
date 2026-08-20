@@ -64,6 +64,9 @@ declare global {
       }) => Promise<'resume' | 'fresh' | 'cancel'>;
       revealFile: (filePath: string) => Promise<void>;
       uiInfo: () => Promise<{ isMac: boolean }>;
+      /** 保存してある既定。形は信用できないので sanitizeStyles を通すこと */
+      loadTelopStyles: () => Promise<unknown | null>;
+      saveTelopStyles: (styles: unknown) => Promise<boolean>;
       setContext: (ctx: { phase: string; workDir?: string | null; outPath?: string | null }) => void;
       onMenu: (cb: (action: string) => void) => () => void;
       onProgress: (cb: (p: { value: number; message: string }) => void) => () => void;

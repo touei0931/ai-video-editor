@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
-import { extname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import {
   createReadStream,
   existsSync,
@@ -446,6 +446,41 @@ ipcMain.handle('app:confirmResume', async (e, info: { savedAt: string; decided: 
  * 🔴 OSの判定そのものは paths.ts に置く。レンダラ側へは結果だけ渡す。
  */
 ipcMain.handle('app:uiInfo', () => ({ isMac: needsAppMenu() }));
+
+/**
+ * テロップの見た目の既定。
+ *
+ * 🔴 作業フォルダではなくアプリ側に置く。
+ *    「自分のテロップはいつもこの書体・この色」は**人に紐づく設定**で、
+ *    素材ごとに持つものではない。作業フォルダに置くと、
+ *    次の動画を始めるたびに設定し直すことになる。
+ */
+const telopStylesPath = () => join(app.getPath('userData'), 'telop-styles.json');
+
+ipcMain.handle('app:loadTelopStyles', () => {
+  const target = telopStylesPath();
+  if (!existsSync(target)) return null;
+  try {
+    return JSON.parse(readFileSync(target, 'utf8'));
+  } catch (e) {
+    // 🔴 壊れていても止めない。既定の見た目で始められれば作業は続けられる。
+    //    ここで例外を投げると、設定ファイルが1つ壊れただけでアプリが使えなくなる。
+    recordFailure('loadTelopStyles', e, { target });
+    return null;
+  }
+});
+
+ipcMain.handle('app:saveTelopStyles', (_e, styles: unknown) => {
+  const target = telopStylesPath();
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, JSON.stringify(styles, null, 2), 'utf8');
+    return true;
+  } catch (e) {
+    recordFailure('saveTelopStyles', e, { target });
+    return false;
+  }
+});
 
 ipcMain.handle('app:revealFile', (_e, filePath: string) => {
   shell.showItemInFolder(filePath);

@@ -36,6 +36,8 @@ vendor/models/
 # フォント（SIL OFL で再配布可だが、scripts/fetch_fonts.py で取得するので commit しない）
 assets/fonts/*.ttf
 assets/fonts/*.otf
+# ライセンス全文もフォントと一緒に取得する（配布物には入るが commit はしない）
+assets/fonts/licenses/
 
 # --- 作業ファイル ---
 tmp/

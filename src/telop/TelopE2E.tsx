@@ -130,7 +130,12 @@ export function TelopE2E() {
     void (async () => {
       try {
         setStatus('フォントを読み込み中');
-        const families = await loadTelopFonts();
+        const fonts = await loadTelopFonts();
+        // 読み込めなかったファイルがあれば、そこで止める。
+        // フォールバックの書体で描いた PNG は、見た目が違うのに検証は通ってしまう。
+        if (fonts.missing.length > 0) {
+          throw new Error(`フォントを読み込めません: ${fonts.missing.join(', ')}`);
+        }
 
         setStatus('分割中');
         const cards = buildCards(UNITS, makeMeasure(), FRAME);
@@ -157,7 +162,7 @@ export function TelopE2E() {
         });
 
         await window.telopE2E.submit({
-          families,
+          families: fonts.families,
           frame: FRAME,
           seek,
           cards: cards.map((c) => ({

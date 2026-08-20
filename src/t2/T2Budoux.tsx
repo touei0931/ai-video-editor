@@ -10,6 +10,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { fitJapanese, wrapJapanese, wrapJapaneseByWidth } from '../telop/wrap';
+import { loadTelopFonts } from '../telop/fonts';
+import { cssFont } from '../telop/render';
 import { DEFAULT_STYLES } from '../telop/style';
 
 /** ショート動画の話し言葉を想定したコーパス */
@@ -59,26 +61,28 @@ export function T2Budoux() {
 
     (async () => {
       try {
-        // 実測幅での折り返しも試すため、本番と同じフォントを載せる
-        const face = new FontFace('ZenKakuGothicNew', 'url(./fonts/ZenKakuGothicNew-Black.ttf)');
-        await face.load();
-        document.fonts.add(face);
-        await document.fonts.ready;
+        // 実測幅での折り返しも試すため、本番と同じフォントを載せる。
+        // 🔴 本番と同じ loadTelopFonts() を通すこと。ここで別に登録すると、
+        //    太さの指定が本番と食い違って、違う字幅で検証することになる。
+        const fonts = await loadTelopFonts();
+        if (fonts.missing.length > 0) {
+          throw new Error(`フォントを読み込めません: ${fonts.missing.join(', ')}`);
+        }
 
         const canvas = canvasRef.current!;
         const ctx = canvas.getContext('2d')!;
         const style = DEFAULT_STYLES.normal;
         const frameWidth = 1080;
         const fontSize = Math.round(frameWidth * style.fontSizeRatio);
-        ctx.font = `${fontSize}px "${style.fontFamily}"`;
+        ctx.font = cssFont(style, fontSize);
         const measure = (t: string) => ctx.measureText(t).width;
         const maxWidth = frameWidth * (1 - 0.08 * 2);
 
         // 縮小あり（本番で使う経路）はサイズを変えて測り直す必要がある
         const measureAt = (t: string, scale: number) => {
-          ctx.font = `${Math.round(fontSize * scale)}px "${style.fontFamily}"`;
+          ctx.font = cssFont(style, Math.round(fontSize * scale));
           const w = ctx.measureText(t).width;
-          ctx.font = `${fontSize}px "${style.fontFamily}"`;
+          ctx.font = cssFont(style, fontSize);
           return w;
         };
 

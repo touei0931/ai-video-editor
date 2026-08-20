@@ -73,6 +73,8 @@ writeFileSync(
 
 const split = await import(pathToFileURL(join(outDir, 'split.js')).href);
 const wrap = await import(pathToFileURL(join(outDir, 'wrap.js')).href);
+const render = await import(pathToFileURL(join(outDir, 'render.js')).href);
+const style = await import(pathToFileURL(join(outDir, 'style.js')).href);
 
 let failed = 0;
 function check(name, ok, detail) {
@@ -199,6 +201,112 @@ const at = (px) => (text, scale) => measure(text, px * scale);
     '大きくすると1行に入る文字数が減る',
     huge.lines[0].length < big.lines[0].length,
     `等倍「${big.lines[0]}」/ 1.8倍「${huge.lines[0]}」`,
+  );
+}
+
+// ── 書体（種類・太字・斜体）────────────────────────────────
+
+{
+  /*
+    Canvas に渡す書体の指定。
+    🔴 描くときと測るときで必ず同じものを使う。太さが変われば字の幅も変わるので、
+       片方だけ普通の太さで測ると、折り返しが実際とずれて画面からはみ出す。
+  */
+  const f = (o) => render.cssFont(o, 92);
+  check('普通', f({ fontFamily: 'ZenKakuGothicNew' }) === '92px "ZenKakuGothicNew"', f({ fontFamily: 'ZenKakuGothicNew' }));
+  check(
+    '太字は 700 を指定する（同梱の太いファイルが使われる）',
+    f({ fontFamily: 'ZenKakuGothicNew', bold: true }) === '700 92px "ZenKakuGothicNew"',
+    f({ fontFamily: 'ZenKakuGothicNew', bold: true }),
+  );
+  check(
+    '斜体・太字の順番が CSS の決まりどおり',
+    f({ fontFamily: 'ZenOldMincho', bold: true, italic: true }) ===
+      'italic 700 92px "ZenOldMincho"',
+    f({ fontFamily: 'ZenOldMincho', bold: true, italic: true }),
+  );
+}
+
+{
+  // 太字にしたら、折り返しの計算にもその幅が使われること
+  const wide = (text, fontPx, font) => measure(text, fontPx) * (font.bold ? 1.3 : 1);
+  const frame = { width: 1080, height: 1920 };
+  const styles = structuredClone(style.DEFAULT_STYLES);
+
+  styles.normal.bold = false;
+  const thin = split.rewrapCard('なるほど、たしかに', 'normal', wide, frame, {}, styles);
+  styles.normal.bold = true;
+  const thick = split.rewrapCard('なるほど、たしかに', 'normal', wide, frame, {}, styles);
+
+  check('普通の太さでは1行', thin.lines.length === 1, thin.lines.join(' / '));
+  check(
+    '太字にすると折り返しも変わる',
+    thick.lines.length === 2,
+    `普通 ${thin.lines.length}行 / 太字 ${thick.lines.length}行（${thick.lines.join(' / ')}）`,
+  );
+}
+
+// ── 保存してある既定の読み込み ──────────────────────────────
+
+{
+  /*
+    🔴 保存した既定は「次に使うときのアプリ」が読む。
+       書いたときと同じ形である保証がないので、そのまま信じてはいけない。
+       色が undefined のまま Canvas に渡ると**テロップが1枚も出ない**。
+       しかも既定なので、作り直すまで毎回そうなる。
+  */
+  const D = style.DEFAULT_STYLES;
+  const clean = (raw, known) => style.sanitizeStyles(raw, known);
+
+  check('null なら既定', clean(null).normal.fontFamily === D.normal.fontFamily);
+  check('壊れていても既定', clean('こわれた').normal.color === D.normal.color);
+  check(
+    '空の雛形でも3種類そろう',
+    ['normal', 'note', 'emphasis'].every((n) => clean({})[n]?.fontFamily),
+  );
+
+  const old = { normal: { fontFamily: 'ZenKakuGothicNew', color: '#ffffff', fontSizeRatio: 0.085 } };
+  check(
+    '太字の項目が無い古い下書きは、今までの見た目のまま',
+    clean(old).normal.bold === true,
+    String(clean(old).normal.bold),
+  );
+
+  check(
+    '読み込めなかった書体は既定に戻す',
+    clean({ normal: { fontFamily: 'NotInstalled' } }, ['ZenKakuGothicNew']).normal.fontFamily ===
+      D.normal.fontFamily,
+  );
+  check(
+    '読み込めた書体はそのまま受け取る',
+    clean({ normal: { fontFamily: 'ZenOldMincho' } }, ['ZenKakuGothicNew', 'ZenOldMincho']).normal
+      .fontFamily === 'ZenOldMincho',
+  );
+
+  check(
+    'ありえない大きさは受け取らない',
+    clean({ normal: { fontSizeRatio: 99 } }).normal.fontSizeRatio === D.normal.fontSizeRatio,
+  );
+  check(
+    '色になっていない文字列は受け取らない',
+    clean({ normal: { color: 'まっか' } }).normal.color === D.normal.color,
+  );
+  check(
+    '知らない位置は受け取らない',
+    clean({ normal: { position: 'ななめ' } }).normal.position === D.normal.position,
+  );
+  check(
+    '斜体・太字・位置・色は受け取る',
+    (() => {
+      const got = clean({
+        note: { italic: true, bold: false, position: 'middle', color: '#123456' },
+      }).note;
+      return got.italic === true && got.bold === false && got.position === 'middle' && got.color === '#123456';
+    })(),
+  );
+  check(
+    '既定そのものは書き換わらない',
+    D.normal.bold === true && D.normal.fontFamily === 'ZenKakuGothicNew',
   );
 }
 

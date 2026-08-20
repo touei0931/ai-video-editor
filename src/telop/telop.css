@@ -370,6 +370,32 @@
 }
 
 /*
+  書体の選択。
+  ボタン自体をその書体で描く。名前だけ並べても、選ぶまで違いが分からない。
+*/
+.telop .panel .fontpicker {
+  display: flex;
+  gap: 4px;
+}
+
+.telop .panel .fontpicker button {
+  font-size: 13px;
+  padding: 2px 10px;
+}
+
+/* 「次の動画から」の行だけ、他の設定と役割が違うので線で区切る */
+.telop .panel .row.defaults {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+.telop .panel .row.defaults button.save {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/*
   改行位置の選択。
   本文を文節ごとに置き、その間だけを押せるようにする。
   文節の中を押せてしまうと、自動改行より悪い改行を手で作れることになる。

@@ -55,6 +55,27 @@ export function telopFontSize(style: TelopSpec['style'], frame: Frame): number {
   return Math.round(Math.min(frame.width, frame.height) * style.fontSizeRatio);
 }
 
+/** 書体の指定に必要なぶんだけ。幅を測るときも描くときも、これだけあれば足りる */
+export type FontChoice = Pick<TelopSpec['style'], 'fontFamily' | 'bold' | 'italic'>;
+
+/**
+ * Canvas に渡す書体の指定を作る。
+ *
+ * 🔴 描くときと**幅を測るとき**で必ず同じものを使うこと。
+ *    太字や斜体は字の幅を変える。測るほうだけ普通の太さで測ると、
+ *    折り返しの位置が実際の描画とずれて画面からはみ出す。
+ *    そのためにこの関数を1つだけ置き、両方から呼ぶ。
+ *
+ * 太字（700）は同梱の太いファイルが使われる。持っていない書体では
+ * ブラウザが輪郭を太らせた偽の太字になる（fonts.ts の hasRealBold）。
+ * 斜体は日本語書体に実物が無いので、どの書体でも傾けて作られる。
+ */
+export function cssFont(font: FontChoice, px: number): string {
+  const slant = font.italic ? 'italic ' : '';
+  const weight = font.bold ? '700 ' : '';
+  return `${slant}${weight}${px}px "${font.fontFamily}"`;
+}
+
 /**
  * テロップを描く。呼び出し側は事前にフォントのロードを済ませておくこと
  * （ロード前に描くとフォールバックフォントで描かれ、見た目が変わる）。
@@ -91,7 +112,7 @@ export function drawTelop(ctx: Ctx2D, spec: TelopSpec, frame: Frame): void {
 
     // 中央に置くために、まず行全体の幅を測る
     const widths = spans.map((s) => {
-      ctx.font = `${Math.round(fontSize * (s.scale ?? 1))}px "${style.fontFamily}"`;
+      ctx.font = cssFont(style, Math.round(fontSize * (s.scale ?? 1)));
       return ctx.measureText(s.text).width;
     });
     const total = widths.reduce((a, b) => a + b, 0);
@@ -99,7 +120,7 @@ export function drawTelop(ctx: Ctx2D, spec: TelopSpec, frame: Frame): void {
     let x = Math.round(centerX - total / 2);
     spans.forEach((span, j) => {
       const size = Math.round(fontSize * (span.scale ?? 1));
-      ctx.font = `${size}px "${style.fontFamily}"`;
+      ctx.font = cssFont(style, size);
 
       if (style.stroke) {
         // Canvas の stroke はパスの中心に乗るので、見た目の太さは指定の半分になる。

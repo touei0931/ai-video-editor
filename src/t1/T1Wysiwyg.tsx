@@ -11,6 +11,7 @@
  * このコンポーネントは検証専用。`--t1-wysiwyg` で起動したときだけ描画される。
  */
 import { useEffect, useRef, useState } from 'react';
+import { loadTelopFonts } from '../telop/fonts';
 import { drawTelop } from '../telop/render';
 import { DEFAULT_STYLES, type TelopSpec } from '../telop/style';
 
@@ -61,28 +62,6 @@ const CASES: { name: string; spec: TelopSpec }[] = [
   },
 ];
 
-async function loadFonts(): Promise<string[]> {
-  // 🔴 相対パスにすること。
-  // 絶対パス（/fonts/...）だと、配布時の file:// 読み込みで
-  // ドライブ直下（C:/fonts/...）に解決されてフォントが載らない。
-  // フォントが載らないとフォールバックフォントで描かれ、見た目が静かに変わる。
-  const families: [string, string][] = [
-    ['ZenKakuGothicNew', './fonts/ZenKakuGothicNew-Black.ttf'],
-    ['DelaGothicOne', './fonts/DelaGothicOne-Regular.ttf'],
-    ['ZenOldMincho', './fonts/ZenOldMincho-Bold.ttf'],
-  ];
-
-  const loaded: string[] = [];
-  for (const [family, url] of families) {
-    const face = new FontFace(family, `url(${url})`);
-    await face.load();
-    document.fonts.add(face);
-    loaded.push(family);
-  }
-  await document.fonts.ready;
-  return loaded;
-}
-
 function makeCanvas(): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = WIDTH;
@@ -107,8 +86,22 @@ export function T1Wysiwyg() {
 
     (async () => {
       try {
-        const families = await loadFonts();
-        say(`フォント読み込み: ${families.join(', ')}`);
+        /*
+          🔴 本番と同じ loadTelopFonts() を使うこと。
+
+          ここで独自にフォントを登録していたせいで、太さの指定を足したときに
+          **T1 だけが別のファイルで描く**状態になりかけた。
+          本番は「太字＝ Black のファイル」として登録するが、こちらは全部を
+          普通の太さとして登録していたので、太字を指定すると本番は Black、
+          T1 は輪郭を太らせた偽の太字を描く。
+          プレビューと書き出しの一致を見るはずの検証が、
+          一致しない条件で回っていたことになる。
+        */
+        const fonts = await loadTelopFonts();
+        if (fonts.missing.length > 0) {
+          throw new Error(`フォントを読み込めません: ${fonts.missing.join(', ')}`);
+        }
+        say(`フォント読み込み: ${fonts.families.join(', ')}`);
 
         const frameBase64 = (await window.t1.getFrame()) as string;
         const bg = new Image();

@@ -11,7 +11,7 @@
  *    そのため「単語列を連結したもの = 本文」という対応が崩れてはいけない
  *    （sidecar/telop.py の _clean_word を参照）。
  */
-import { telopFontSize } from './render';
+import { cssFont, telopFontSize, type FontChoice } from './render';
 import {
   DEFAULT_STYLES,
   type TelopOverride,
@@ -109,10 +109,25 @@ export interface SplitOptions {
   marginRatio?: number;
   /** 1枚あたりの最短表示時間 */
   minDuration?: number;
+  /**
+   * 今の雛形。省略すると既定の雛形で計算する。
+   *
+   * 🔴 既定を保存できるようにした以上、ここを省略してはいけない。
+   *    利用者が明朝体を既定にしていても、幅の計算だけゴシック体で行われ、
+   *    テロップが画面からはみ出したまま作られる。
+   */
+  styles?: Record<TelopStyleName, TelopStyle>;
 }
 
-/** テキストの幅を測る関数。フォントは書体ごとに幅が違うので family も受け取る。 */
-export type Measure = (text: string, fontPx: number, family: string) => number;
+/**
+ * テキストの幅を測る関数。
+ *
+ * 🔴 書体だけでなく**太字・斜体まで**受け取ること。
+ *    太さが変われば字の幅も変わる。普通の太さで測って太字で描くと、
+ *    折り返しの位置が実際とずれてテロップが画面からはみ出す。
+ *    しかもプレビューと書き出しは同じようにはみ出すので、見比べても気づけない。
+ */
+export type Measure = (text: string, fontPx: number, font: FontChoice) => number;
 
 /**
  * 文字位置 → 時刻。
@@ -153,10 +168,10 @@ export function splitIntoCards(
   const marginRatio = options.marginRatio ?? 0.08;
   const minDuration = options.minDuration ?? 0.5;
 
-  const style = DEFAULT_STYLES[unit.style];
+  const style = (options.styles ?? DEFAULT_STYLES)[unit.style];
   const fontPx = telopFontSize(style, frame);
   const maxWidth = frame.width * (1 - marginRatio * 2);
-  const measureAt = (t: string, scale: number) => measure(t, fontPx * scale, style.fontFamily);
+  const measureAt = (t: string, scale: number) => measure(t, fontPx * scale, style);
 
   const text = unit.words.map((w) => w.text).join('');
   if (!text.trim()) return [];
@@ -273,8 +288,9 @@ export function makeMeasure(): Measure {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas を使えません');
 
-  return (text, fontPx, family) => {
-    ctx.font = `${fontPx}px "${family}"`;
+  return (text, fontPx, font) => {
+    // 🔴 描くときと同じ cssFont を通す。太字・斜体で字の幅が変わるため
+    ctx.font = cssFont(font, fontPx);
     return ctx.measureText(text).width;
   };
 }
@@ -312,7 +328,7 @@ export function rewrapCard(
   const style = styles?.[styleName] ?? DEFAULT_STYLES[styleName];
   const fontPx = telopFontSize(style, frame) * (card.sizeScale ?? 1);
   const fit = fitToLines(
-    (t, scale) => measure(t, fontPx * scale, style.fontFamily),
+    (t, scale) => measure(t, fontPx * scale, style),
     text,
     frame.width * (1 - marginRatio * 2),
     options.maxLines ?? 2,

@@ -12,12 +12,14 @@
  */
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { shouldIgnoreKey } from '../keys';
+import { hasRealBold, TELOP_FAMILIES } from './fonts';
 import { buildLines, drawTelop } from './render';
 import { phraseBoundaries } from './wrap';
 import {
   DEFAULT_STYLES,
   resolveStyle,
   SAFE_AREA_RATIO,
+  type StyleMap,
   type TelopStyle,
   type TelopPosition,
   type TelopStyleName,
@@ -25,7 +27,7 @@ import {
 import { resolveOverlaps, type Frame, type TelopCard } from './split';
 import './telop.css';
 
-export type StyleMap = Record<TelopStyleName, TelopStyle>;
+export type { StyleMap };
 
 /** 書き出し方の選択。 */
 export interface ExportOptions {
@@ -105,6 +107,16 @@ export interface TelopScreenProps {
   initialOptions?: ExportOptions;
   /** 前回この画面で消したテロップ */
   initialRemoved?: TelopCard[];
+  /**
+   * 実際に読み込めた書体。ここに無いものは選ばせない。
+   * 読み込めなかった書体を選べると、フォールバックの見た目で書き出される。
+   */
+  fontFamilies?: string[];
+  /**
+   * 今の見た目を「次からの既定」として保存する。
+   * 保存できたら true。
+   */
+  onSaveDefaults?: (styles: StyleMap) => Promise<boolean>;
   /** 元素材のパス。プレビューの背景に使う */
   videoPath: string;
   frame: Frame;
@@ -141,6 +153,8 @@ export function TelopScreen({
   initialStyles,
   initialOptions,
   initialRemoved,
+  fontFamilies,
+  onSaveDefaults,
   videoPath,
   frame,
   rewrap,
@@ -164,6 +178,9 @@ export function TelopScreen({
   );
   /** 雛形の編集パネルで今どのスタイルを触っているか */
   const [editingStyle, setEditingStyle] = useState<TelopStyleName>('normal');
+  /** 既定として保存しているところ / 保存した結果の知らせ */
+  const [saving, setSaving] = useState(false);
+  const [savedNote, setSavedNote] = useState('');
   const [exportOptions, setExportOptions] = useState<ExportOptions>(
     () => initialOptions ?? { burn: true, srt: true, fcpxml: false },
   );
@@ -208,6 +225,9 @@ export function TelopScreen({
 
   const patchStyle = useCallback(
     (name: TelopStyleName, patch: Partial<TelopStyle>) => {
+      // 見た目を触ったら「覚えました」の表示は消す。
+      // 出したままだと、そのあと直した内容まで覚えたように読める。
+      setSavedNote('');
       setStyles((prev) => {
         const next = { ...prev, [name]: { ...prev[name], ...patch } };
 
@@ -219,7 +239,14 @@ export function TelopScreen({
           文字だけ大きくなり、**画面外へはみ出したまま書き出される**。
           プレビューと書き出しは一致するので、両方おかしいことに気づけない。
         */
-        if (patch.fontSizeRatio !== undefined || patch.fontFamily !== undefined) {
+        if (
+          patch.fontSizeRatio !== undefined ||
+          patch.fontFamily !== undefined ||
+          // 太字・斜体でも字の幅は変わる。ここを漏らすと、太字にした瞬間だけ
+          // 折り返しが古い幅のままになり、テロップが画面からはみ出す
+          patch.bold !== undefined ||
+          patch.italic !== undefined
+        ) {
           setCards((cs) =>
             cs.map((c) => {
               if (c.style !== name) return c;
@@ -236,6 +263,38 @@ export function TelopScreen({
     },
     [rewrap],
   );
+
+  /** 選べる書体。読み込めなかったものは出さない（選べても見た目が変わらないため） */
+  const families = useMemo(
+    () => TELOP_FAMILIES.filter((f) => !fontFamilies || fontFamilies.includes(f.family)),
+    [fontFamilies],
+  );
+
+  /** 今の見た目を、次の動画からの既定として覚えさせる */
+  const saveDefaults = useCallback(async () => {
+    if (!onSaveDefaults) return;
+    setSaving(true);
+    let ok = false;
+    try {
+      ok = await onSaveDefaults(styles);
+    } catch {
+      ok = false;
+    }
+    setSaving(false);
+    setSavedNote(
+      ok ? '覚えました。次の動画からこの見た目で始まります' : '保存できませんでした',
+    );
+  }, [onSaveDefaults, styles]);
+
+  /** アプリ最初の見た目に戻す。今の動画にも、次からの既定にも効かせる */
+  const restoreFactory = useCallback(() => {
+    for (const name of STYLE_ORDER) patchStyle(name, DEFAULT_STYLES[name]);
+    if (!onSaveDefaults) return;
+    void onSaveDefaults(structuredClone(DEFAULT_STYLES)).then(
+      (ok) => setSavedNote(ok ? '最初の見た目に戻しました' : '保存できませんでした'),
+      () => setSavedNote('保存できませんでした'),
+    );
+  }, [patchStyle, onSaveDefaults]);
 
   /** 画面を離れるときに、直した内容をまとめて渡す */
   const goBack = useCallback(
@@ -1037,6 +1096,52 @@ export function TelopScreen({
                 ))}
                 <span className="hint">このスタイルのテロップすべてに効きます</span>
               </div>
+
+              {/*
+                ── 書体 ──
+                書体は雛形側に持たせる。1枚ずつ持たせると、300枚の書体を変えるのに
+                300回操作することになる。「通常のテロップは明朝で」は一度決めるもの。
+              */}
+              <div className="row">
+                <label className="sub">書体</label>
+                <span className="fontpicker">
+                  {families.map((f) => (
+                    <button
+                      key={f.family}
+                      type="button"
+                      className={styles[editingStyle].fontFamily === f.family ? 'on' : ''}
+                      style={{ fontFamily: `"${f.family}", sans-serif` }}
+                      onClick={() => patchStyle(editingStyle, { fontFamily: f.family })}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </span>
+                <button
+                  type="button"
+                  className={styles[editingStyle].bold ? 'on' : ''}
+                  onClick={() => patchStyle(editingStyle, { bold: !styles[editingStyle].bold })}
+                  title={
+                    hasRealBold(styles[editingStyle].fontFamily)
+                      ? '太いほうの書体に切り替えます'
+                      : 'この書体は太さが1種類しかないので、字を太らせて作ります'
+                  }
+                >
+                  <strong>太字</strong>
+                </button>
+                <button
+                  type="button"
+                  className={styles[editingStyle].italic ? 'on' : ''}
+                  onClick={() => patchStyle(editingStyle, { italic: !styles[editingStyle].italic })}
+                  title="字を傾けます（日本語の書体に斜体は無いので、どの書体でも傾けて作ります）"
+                >
+                  <em>斜体</em>
+                </button>
+                {styles[editingStyle].bold && !hasRealBold(styles[editingStyle].fontFamily) && (
+                  <span className="hint">この書体の太字は、字を太らせて作ります</span>
+                )}
+              </div>
+
               <div className="row">
                 <label className="sub">文字色</label>
                 <input
@@ -1091,6 +1196,27 @@ export function TelopScreen({
                   onChange={(e) => patchStyle(editingStyle, { highlightColor: e.target.value })}
                 />
               </div>
+
+              {/*
+                ── 次の動画からもこの見た目で始める ──
+                毎回3つの雛形を設定し直すのは、テロップを直す作業そのものより長くなる。
+                「自分のテロップはいつもこれ」は素材ではなく人に紐づく設定なので、
+                作業フォルダではなくアプリ側に覚えさせる。
+              */}
+              {onSaveDefaults && (
+                <div className="row defaults">
+                  <label className="sub">次の動画から</label>
+                  <button type="button" className="save" onClick={saveDefaults} disabled={saving}>
+                    {saving ? '保存中…' : '今の見た目を既定にする'}
+                  </button>
+                  <button type="button" onClick={restoreFactory}>
+                    最初の見た目に戻す
+                  </button>
+                  <span className="hint">
+                    {savedNote || '3つの雛形をまとめて覚えます。今の動画の見た目は変わりません'}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </section>

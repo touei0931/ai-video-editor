@@ -34,7 +34,7 @@ import {
   type TelopCard,
   type TelopUnit,
 } from './telop/split';
-import { DEFAULT_STYLES, type TelopStyleName } from './telop/style';
+import { DEFAULT_STYLES, sanitizeStyles, type TelopStyleName } from './telop/style';
 
 type Phase =
   | 'idle'
@@ -300,6 +300,12 @@ export function App() {
   const [finalState, setFinalState] = useState<TelopEdits | null>(null);
   /** 前回の続き。解析後に作業フォルダから読み込む */
   const [savedReview, setSavedReview] = useState<ReviewState | null>(null);
+  /** 本人が既定として覚えさせたテロップの見た目。新しい動画はここから始まる */
+  const [defaultStyles, setDefaultStyles] = useState<StyleMap>(() =>
+    structuredClone(DEFAULT_STYLES),
+  );
+  /** 実際に読み込めた書体。選択肢をこれに絞る */
+  const [fontFamilies, setFontFamilies] = useState<string[] | undefined>(undefined);
   const [resumed, setResumed] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   /** ③ズーム・画角の自動化。人物アップに寄るショット */
@@ -368,6 +374,39 @@ export function App() {
     });
   }, [hasBridge, phase, analysis, exported]);
 
+  /**
+   * 本人が「既定にする」で覚えさせたテロップの見た目。
+   *
+   * 🔴 起動時に一度だけ読む。読めなければアプリ最初の見た目で始める。
+   *    設定ファイルが壊れていても編集そのものは続けられるべきなので、
+   *    ここで例外を投げないこと（sanitizeStyles が形を保証する）。
+   */
+  useEffect(() => {
+    if (!hasBridge) return;
+    let alive = true;
+    void (async () => {
+      // 読み込めた書体だけを既定として認める。手で書き換えられている可能性もある
+      const fonts = await loadTelopFonts().catch(() => ({ families: [], missing: [] }));
+      const raw = await window.app.loadTelopStyles().catch(() => null);
+      if (!alive) return;
+      setFontFamilies(fonts.families);
+      if (fonts.missing.length > 0) {
+        console.error('読み込めなかったフォント:', fonts.missing);
+      }
+      if (raw) setDefaultStyles(sanitizeStyles(raw, fonts.families));
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [hasBridge]);
+
+  const saveDefaultStyles = useCallback(async (styles: StyleMap) => {
+    const ok = await window.app.saveTelopStyles(styles);
+    // 覚えた内容は、この場でも次の動画の出発点として持っておく
+    if (ok) setDefaultStyles(structuredClone(styles));
+    return ok;
+  }, []);
+
   const measure = useMemo(() => (hasBridge ? makeMeasure() : null), [hasBridge]);
   const frame: Frame = useMemo(
     () => ({
@@ -433,7 +472,14 @@ export function App() {
     if (draft.cards?.length) {
       setFinalState({
         cards: saved,
-        styles: draft.styles ?? structuredClone(DEFAULT_STYLES),
+        /*
+          🔴 保存してある雛形は、必ず sanitizeStyles を通す。
+             書体に「太字かどうか」を足す前の下書きには bold が入っていないので、
+             そのまま使うと**開き直しただけで細い書体に変わる**。
+             sanitizeStyles は分かる項目だけ受け取り、残りを既定で埋めるので、
+             古い下書きも今までどおりの見た目で開く。
+        */
+        styles: draft.styles ? sanitizeStyles(draft.styles, fontFamilies) : defaultStyles,
         options: draft.options ?? { burn: true, srt: true, fcpxml: false },
         removed: draft.removed ?? [],
       });
@@ -449,7 +495,7 @@ export function App() {
     // 判定は残っているので、そのまま Enter で先へ進める。
     setPhase('review');
     return true;
-  }, []);
+  }, [defaultStyles, fontFamilies]);
 
   /** 下書きの一覧を読み直す。最初の画面に出す */
   const refreshDrafts = useCallback(async () => {
@@ -675,7 +721,14 @@ export function App() {
           cuts: approved.map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd })),
         })) as TelopResult;
 
-        const fresh = buildCards(result.telops.map(toUnit), measure, frame);
+        /*
+          🔴 今の雛形を渡すこと。
+             既定を保存できるようにした以上、書体も大きさも人によって違う。
+             渡さないとアプリ最初の書体で幅を測ることになり、
+             テロップが**作られた時点で画面からはみ出す**。
+        */
+        const styles = finalState?.styles ?? defaultStyles;
+        const fresh = buildCards(result.telops.map(toUnit), measure, frame, { styles });
         setCards(mergeEdits(fresh, cards, finalState?.removed ?? []));
         builtForRef.current = key;
         setPhase('telop');
@@ -684,7 +737,7 @@ export function App() {
         setPhase('review');
       }
     },
-    [analysis, measure, frame, cards, finalState],
+    [analysis, measure, frame, cards, finalState, defaultStyles],
   );
 
   /**
@@ -1080,9 +1133,12 @@ export function App() {
         {help}
         <TelopScreen
           cards={cards}
-          initialStyles={finalState?.styles}
+          // 下書きに残っていればそれ、無ければ本人が既定として保存した見た目
+          initialStyles={finalState?.styles ?? defaultStyles}
           initialOptions={finalState?.options}
           initialRemoved={finalState?.removed}
+          fontFamilies={fontFamilies}
+          onSaveDefaults={saveDefaultStyles}
           videoPath={analysis.video_path}
           frame={frame}
           rewrap={rewrap}
