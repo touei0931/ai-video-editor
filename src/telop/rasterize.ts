@@ -7,7 +7,7 @@
  * 動画と同じ解像度ちょうどで描く。
  * 違う大きさで描くと overlay 側で拡大縮小され、縁取りの太さが変わる。
  */
-import { drawTelop } from './render';
+import { buildLines, drawTelop } from './render';
 import { DEFAULT_STYLES, resolveStyle, type TelopStyle, type TelopStyleName } from './style';
 import type { Frame, TelopCard } from './split';
 
@@ -64,13 +64,15 @@ export async function renderTelopPngs(
     const card = cards[i];
     ctx.clearRect(0, 0, frame.width, frame.height);
 
+    // 🔴 プレビューと同じ resolveStyle / buildLines を通す。
+    //    ここで別計算をしたら WYSIWYG が崩れる。
+    const resolved = resolveStyle(styles, card.style, card.override, card.fontScale);
     drawTelop(
       ctx,
       {
-        lines: card.lines,
-        // 🔴 プレビューと同じ resolveStyle を通す。ここで別計算をしたら WYSIWYG が崩れる。
-        style: resolveStyle(styles, card.style, card.override, card.fontScale),
-        position: card.position,
+        lines: buildLines(card.lines, card.highlight ?? undefined, resolved),
+        style: resolved,
+        position: card.positionOverride ?? resolved.position,
         offsetX: card.offsetX,
         offsetY: card.offsetY,
       },

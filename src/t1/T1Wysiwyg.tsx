@@ -43,6 +43,22 @@ const CASES: { name: string; spec: TelopSpec }[] = [
       position: 'middle',
     },
   },
+  {
+    // 日本語テロップの主要技法。行の中で色と大きさが変わるので、
+    // 中央揃えを自前で計算している部分がずれていないかもここで見る。
+    name: 'highlight',
+    spec: {
+      lines: [
+        [
+          { text: 'これが' },
+          { text: 'めちゃくちゃ', color: '#ffe14d', scale: 1.15 },
+          { text: '硬くて' },
+        ],
+      ],
+      style: DEFAULT_STYLES.normal,
+      position: 'bottom',
+    },
+  },
 ];
 
 async function loadFonts(): Promise<string[]> {

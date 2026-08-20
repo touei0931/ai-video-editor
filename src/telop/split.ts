@@ -34,7 +34,8 @@ export interface TelopUnit {
   text: string;
   style: TelopStyleName;
   reason: string;
-  position: TelopPosition;
+  /** 目立たせる語（「この5文字だけ黄色く大きく」） */
+  highlight?: string | null;
   needsCheck: boolean;
   confidence: number;
   /** 確度の低い語の数。「なぜ要確認なのか」を画面に出すために持つ */
@@ -52,8 +53,15 @@ export interface TelopCard {
   text: string;
   lines: string[];
   style: TelopStyleName;
-  position: TelopPosition;
+  /**
+   * この1枚だけ位置を変えたいときの上書き。
+   * 未指定なら雛形（スタイル）の位置に従う。
+   * 🔴 既定を雛形側に置くことで、300枚の位置を1操作で変えられる。
+   */
+  positionOverride?: TelopPosition;
   reason: string;
+  /** 目立たせる語 */
+  highlight?: string | null;
   needsCheck: boolean;
   confidence: number;
   lowWords: number;
@@ -170,8 +178,8 @@ export function splitIntoCards(
       text: chunk.trim(),
       lines: fit.lines.map((l) => l.trim()).filter(Boolean),
       style: unit.style,
-      position: unit.position,
       reason: unit.reason,
+      highlight: unit.highlight,
       needsCheck: unit.needsCheck,
       confidence: unit.confidence,
       lowWords: unit.lowWords,

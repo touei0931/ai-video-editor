@@ -179,6 +179,48 @@
   object-fit: contain;
 }
 
+/* 投稿先のUIが乗る領域。ここに置くと隠れる */
+.telop .safe-area {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.telop .safe-area .band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 90, 90, 0.1) 0 6px,
+    transparent 6px 12px
+  );
+  border-color: rgba(255, 90, 90, 0.45);
+  border-style: dashed;
+  border-width: 0;
+}
+
+.telop .safe-area .band.top {
+  top: 0;
+  border-bottom-width: 1px;
+}
+
+.telop .safe-area .band.bottom {
+  bottom: 0;
+  border-top-width: 1px;
+}
+
+.telop .panel input[type='text'].hl {
+  flex: 1;
+  min-width: 120px;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: #14141a;
+  color: #ffe14d;
+}
+
 /* 再生位置と、テロップが出ている区間 */
 .telop .playbar {
   position: relative;

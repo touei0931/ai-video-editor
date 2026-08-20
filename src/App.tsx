@@ -78,7 +78,7 @@ interface TelopResult {
     text: string;
     style: TelopStyleName;
     reason: string;
-    position: 'top' | 'middle' | 'bottom';
+    highlight: string | null;
     needs_check: boolean;
     confidence: number;
     low_words: number;
@@ -121,7 +121,7 @@ function toUnit(t: TelopResult['telops'][number]): TelopUnit {
     text: t.text,
     style: t.style,
     reason: t.reason,
-    position: t.position,
+    highlight: t.highlight,
     needsCheck: t.needs_check,
     confidence: t.confidence,
     lowWords: t.low_words ?? 0,

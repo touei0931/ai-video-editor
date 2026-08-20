@@ -11,10 +11,11 @@
  *   - プレビューは**実際の映像の上に**出す。文字だけ見ても顔にかぶるか分からない。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { drawTelop } from './render';
+import { buildLines, drawTelop } from './render';
 import {
   DEFAULT_STYLES,
   resolveStyle,
+  SAFE_AREA_RATIO,
   type TelopStyle,
   type TelopPosition,
   type TelopStyleName,
@@ -103,6 +104,10 @@ export function TelopScreen({
   const barRef = useRef<HTMLSpanElement>(null);
 
   const current = cards[index];
+  /** 実際に使われる位置。1枚の上書きが無ければ雛形に従う */
+  const currentPosition = current
+    ? (current.positionOverride ?? styles[current.style].position)
+    : 'bottom';
   const checkCount = useMemo(() => cards.filter((c) => c.needsCheck).length, [cards]);
   const styleCounts = useMemo(() => {
     const out: Record<string, number> = {};
@@ -170,7 +175,6 @@ export function TelopScreen({
       text: '新しいテロップ',
       lines: ['新しいテロップ'],
       style: 'normal',
-      position: 'bottom',
       reason: '手で追加',
       needsCheck: false,
       confidence: 1,
@@ -298,13 +302,14 @@ export function TelopScreen({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, frame.width, frame.height);
+    // 🔴 書き出しと同じ resolveStyle / buildLines を通す（rasterize.ts と対）
+    const resolved = resolveStyle(styles, current.style, current.override, current.fontScale);
     drawTelop(
       ctx,
       {
-        lines: current.lines,
-        // 🔴 書き出しと同じ resolveStyle を通す（rasterize.ts と対）
-        style: resolveStyle(styles, current.style, current.override, current.fontScale),
-        position: current.position,
+        lines: buildLines(current.lines, current.highlight ?? undefined, resolved),
+        style: resolved,
+        position: current.positionOverride ?? resolved.position,
         offsetX: current.offsetX,
         offsetY: current.offsetY,
       },
@@ -364,8 +369,9 @@ export function TelopScreen({
           break;
         case 'p': {
           if (!current) return;
-          const next = POSITION_ORDER[(POSITION_ORDER.indexOf(current.position) + 1) % POSITION_ORDER.length];
-          update({ position: next });
+          const now = current.positionOverride ?? styles[current.style].position;
+          const next = POSITION_ORDER[(POSITION_ORDER.indexOf(now) + 1) % POSITION_ORDER.length];
+          update({ positionOverride: next });
           break;
         }
         case ' ': {
@@ -390,7 +396,7 @@ export function TelopScreen({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editing, commitEdit, move, nextCheck, cycleStyle, update, restart, current, index, cards.length]);
+  }, [editing, commitEdit, move, nextCheck, cycleStyle, update, restart, styles, current, index, cards.length]);
 
   if (!current) {
     return (
@@ -489,6 +495,15 @@ export function TelopScreen({
               opacity は上の requestAnimationFrame が直接書き換える。
             */}
             <canvas ref={canvasRef} className="overlay" style={{ opacity: 0 }} />
+
+            {/*
+              投稿先のUI（TikTokのキャプション帯、Shortsのタイトル行）が乗る領域。
+              ここにテロップを置くと隠れる。
+            */}
+            <div className="safe-area" aria-hidden>
+              <span className="band top" style={{ height: `${SAFE_AREA_RATIO.top * 100}%` }} />
+              <span className="band bottom" style={{ height: `${SAFE_AREA_RATIO.bottom * 100}%` }} />
+            </div>
           </div>
 
           {/* 再生位置と、テロップが出ている区間 */}
@@ -562,22 +577,39 @@ export function TelopScreen({
                   <button
                     key={p}
                     type="button"
-                    className={current.position === p ? 'on' : ''}
-                    onClick={() => update({ position: p })}
+                    className={currentPosition === p ? 'on' : ''}
+                    onClick={() => update({ positionOverride: p })}
                   >
                     {POSITION_LABEL[p]}
                   </button>
                 ))}
+                {current.positionOverride && (
+                  <button type="button" onClick={() => update({ positionOverride: undefined })}>
+                    雛形に戻す
+                  </button>
+                )}
+                {(current.offsetX !== 0 || current.offsetY !== 0) && (
+                  <button type="button" onClick={() => update({ offsetX: 0, offsetY: 0 })}>
+                    ずらしを戻す
+                  </button>
+                )}
                 <span className="hint">
                   {current.offsetX || current.offsetY
                     ? `ずらし ${(current.offsetX * 100).toFixed(0)}%, ${(current.offsetY * 100).toFixed(0)}%`
                     : 'プレビューをドラッグでも動かせます'}
                 </span>
-                {(current.offsetX !== 0 || current.offsetY !== 0) && (
-                  <button type="button" onClick={() => update({ offsetX: 0, offsetY: 0 })}>
-                    位置を戻す
-                  </button>
-                )}
+              </div>
+
+              <div className="row">
+                <label>強調する語</label>
+                <input
+                  type="text"
+                  className="hl"
+                  value={current.highlight ?? ''}
+                  placeholder="例: めちゃくちゃ"
+                  onChange={(e) => update({ highlight: e.target.value || null })}
+                />
+                <span className="hint">この語だけ色と大きさが変わります</span>
               </div>
 
               <div className="row">
@@ -671,6 +703,25 @@ export function TelopScreen({
                 <button type="button" onClick={() => patchStyle(editingStyle, DEFAULT_STYLES[editingStyle])}>
                   既定に戻す
                 </button>
+              </div>
+              <div className="row">
+                <label className="sub">位置</label>
+                {POSITION_ORDER.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={styles[editingStyle].position === p ? 'on' : ''}
+                    onClick={() => patchStyle(editingStyle, { position: p })}
+                  >
+                    {POSITION_LABEL[p]}
+                  </button>
+                ))}
+                <label className="sub">強調色</label>
+                <input
+                  type="color"
+                  value={styles[editingStyle].highlightColor ?? '#ffe14d'}
+                  onChange={(e) => patchStyle(editingStyle, { highlightColor: e.target.value })}
+                />
               </div>
             </div>
           </div>

@@ -15,6 +15,15 @@ export type TelopStyleName = 'normal' | 'note' | 'emphasis';
 /** 画面内の縦位置。顔にかぶるときに人間が動かせるよう3段階（§1.3）。 */
 export type TelopPosition = 'top' | 'middle' | 'bottom';
 
+/**
+ * 画面の上下でこの割合は「置いてはいけない領域」。
+ *
+ * TikTok のキャプション・ユーザー名帯、YouTube Shorts のタイトル行が乗る場所で、
+ * ここにテロップを置くと投稿先のUIに隠れる。
+ * プレビューに枠として出し、既定位置もこの内側に収める。
+ */
+export const SAFE_AREA_RATIO = { top: 0.12, bottom: 0.15 };
+
 export interface TelopStroke {
   color: string;
   /** フォントサイズに対する比率 */
@@ -22,6 +31,14 @@ export interface TelopStroke {
 }
 
 export interface TelopStyle {
+  /**
+   * 既定の表示位置。
+   *
+   * 🔴 位置は雛形側に持たせること。
+   *    テロップ1枚ずつが持っていると、300枚を上に移すのに300回操作することになる。
+   *    位置は最初に一度決めて全部に適用するもの。
+   */
+  position: TelopPosition;
   fontFamily: string;
   /** 画面幅に対する比率。解像度が変わっても同じ見た目になるようにする */
   fontSizeRatio: number;
@@ -29,6 +46,9 @@ export interface TelopStyle {
   stroke?: TelopStroke;
   /** 行送り。フォントサイズに対する比率 */
   lineHeightRatio: number;
+  /** 強調する語の色と大きさ（「この5文字だけ黄色く大きく」用） */
+  highlightColor?: string;
+  highlightScale?: number;
 
   // ── ここから下は Phase 2 では未実装。スキーマだけ先に定義しておく ──
   gradient?: { from: string; to: string; angleDeg: number };
@@ -44,31 +64,60 @@ export interface TelopStyle {
  */
 export const DEFAULT_STYLES: Record<TelopStyleName, TelopStyle> = {
   normal: {
+    position: 'top',
     fontFamily: 'ZenKakuGothicNew',
     fontSizeRatio: 0.085,
     color: '#ffffff',
     stroke: { color: '#000000', widthRatio: 0.16 },
     lineHeightRatio: 1.25,
+    highlightColor: '#ffe14d',
+    highlightScale: 1.15,
   },
   note: {
+    position: 'bottom',
     fontFamily: 'ZenOldMincho',
     fontSizeRatio: 0.07,
     color: '#9fd8ff',
     stroke: { color: '#000000', widthRatio: 0.16 },
     lineHeightRatio: 1.3,
+    highlightColor: '#ffe14d',
+    highlightScale: 1.1,
   },
   emphasis: {
+    position: 'middle',
     fontFamily: 'DelaGothicOne',
     fontSizeRatio: 0.1,
     color: '#ff3b30',
     stroke: { color: '#ffffff', widthRatio: 0.18 },
     lineHeightRatio: 1.2,
+    highlightColor: '#ffe14d',
+    highlightScale: 1.15,
   },
 };
 
+/**
+ * 行の中の一区切り。
+ *
+ * 🔴 日本語テロップで一番使う技法は「**この5文字だけ黄色く大きく**」。
+ *    行を1色で描く実装だとこれが構造的にできない。
+ *    そこで行を「区切りの列」として持ち、区切りごとに色と大きさを変えられるようにする。
+ *    何も指定しなければ行全体が1区切りになるので、単色の場合と結果は変わらない。
+ */
+export interface TelopSpan {
+  text: string;
+  /** 未指定ならスタイルの色 */
+  color?: string;
+  /** 未指定ならスタイルの縁の色 */
+  strokeColor?: string;
+  /** 文字の大きさ。行の基準サイズに対する倍率 */
+  scale?: number;
+}
+
+export type TelopLine = string | TelopSpan[];
+
 export interface TelopSpec {
   /** 表示する行。改行位置は BudouX が文節単位で決める（§6.6 / T2） */
-  lines: string[];
+  lines: TelopLine[];
   style: TelopStyle;
   position: TelopPosition;
   /**
@@ -104,6 +153,7 @@ export function resolveStyle(
   return {
     ...base,
     fontSizeRatio: size,
+    position: base.position,
     color: override?.color ?? base.color,
     stroke: base.stroke
       ? { ...base.stroke, color: override?.strokeColor ?? base.stroke.color }

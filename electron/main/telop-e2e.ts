@@ -22,7 +22,6 @@ interface Card {
   srcEnd: number;
   lines: string[];
   style: string;
-  position: string;
   fontScale: number;
   png: string;
 }

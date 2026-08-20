@@ -193,26 +193,36 @@ def _drop_cut_words(words: list[dict[str, Any]], cuts: list[tuple[float, float]]
 # ── スタイル判定 ─────────────────────────────────────────
 
 
-def classify(text: str, loud_delta: float | None, opts: dict[str, Any]) -> tuple[str, str]:
-    """テロップのスタイルを決める。(スタイル名, 理由) を返す。
+def classify(
+    text: str, loud_delta: float | None, opts: dict[str, Any]
+) -> tuple[str, str, str | None]:
+    """テロップの見せ方を決める。(スタイル名, 理由, 強調する語) を返す。
 
     理由を必ず返すのは、レビュー画面で「なぜ赤くなったのか」を出すため。
     判定を人間が直すとき、根拠が見えないと直しようがない。
+
+    🔴 強調語が出てきても、文全体を赤くしてはいけない。
+       日本語テロップの作法は「**その語だけ**を目立たせる」。
+       文ごと書体まで変えると、テロップが1枚ごとに跳ねて読みにくくなるうえ、
+       強調が「たまに出るから効く」という性質を失う。
+       文全体を強調にするのは、叫んだとき（感嘆符・大きな声）だけにする。
     """
     if any(m in text for m in NOTE_MARKERS) or any(text.startswith(p) for p in NOTE_PREFIXES):
-        return "note", "補足の言い回し"
+        return "note", "補足の言い回し", None
 
     if "！" in text or "!" in text:
-        return "emphasis", "感嘆符"
-
-    hit = next((w for w in EMPHASIS_WORDS if w in text), None)
-    if hit:
-        return "emphasis", f"強調語「{hit}」"
+        return "emphasis", "感嘆符", None
 
     if loud_delta is not None and loud_delta >= opts["loud_db"]:
-        return "emphasis", f"声が大きい（平均+{loud_delta:.1f}dB）"
+        return "emphasis", f"声が大きい（平均+{loud_delta:.1f}dB）", None
 
-    return "normal", ""
+    # 語だけを目立たせる。長い語を優先する（「めちゃくちゃ」＞「めちゃ」）
+    hits = [w for w in EMPHASIS_WORDS if w in text]
+    if hits:
+        word = max(hits, key=len)
+        return "normal", f"強調語「{word}」", word
+
+    return "normal", "", None
 
 
 # ── 本体 ─────────────────────────────────────────────────
@@ -313,7 +323,7 @@ def build_units(
         db = loudness.db(g[0]["src_start"], g[-1]["src_end"]) if loudness else None
         loud_delta = (db - baseline) if (db is not None and baseline is not None) else None
 
-        style, reason = classify(text.strip(), loud_delta, opts)
+        style, reason, highlight = classify(text.strip(), loud_delta, opts)
 
         probs = [w["probability"] for w in g if w["probability"] > 0]
         mean_prob = sum(probs) / len(probs) if probs else 1.0
@@ -331,7 +341,8 @@ def build_units(
             "text": text,
             "style": style,
             "reason": reason,
-            "position": "bottom",
+            # 目立たせる語。位置は UI 側の雛形が持つのでここでは決めない
+            "highlight": highlight,
             # 認識が怪しい箇所は、読まずに飛ばさず必ず目を通してほしい
             "needs_check": needs_check,
             "confidence": round(mean_prob, 3),
