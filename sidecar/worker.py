@@ -123,12 +123,20 @@ def run_in_subprocess(
             proc.kill()
 
     if error:
-        raise RuntimeError(f"{error['message']}\n{error.get('traceback', '')}")
+        # 🔴 トレースバックは画面に出さない。stderr にだけ出す。
+        #    以前はここで連結していたため、Python のトレースバック全文が
+        #    そのまま画面のエラー欄に表示されていた。友達には読めないし、
+        #    「赤い字がいっぱい出た」以上のことが分からない。
+        #    記録は Electron 側が last-error.json に残す。
+        detail = error.get("traceback", "")
+        if detail:
+            print(detail, file=sys.stderr, flush=True)
+        raise RuntimeError(error["message"])
 
     if result is None:
         raise RuntimeError(
-            f"処理プロセスが結果を返さずに終了しました（exitcode={proc.returncode}）。"
-            "推論ライブラリのクラッシュの可能性があります。"
+            "処理が途中で止まりました。もう一度お試しください。"
+            f"（終了コード {proc.returncode}）"
         )
 
     return result

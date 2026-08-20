@@ -11,6 +11,7 @@
  *   - プレビューは**実際の映像の上に**出す。文字だけ見ても顔にかぶるか分からない。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { shouldIgnoreKey } from '../keys';
 import { buildLines, drawTelop } from './render';
 import {
   DEFAULT_STYLES,
@@ -88,7 +89,11 @@ export interface TelopScreenProps {
   videoPath: string;
   frame: Frame;
   /** 実測幅で折り返す関数（編集したテキストを折り返し直すのに使う） */
-  rewrap: (text: string, style: TelopStyleName) => { lines: string[]; fontScale: number };
+  rewrap: (
+    text: string,
+    style: TelopStyleName,
+    styles?: StyleMap,
+  ) => { lines: string[]; fontScale: number };
   onBack?: (edits: TelopEdits) => void;
   /**
    * 直すたびに呼ばれる。呼び出し側で保存する。
@@ -177,9 +182,33 @@ export function TelopScreen({
     );
   }, []);
 
-  const patchStyle = useCallback((name: TelopStyleName, patch: Partial<TelopStyle>) => {
-    setStyles((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
-  }, []);
+  const patchStyle = useCallback(
+    (name: TelopStyleName, patch: Partial<TelopStyle>) => {
+      setStyles((prev) => {
+        const next = { ...prev, [name]: { ...prev[name], ...patch } };
+
+        /*
+          🔴 文字の大きさ・書体を変えたら、折り返しを計算し直す。
+
+          描画側は編集後の雛形を使うのに、行の分け方は作ったときのまま。
+          「大きさ」を 0.085 から 0.16 に上げると、幅は 0.085 基準のまま
+          文字だけ大きくなり、**画面外へはみ出したまま書き出される**。
+          プレビューと書き出しは一致するので、両方おかしいことに気づけない。
+        */
+        if (patch.fontSizeRatio !== undefined || patch.fontFamily !== undefined) {
+          setCards((cs) =>
+            cs.map((c) => {
+              if (c.style !== name) return c;
+              const fit = rewrap(c.text, name, next);
+              return { ...c, lines: fit.lines, fontScale: fit.fontScale };
+            }),
+          );
+        }
+        return next;
+      });
+    },
+    [rewrap],
+  );
 
   /** 画面を離れるときに、直した内容をまとめて渡す */
   const goBack = useCallback(
@@ -227,10 +256,20 @@ export function TelopScreen({
     [cards.length],
   );
 
-  /** 次の「要確認」へ飛ぶ。ここだけ見れば済むようにするのが狙い。 */
+  /**
+   * 次の「要確認」へ飛ぶ。ここだけ見れば済むようにするのが狙い。
+   *
+   * 🔴 要確認が1件も無いときに -1 を渡さないこと。
+   *    以前は findIndex の -1 をそのまま setIndex しており、current が undefined になって
+   *    「テロップがありません」画面に落ちた。そこの主ボタンは「テロップ無しで進む」なので、
+   *    **テロップ0枚のまま書き出しまで進めてしまう**。
+   *    認識がきれいな素材ほど（要確認が0件になるほど）踏む。
+   */
   const nextCheck = useCallback(() => {
-    const found = cards.findIndex((c, i) => i > index && c.needsCheck);
-    setIndex(found >= 0 ? found : cards.findIndex((c) => c.needsCheck));
+    const after = cards.findIndex((c, i) => i > index && c.needsCheck);
+    const target = after >= 0 ? after : cards.findIndex((c) => c.needsCheck);
+    if (target < 0) return;
+    setIndex(target);
     setEditing(false);
   }, [cards, index]);
 
@@ -238,7 +277,7 @@ export function TelopScreen({
     (name: TelopStyleName) => {
       if (!current) return;
       // スタイルが変わるとフォントも大きさも変わるので、折り返しを計算し直す
-      const fit = rewrap(current.text, name);
+      const fit = rewrap(current.text, name, styles);
       update({ style: name, lines: fit.lines, fontScale: fit.fontScale, reason: '手動で変更' });
       setEditingStyle(name);
     },
@@ -334,7 +373,7 @@ export function TelopScreen({
     const text = draft.trim();
     setEditing(false);
     if (!text || text === current.text) return;
-    const fit = rewrap(text, current.style);
+    const fit = rewrap(text, current.style, styles);
     update({ text, lines: fit.lines, fontScale: fit.fontScale, needsCheck: false });
   }, [current, draft, rewrap, update]);
 
@@ -461,6 +500,11 @@ export function TelopScreen({
         return;
       }
 
+      // 🔴 文字を打っている場所のキーは奪わない（src/keys.ts の冒頭参照）。
+      //    editing だけを見ていたため、「強調する語」の入力欄で Backspace を押すと
+      //    テロップそのものが消えていた。
+      if (shouldIgnoreKey(e)) return;
+
       switch (e.key.toLowerCase()) {
         case 'arrowdown':
         case 'j':
@@ -504,8 +548,10 @@ export function TelopScreen({
         case 'r':
           restart();
           break;
+        // 🔴 Backspace は割り当てない。
+        //    Mac の delete キーは普段「文字を消す」キーで、一覧を眺めている最中に
+        //    押しやすい。消すのは Del だけで足りる。
         case 'delete':
-        case 'backspace':
           remember();
           setCards((prev) => {
             const gone = prev[index];
@@ -572,21 +618,21 @@ export function TelopScreen({
           あとからカットを1箇所足すだけでテロップが単語の途中で切れる。
           SRT を出せば「カットはこのアプリ、テロップは編集ソフト」が選べる。
         */}
-        <label className="opt" title="映像にテロップを直接描き込みます">
+        <label className="opt" title="映像そのものに文字を描き込みます">
           <input
             type="checkbox"
             checked={exportOptions.burn}
             onChange={(e) => setExportOptions((o) => ({ ...o, burn: e.target.checked }))}
           />
-          焼き込む
+          動画に文字を入れる
         </label>
-        <label className="opt" title="編集ソフトに読み込める字幕ファイルを出します">
+        <label className="opt" title="他の編集ソフトに読み込める字幕ファイルを別に作ります">
           <input
             type="checkbox"
             checked={exportOptions.srt}
             onChange={(e) => setExportOptions((o) => ({ ...o, srt: e.target.checked }))}
           />
-          字幕(SRT)
+          字幕ファイルも作る
         </label>
         {onBack && <button onClick={() => onBack(goBack())}>カットに戻る</button>}
         {onQuit && <button onClick={onQuit}>編集をやめる</button>}
@@ -594,6 +640,18 @@ export function TelopScreen({
           {exporting ? '書き出し中…' : '通しで確認 →'}
         </button>
       </header>
+
+      {/*
+        🔴 両方外すとテロップが1枚も出ない。
+           数百枚校正したあとにこれをやると、完了画面の「テロップ 0 枚」を見ても
+           本人は気づかない。押す前に言う。
+      */}
+      {!exportOptions.burn && !exportOptions.srt && cards.length > 0 && (
+        <p className="export-error">
+          「動画に文字を入れる」も「字幕ファイルも作る」も外れています。
+          このままだと、直したテロップは<strong>1枚も出力されません</strong>。
+        </p>
+      )}
 
       {error && (
         <p className="export-error">

@@ -122,7 +122,13 @@ def sample_faces(
                     "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1",
                 ],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                # 🔴 読まないパイプは作らない。
+                #    stderr=PIPE のまま一度も読まずにいると、壊れた素材で
+                #    ffmpeg がデコードエラーを出し続けたときに 64KB のパイプが埋まり、
+                #    ffmpeg が書き込みでブロックする → stdout も進まない →
+                #    こちらの read が永久に待つ。この画面にはキャンセルも無いので、
+                #    タスクマネージャで殺すしかなくなる。
+                stderr=subprocess.DEVNULL,
             )
 
             index = 0
@@ -229,7 +235,11 @@ def pick_target(
     seen = sum(1 for s in window if s["faces"])
     presence = seen / len(window)
     if presence < opts["min_presence"]:
-        return None, f"顔がほとんど映っていない（{presence * 100:.0f}%）"
+        # 🔴 理由の文字列に値を埋め込まない。
+        #    呼び出し側はこの文字列をキーにして件数を集計するので、
+        #    値が違うだけで別の理由として並び、
+        #    「顔がほとんど映っていない（38%）1件 / 同（41%）1件 / …」と延々続く。
+        return None, "顔がほとんど映っていない"
 
     tracks = [t for t in _track(window) if t]
     if not tracks:

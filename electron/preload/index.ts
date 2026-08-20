@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('app', {
   confirmResume: (info: { savedAt: string; decided: number }) =>
     ipcRenderer.invoke('app:confirmResume', info),
   revealFile: (filePath: string) => ipcRenderer.invoke('app:revealFile', filePath),
+  uiInfo: () => ipcRenderer.invoke('app:uiInfo'),
   /** 画面の段階を知らせる。メニューの有効/無効はこれで決まる */
   setContext: (ctx: { phase: string; workDir?: string | null; outPath?: string | null }) =>
     ipcRenderer.send('app:context', ctx),

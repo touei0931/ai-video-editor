@@ -62,6 +62,7 @@ declare global {
         decided: number;
       }) => Promise<'resume' | 'fresh' | 'cancel'>;
       revealFile: (filePath: string) => Promise<void>;
+      uiInfo: () => Promise<{ isMac: boolean }>;
       setContext: (ctx: { phase: string; workDir?: string | null; outPath?: string | null }) => void;
       onMenu: (cb: (action: string) => void) => () => void;
       onProgress: (cb: (p: { value: number; message: string }) => void) => () => void;

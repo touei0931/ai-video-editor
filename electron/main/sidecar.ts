@@ -43,6 +43,19 @@ export class Sidecar {
     const proc = spawn(command, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     this.proc = proc;
 
+    /*
+      🔴 stdin の error を必ず拾う。
+
+      サイドカーが落ちた直後（exit が届く前）に書き込むと EPIPE が出る。
+      ストリームの 'error' に誰も listener を付けていないと、Node はこれを
+      **未処理例外**として扱い、Electron のメインプロセスごと落ちる。
+      編集中の状態は全部消える。proc.on('error') は子プロセスのイベントで、
+      ストリームの error はそこには来ない。
+    */
+    proc.stdin.on('error', (e) => {
+      console.error('[sidecar] 書き込みに失敗しました:', e);
+    });
+
     createInterface({ input: proc.stdout }).on('line', (line) => {
       if (!line.trim()) return;
       let msg: {
@@ -126,8 +139,17 @@ export class Sidecar {
 
     const id = this.nextId++;
     const promise = new Promise<unknown>((resolve, reject) => {
+      if (!proc.stdin.writable) {
+        reject(new Error('処理を行う仕組みが停止しています。アプリを再起動してください。'));
+        return;
+      }
       this.pending.set(id, { resolve, reject });
-      proc.stdin.write(JSON.stringify({ id, method, params }) + '\n');
+      // 書き込みの失敗はコールバックで受ける。例外にはしない（上の 'error' の理由と同じ）
+      proc.stdin.write(JSON.stringify({ id, method, params }) + '\n', (err) => {
+        if (!err) return;
+        this.pending.delete(id);
+        reject(new Error('処理を行う仕組みに指示を送れませんでした。アプリを再起動してください。'));
+      });
     });
     return { id, promise };
   }

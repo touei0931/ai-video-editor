@@ -59,10 +59,33 @@ def find_ffmpeg() -> str:
     )
 
 
+def _ffmpeg_error(stderr: str) -> RuntimeError:
+    """ffmpeg の失敗を、画面に出してよい形にする。
+
+    🔴 英語のログをそのまま画面に出さない。
+       以前は stderr の末尾1500文字をそのままエラー本文にしていた。
+       友達には読めないうえ、次に何をすればいいかも分からない。
+       原因の切り分けに要る全文は stderr に流し、Electron 側が記録に残す。
+    """
+    text = stderr or ""
+    print(text[-4000:], file=sys.stderr, flush=True)
+
+    lowered = text.lower()
+    if "no such file" in lowered or "does not exist" in lowered:
+        return RuntimeError("元の動画が見つかりません。移動や削除をしていないか確認してください。")
+    if "no space left" in lowered or "disk full" in lowered:
+        return RuntimeError("保存先の空き容量が足りません。空きを作ってからもう一度お試しください。")
+    if "permission denied" in lowered:
+        return RuntimeError("保存先に書き込めません。別の場所を選んでください。")
+    if "invalid data" in lowered or "moov atom not found" in lowered:
+        return RuntimeError("動画ファイルが壊れているようです。別の動画でお試しください。")
+    return RuntimeError("動画の処理に失敗しました。もう一度お試しください。")
+
+
 def _run(cmd: list[str]) -> str:
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg が失敗しました:\n{(result.stderr or '')[-1500:]}")
+        raise _ffmpeg_error(result.stderr or "")
     return result.stdout or ""
 
 
@@ -132,7 +155,7 @@ def _run_with_progress(
 
     code = proc.wait()
     if code != 0:
-        raise RuntimeError("ffmpeg が失敗しました:\n" + "\n".join(tail)[-1500:])
+        raise _ffmpeg_error("\n".join(tail))
 
 
 def probe_video_info(path: str) -> dict[str, Any]:

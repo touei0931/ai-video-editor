@@ -103,32 +103,52 @@
 .fullpreview .controls .bar {
   position: relative;
   flex: 1;
-  height: 22px;
+  height: 34px;
   border-radius: 4px;
   background: #26262e;
   overflow: hidden;
   cursor: pointer;
 }
 
-/* 人物アップに寄っている区間 */
-/* 人物アップの区間（上段） */
+/*
+  人物アップの区間（上段）。
+  🔴 押せる範囲と見た目を分ける。
+     以前は高さ7pxで、これ自体が押すためのボタンだった。マウスで狙うのは無理。
+     ボタンは段いっぱい、見た目の帯は ::before で細く描く。
+*/
 .fullpreview .controls .shot {
   position: absolute;
-  top: 2px;
-  height: 7px;
+  min-height: 0;
+  top: 0;
+  height: 20px;
+  min-width: 10px;
   padding: 0;
   border: 0;
-  border-radius: 2px;
-  background: #3a3a46;
+  background: transparent;
   cursor: pointer;
   z-index: 4;
+}
+
+.fullpreview .controls .shot::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 8px;
+  border-radius: 2px;
+  background: #3a3a46;
+}
+
+.fullpreview .controls .shot:hover::before {
+  filter: brightness(1.5);
 }
 
 /* テロップが出ている区間（中段） */
 .fullpreview .controls .tel {
   position: absolute;
-  top: 12px;
-  height: 4px;
+  top: 20px;
+  height: 5px;
   border-radius: 2px;
   background: #6f8db8;
   z-index: 4;
@@ -147,15 +167,15 @@
   pointer-events: none;
 }
 
-.fullpreview .controls .shot.on {
+.fullpreview .controls .shot.on::before {
   background: #e0a84d;
 }
 
 .fullpreview header label.opt {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 13px;
   color: var(--muted);
   cursor: pointer;
   white-space: nowrap;
@@ -176,7 +196,7 @@
 .fullpreview .legend {
   display: flex;
   gap: 14px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   align-items: center;
   flex-wrap: wrap;
@@ -231,7 +251,7 @@
 
 .fullpreview .note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
   text-align: center;
   margin: 0;
@@ -239,5 +259,5 @@
 
 /* 寄らなかった理由。不具合に見えないよう説明する */
 .fullpreview .note .skipped {
-  color: #6a6a76;
+  color: #97a1ad;
 }

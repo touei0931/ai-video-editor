@@ -65,7 +65,34 @@ export function workDir(): string {
   return join(app.getPath('userData'), 'work');
 }
 
+/**
+ * 先頭にアプリメニューが要るか。
+ *
+ * 🔴 macOS では、メニューの**先頭の項目がアプリメニューとして扱われる**。
+ *    そのまま「ファイル」を先頭に置くと、アプリ名のメニューの中に
+ *    「動画を読み込む…」が並び、About / サービス / 隠す / 終了 が消える。
+ *    menu.ts はプラットフォーム分岐を書けないファイルなので、判断だけここで返す。
+ */
+export function needsAppMenu(): boolean {
+  return currentPlatform() === 'mac';
+}
+
 /** 診断情報 zip の保存先（§10.5「診断情報を書き出す」ボタン） */
 export function diagnosticsDir(): string {
   return app.getPath('desktop');
+}
+
+/**
+ * 不具合の記録の置き場所。
+ *
+ * 🔴 app.getAppPath() の下に書いてはいけない。
+ *    パッケージ後はそこが app.asar の**中**なので mkdir が失敗し、
+ *    握り潰されて何も残らない。
+ *    Mac 実機を触れない体制で「友達の実機から不具合を回収する唯一の手段」が、
+ *    配布形態でだけ機能しない状態になっていた。
+ *
+ * 開発中はリポジトリの中に置く（CI がアーティファクトとして回収するため）。
+ */
+export function logDir(): string {
+  return isDev ? join(app.getAppPath(), 'phase0-artifacts') : join(app.getPath('userData'), 'logs');
 }

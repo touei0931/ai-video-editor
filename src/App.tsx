@@ -780,9 +780,16 @@ export function App() {
     });
   }, [hasBridge, pickAndAnalyze, cancelAnalyze, quitEditing, refreshDrafts, saveDraft]);
 
+  /**
+   * 折り返しを計算し直す。
+   * 🔴 今の雛形を渡すこと。渡さないと、雛形の文字サイズを変えたときに
+   *    折り返しだけ古い基準のままになり、テロップが画面外へはみ出す。
+   */
   const rewrap = useCallback(
-    (text: string, style: TelopStyleName) =>
-      measure ? rewrapCard(text, style, measure, frame) : { lines: [text], fontScale: 1 },
+    (text: string, style: TelopStyleName, styles?: StyleMap) =>
+      measure
+        ? rewrapCard(text, style, measure, frame, {}, styles)
+        : { lines: [text], fontScale: 1 },
     [measure, frame],
   );
 
@@ -1076,26 +1083,23 @@ export function App() {
             <br />
             声が入っていない素材では、判断の材料がないため何もできません。
           </p>
+          {/*
+            🔴 理由コード（repeat / short など）をそのまま出さない。
+               友達に必要なのは「声が入っていないので編集できない」の一行で、
+               内訳は不具合の記録に残っていれば足りる。
+          */}
           <dl>
             <dt>動画の長さ</dt>
             <dd>{formatDuration(analysis.video.duration)}</dd>
-            <dt>検出できた発話</dt>
-            <dd>0 秒</dd>
-            <dt>除外した誤認識</dt>
-            <dd>
-              {analysis.speech.dropped} 件
-              <span className="muted">
-                {' '}
-                （{Object.entries(analysis.speech.reasons).map(([k, v]) => `${k} ${v}`).join(' / ')}）
-              </span>
-            </dd>
+            <dt>聞き取れた話し声</dt>
+            <dd>ありません</dd>
           </dl>
           <p className="muted">
-            音声認識エンジンは、声の入っていない素材に対しても
-            <strong>それらしい文字列を出力してしまう</strong>ことがあります
-            （今回は「mr」の繰り返し）。
+            音を認識する仕組みは、声が入っていない素材に対しても
+            <strong>それらしい文字を出してしまう</strong>ことがあります。
+            そのまま使うと意味のないテロップだらけになるので、ここで止めています。
             <br />
-            そのまま使うと意味のないテロップだらけになるため、ここで止めています。
+            声が入っている別の動画を選んでください。
           </p>
           <div className="actions">
             <button className="primary" onClick={pickAndAnalyze}>
@@ -1234,21 +1238,19 @@ export function App() {
                 </dd>
               </>
             )}
-            <dt>エンコーダ</dt>
-            <dd>
-              {exported.encoder}
-              {/*
-                ハードウェアエンコーダが使えず落ちたことは必ず伝える。
-                mpeg4 まで落ちると画質が明らかに悪くなるが、
-                エンコーダ名を見て異常だと気づくのは無理。
-              */}
-              {exported.encoder_fallback && (
-                <span className="error">
-                  {' '}
-                  ← ハードウェアの支援が使えず、ソフトウェアで書き出しました（画質が落ちます）
-                </span>
-              )}
-            </dd>
+            {/*
+              🔴 エンコーダ名（h264_videotoolbox など）は出さない。
+                 見ても判断材料にならない。異常なときだけ、その意味を書く。
+            */}
+            {exported.encoder_fallback && (
+              <>
+                <dt>画質</dt>
+                <dd className="error">
+                  この機械では映像処理の支援が使えず、画質が落ちた状態で書き出しました
+                  <span className="muted"> （{exported.encoder}）</span>
+                </dd>
+              </>
+            )}
             <dt>ファイル</dt>
             <dd>
               <code>{exported.out_path}</code>（{exported.size_mb} MB）
@@ -1260,17 +1262,6 @@ export function App() {
             </button>
             <button onClick={resetEditing}>別の動画を編集する</button>
           </div>
-        </section>
-      )}
-
-      {analysis && phase !== 'review' && phase !== 'telop' && phase !== 'no-speech' && (
-        <section>
-          <h2>文字起こし</h2>
-          <p className="muted">
-            {analysis.transcript.model} / {analysis.transcript.elapsed_seconds}秒（
-            {analysis.transcript.realtime_factor}倍速）
-          </p>
-          <p>{analysis.transcript.text}</p>
         </section>
       )}
     </main>

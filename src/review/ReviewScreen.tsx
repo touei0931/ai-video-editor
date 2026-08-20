@@ -8,6 +8,7 @@
  * 現状はモックデータでの操作感確認用。解析パイプラインは未接続。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { shouldIgnoreKey } from '../keys';
 import { AutoCutPreview, type AutoCutItem } from './AutoCutPreview';
 import {
   DEFAULT_BAND,
@@ -29,6 +30,27 @@ function formatTime(sec: number): string {
   return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 }
 
+/**
+ * 確信度を言葉にする。
+ *
+ * 🔴 「確信度 0.82」は機械学習の言葉で、編集の言葉ではない。
+ *    0.82 が高いのか低いのか、画面を見た人には判断できない。
+ *    数字はツールチップに残す（開発時の切り分けには要る）。
+ */
+function confidenceLabel(value: number): string {
+  if (value >= 0.9) return 'かなり高い';
+  if (value >= 0.8) return '高い';
+  if (value >= 0.7) return 'ふつう';
+  return '低い';
+}
+
+/** 「2分15秒」のように、長さとして読める形 */
+function formatDuration(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return m > 0 ? `${m}分${String(s).padStart(2, '0')}秒` : `${s}秒`;
+}
+
 /** 目盛り用。秒は切り捨てて mm:ss */
 function formatClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -36,35 +58,20 @@ function formatClock(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-/** 波形は解析結果が来るまでモック。カット区間が視覚的に分かることが目的。 */
-function Waveform({ candidate }: { candidate: CutCandidate }) {
-  const bars = useMemo(() => {
-    const out: number[] = [];
-    let seed = Math.floor(candidate.srcStart * 1000);
-    const rand = () => {
-      seed = (seed * 1664525 + 1013904223) % 4294967296;
-      return seed / 4294967296;
-    };
-    for (let i = 0; i < 90; i++) {
-      // 中央の約1/3がカット対象＝無音に近い
-      const inCut = i > 30 && i < 60;
-      out.push(inCut ? 0.02 + rand() * 0.06 : 0.25 + rand() * 0.75);
-    }
-    return out;
-  }, [candidate.id, candidate.srcStart]);
+/*
+  🔴 偽の波形は置かない。
 
-  return (
-    <div className="waveform" aria-hidden>
-      {bars.map((h, i) => (
-        <span
-          key={i}
-          className={i > 30 && i < 60 ? 'bar cut' : 'bar'}
-          style={{ height: `${Math.round(h * 100)}%` }}
-        />
-      ))}
-    </div>
-  );
-}
+  ここには以前 Waveform という表示があった。擬似乱数で棒を描き、
+  **中央の約1/3を必ず赤く塗る**——つまり「そこは無音です」と主張していた。
+  実際の音声とは何の関係も無い。
+
+  さらに悪いのは表示条件で、`!current.clipPath` のときだけ出していた。
+  clipPath が無いのは**クリップ生成に失敗した候補**、つまり
+  判断材料が何も無い候補。そこにだけ捏造された根拠が出て、人はYを押す。
+
+  実波形を出すなら work_dir/audio.wav からピーク列を作ればよい。
+  それまでは、何も出さないほうが安全。
+*/
 
 export interface ReviewScreenProps {
   /** 実データ。省略するとモックで動く（操作感の確認用） */
@@ -235,6 +242,8 @@ export function ReviewScreen({
   const [bulkApproved, setBulkApproved] = useState(0);
   /** フィラー一覧で開いている語 */
   const [expandedWord, setExpandedWord] = useState<string | null>(null);
+  /** 「残りをまとめてカット」の確認中。件数を持つ */
+  const [confirmRest, setConfirmRest] = useState<number | null>(null);
   /**
    * 自動判定を通しで確認している最中か。
    * 🔴 キー操作の効果と関わるので、キーの登録より前で宣言すること。
@@ -345,8 +354,19 @@ export function ReviewScreen({
    *    「残り一括承認」と書いてあるのに**残りが全部カットされない**状態だった。
    *    後半が丸ごと未カットの動画が出てきても、数字を見ても気づけない。
    */
-  const approveRest = useCallback(() => {
+  const approveRest = useCallback((confirmed = false) => {
     const rest = toReview.slice(index).filter((c) => !decisions[c.id]);
+    /*
+      🔴 まとめてカットする前に必ず確認する。
+         Enter は文字入力もダイアログも無いこの画面で最も押されやすいキーで、
+         300件の3件目で誤爆すると残り297件が全部カットに確定する。
+         取り消しは1件ずつしか戻せないので、実質復帰できない。
+    */
+    if (!confirmed && rest.length > 3) {
+      setConfirmRest(rest.length);
+      return;
+    }
+    setConfirmRest(null);
     if (rest.length > 0) {
       setDecisions((prev) => {
         const next = { ...prev };
@@ -409,6 +429,10 @@ export function ReviewScreen({
       // 通し確認を開いている間は、そちらのキー操作だけが効くようにする。
       // ここに届くと、見えていない候補の判定が裏で書き換わる。
       if (autoPreview) return;
+      // 🔴 文字入力・ボタン操作のキーは奪わない（src/keys.ts 参照）。
+      //    完了画面のチェックボックスが Space で切り替わらず、
+      //    ボタンに focus して Enter を押すと一括承認が走っていた。
+      if (shouldIgnoreKey(e)) return;
       if (e.repeat && !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
       switch (e.key.toLowerCase()) {
         case 'y':
@@ -440,15 +464,22 @@ export function ReviewScreen({
           replayJoin();
           break;
         case 'enter':
-          approveRest();
+          // 確認が出ているなら、そこで Enter は「はい」
+          approveRest(confirmRest !== null);
           break;
         case '[':
+          if (done) return;
           jumpTo(index - 1);
           break;
         case ']':
+          if (done) return;
           jumpTo(index + 1);
           break;
         case 'escape':
+          if (confirmRest !== null) {
+            setConfirmRest(null);
+            break;
+          }
           // 戻って直していたのを取りやめて、元の位置に復帰する
           if (revisiting) setIndex(resumeIndex);
           break;
@@ -471,6 +502,8 @@ export function ReviewScreen({
     resumeIndex,
     toReview.length,
     autoPreview,
+    confirmRest,
+    done,
   ]);
 
   const counts = useMemo(() => {
@@ -689,43 +722,53 @@ export function ReviewScreen({
   if (done) {
     return (
       <div className="review done">
-        <h1>レビュー完了</h1>
+        <h1>カットが決まりました</h1>
+        {/*
+          🔴 開発の目標値を画面に出さない。
+             「1件あたり 0.03 秒／目標は 2.2〜2.5 秒」は作者が速度を測るための数字で、
+             使う人には意味がない。しかも下書きから再開すると必ず嘘の値になる。
+             人が知りたいのは「何箇所切って、どれだけ短くなるか」。
+        */}
         <p className="lead">
-          {toReview.length} 件を <strong>{elapsed.toFixed(1)} 秒</strong>で処理しました
-          （1件あたり <strong>{perItem.toFixed(2)} 秒</strong>）
-        </p>
-        <p className={perItem <= 2.5 ? 'ok' : 'warn'}>
-          目標は 1件 2.2〜2.5 秒。{perItem <= 2.5 ? '目標内です。' : 'まだ目標より遅いです。'}
+          <strong>{approvedCuts.length} 箇所</strong>をカットします
+          <span className="muted">
+            {' '}
+            （合わせて {formatDuration(approvedCuts.reduce((a, c) => a + (c.srcEnd - c.srcStart), 0))}
+            ぶん短くなります）
+          </span>
         </p>
 
         <dl className="summary">
-          <dt>自動でカット（確信度 {HIGH.toFixed(2)} 以上）</dt>
+          <dt>あなたが1件ずつ確認した分</dt>
+          <dd>
+            <strong>{toReview.length} 件</strong>
+            <span className="muted">
+              {' '}
+              （切る {counts.approved} / 残す {counts.rejected} / あとで見る {counts.held}）
+            </span>
+          </dd>
+          <dt>AIが自信を持って切った分</dt>
           <dd>
             {autoApproved.length} 件
             {overrideCounts.keep > 0 && (
               <span className="muted"> （うち {overrideCounts.keep} 件を残す設定に変更）</span>
             )}
           </dd>
-          <dt>フィラー一括処理</dt>
+          <dt>「えー」「あの」などのまとめ処理</dt>
           <dd>{fillers.length} 件</dd>
-          <dt>自動で見送り（確信度 {LOW.toFixed(2)} 未満）</dt>
+          <dt>AIが迷って切らなかった分</dt>
           <dd>
             {autoRejected.length} 件
             {overrideCounts.cut > 0 && (
               <span className="muted"> （うち {overrideCounts.cut} 件をカットに変更）</span>
             )}
           </dd>
-          <dt>人間が確認した件数</dt>
-          <dd>
-            <strong>{toReview.length} 件</strong>（承認 {counts.approved} / 却下 {counts.rejected} / 保留{' '}
-            {counts.held}）
-          </dd>
-          <dt>候補の総数</dt>
+          <dt>見つかった候補の合計</dt>
           <dd>{all.length} 件</dd>
         </dl>
 
         {bulkApproved > 0 && (
-          <p className="note">Enter で残り {bulkApproved} 件をまとめて承認しました。</p>
+          <p className="note">残り {bulkApproved} 件は、まとめてカットにしました。</p>
         )}
 
         {/*
@@ -862,17 +905,20 @@ export function ReviewScreen({
 
         {counts.held > 0 && (
           <p className="warn">
-            保留が {counts.held} 件あります。保留はカットされません。
+            「あとで見る」が {counts.held} 件あります。このままだとカットされません。
             <button className="link" onClick={revisitHeld}>
-              最初の保留を見る
+              最初の1件を見る
             </button>
           </p>
         )}
 
-        <p className="note">
-          ここで押した Y / N が、そのまま「あなたのカットの好み」の学習データになります（§12）。
-          使うほど自動承認の範囲が広がり、確認する件数が減っていく設計です。
-        </p>
+        {/*
+          🔴 まだ作っていない機能を約束しない。
+             ここには以前「押した Y / N が学習データになります（§12）。使うほど確認する
+             件数が減っていく設計です」と書いてあった。学習は未実装で、
+             設計書の章番号までそのまま画面に出ていた。
+             実装したときに、実際に効いている数字と一緒に書けばよい。
+        */}
 
         <div className="actions">
           {onExport && (
@@ -985,6 +1031,23 @@ export function ReviewScreen({
         </div>
       )}
 
+      {/*
+        まとめてカットする前の確認。
+        取り消しは1件ずつしか戻せないので、誤爆すると実質復帰できない。
+      */}
+      {confirmRest !== null && (
+        <div className="confirm-rest" role="alertdialog" aria-live="assertive">
+          <span>
+            残り <strong>{confirmRest}</strong> 箇所を、確認せずにすべてカットします。
+            よろしいですか？
+          </span>
+          <button className="primary" onClick={() => approveRest(true)} autoFocus>
+            すべてカットする
+          </button>
+          <button onClick={() => setConfirmRest(null)}>やめる（Esc）</button>
+        </div>
+      )}
+
       {undoNotice === null && revisiting && (
         <div className="revisit-note">
           {index + 1} 件目に戻って確認中 — 決定するか <kbd>Esc</kbd> で {resumeIndex + 1} 件目に戻ります
@@ -1001,9 +1064,16 @@ export function ReviewScreen({
                 className="preview-video"
                 src={`media://local/${encodeURIComponent(current.clipPath.replace(/\\/g, '/'))}`}
                 autoPlay
-                loop
                 playsInline
                 onLoadedMetadata={onClipReady}
+                /*
+                  🔴 loop 属性は使わない。必ず 0 秒に戻ってしまう。
+                     onLoadedMetadata は初回しか発火しないので、
+                     繋ぎ目の手前から始まるのは**最初の1周だけ**だった。
+                     2周目以降は先頭から流れ、繋ぎ目まで 2.5 秒待たされる。
+                     「1件2.2秒で判断する」という目標は、判断に3.7秒かかった時点で崩れる。
+                */
+                onEnded={replayJoin}
                 onTimeUpdate={(e) => setClipTime(e.currentTarget.currentTime)}
               />
 
@@ -1022,18 +1092,15 @@ export function ReviewScreen({
             </div>
           ) : (
             <div className="preview-placeholder">
-              <p>プレビュー</p>
+              <p>この箇所は再生できません</p>
               <small>
-                この候補のクリップがありません。
+                プレビューを作れませんでした。
                 <br />
-                （モックデータで動かしているか、生成に失敗しています）
+                前後の文だけで判断するか、迷ったら「ここは残す」を選んでください。
               </small>
             </div>
           )}
         </div>
-
-        {/* 波形はまだ実データが無い。実クリップがあるときに出すと嘘の情報になる。 */}
-        {!current.clipPath && <Waveform candidate={current} />}
 
         <div className="cutinfo">
           {joinAt > 0 ? (
@@ -1077,24 +1144,51 @@ export function ReviewScreen({
           <span className={`kind ${current.kind}`}>{KIND_LABEL[current.kind]}</span>
           {current.word && <span className="word">「{current.word}」</span>}
           <span className="time">{formatTime(current.srcStart)}</span>
-          <span className="conf">
-            確信度
+          <span className="conf" title={`AIの確信度 ${current.confidence.toFixed(2)}`}>
+            AIの自信
             <span className="conf-bar">
               <span style={{ width: `${current.confidence * 100}%` }} />
             </span>
-            {current.confidence.toFixed(2)}
+            {confidenceLabel(current.confidence)}
           </span>
         </div>
       </section>
 
+      {/*
+        🔴 押せるボタンを置くこと。
+           以前はキー操作しか無く、この画面に押せるものは「編集をやめる」だけだった。
+           マウスしか使わない人の出口はメニューを1件ずつ開閉するか、
+           「残りをまとめてカット」＝全部承認しかなかった。
+           キーは速いが、キーしか無いのは「操作できる」とは言わない。
+      */}
+      <div className="decide">
+        <button className="cut-it" onClick={() => decide('approved')}>
+          ここを切る <kbd>Y</kbd>
+        </button>
+        <button className="keep-it" onClick={() => decide('rejected')}>
+          ここは残す <kbd>N</kbd>
+        </button>
+        <button className="hold-it" onClick={() => decide('held')}>
+          あとで見る <kbd>S</kbd>
+        </button>
+        <span className="spacer" />
+        <button className="minor" onClick={undo} disabled={history.length === 0}>
+          ひとつ戻す <kbd>U</kbd>
+        </button>
+        <button className="minor" onClick={replayJoin}>
+          繋ぎ目から <kbd>R</kbd>
+        </button>
+        <button className="minor" onClick={() => approveRest()}>
+          残りを全部切る <kbd>Enter</kbd>
+        </button>
+      </div>
+
       <footer>
-        <kbd>Y</kbd> 承認 <kbd>N</kbd> 却下 <kbd>Space</kbd> 一時停止 <kbd>R</kbd> 繋ぎ目から再生
-        <span className="sep" />
         <kbd>←</kbd>
-        <kbd>→</kbd> カット始まり±1F <kbd>Shift</kbd>+←→ 終わり±1F <kbd>S</kbd> 保留
+        <kbd>→</kbd> カットの始まりを1コマ動かす <kbd>Shift</kbd>+←→ 終わりを1コマ動かす
         <span className="sep" />
-        <kbd>[</kbd>
-        <kbd>]</kbd> 前後へ移動 <kbd>U</kbd> 直前判定を取消 <kbd>Enter</kbd> 残り一括承認
+        <kbd>Space</kbd> 一時停止 <kbd>[</kbd>
+        <kbd>]</kbd> 前後の候補へ
       </footer>
 
       <div ref={liveRef} aria-live="polite" className="sr-only" />

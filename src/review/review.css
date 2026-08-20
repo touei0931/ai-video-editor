@@ -18,8 +18,9 @@
 }
 
 .review header .quit {
-  font-size: 12px;
-  padding: 4px 10px;
+  font-size: 13px;
+  min-height: 36px;
+  padding: 0 14px;
 }
 
 .counter strong {
@@ -43,6 +44,7 @@
 
 .timeline .mark {
   position: absolute;
+  min-height: 0;
   top: 8px;
   height: 18px;
   border: 0;
@@ -63,10 +65,14 @@
   background: #3a2f2f;
 }
 
-/* 人間がレビューする候補 */
+/*
+  人間がレビューする候補。
+  🔴 押せる幅を確保する。1秒のカットは40分素材では幅0.04%＝1px 未満になる。
+     見た目の位置は左端で決まるので、幅を持たせても位置はずれない。
+*/
 .timeline .mark.review {
   cursor: pointer;
-  min-width: 5px;
+  min-width: 10px;
   background: #55606f;
   transition: transform 0.08s ease-out;
 }
@@ -236,24 +242,87 @@
   line-height: 1.6;
 }
 
-/* 波形。カット区間が一目で分かることが目的 */
-.waveform {
+/*
+  判定のボタン列。
+  🔴 この画面でいちばん押すものを、いちばん大きくする。
+     以前は押せるものが「編集をやめる」（高さ28px）だけで、
+     判定はキーでしかできなかった。
+*/
+.decide {
   display: flex;
   align-items: center;
-  gap: 2px;
-  height: 72px;
-  margin-bottom: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
 }
 
-.waveform .bar {
+.decide .spacer {
   flex: 1;
-  background: #4a5a72;
-  border-radius: 1px;
-  min-height: 2px;
+  min-width: 8px;
 }
 
-.waveform .bar.cut {
-  background: #7a3b3b;
+.decide button {
+  min-height: 48px;
+  padding: 0 20px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.decide button kbd {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.decide .cut-it {
+  background: #a8484a;
+  border-color: #a8484a;
+  color: #fff;
+}
+
+.decide .keep-it {
+  background: #2f6b4f;
+  border-color: #2f6b4f;
+  color: #fff;
+}
+
+.decide .hold-it {
+  background: #7a6a2a;
+  border-color: #7a6a2a;
+  color: #fff;
+}
+
+.decide .minor {
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 400;
+  padding: 0 14px;
+}
+
+/* まとめてカットする前の確認 */
+.confirm-rest {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  border: 1px solid #a8484a;
+  border-radius: 8px;
+  background: #2a1a1c;
+  font-size: 14px;
+}
+
+.confirm-rest strong {
+  color: #ff9d9d;
+  font-variant-numeric: tabular-nums;
+}
+
+.confirm-rest button {
+  min-height: 40px;
 }
 
 .cutinfo {
@@ -357,9 +426,9 @@
 }
 
 .review footer {
-  margin-top: 20px;
-  color: var(--muted);
-  font-size: 12px;
+  margin-top: 16px;
+  color: #a2acba;
+  font-size: 13px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -557,111 +626,7 @@ kbd {
   font-size: 12px;
 }
 
-/*
-  自動で判定した箇所の一覧。
-  既定では畳んでおき、見たい人だけ開く。
-*/
-.autocuts {
-  margin: 20px 0;
-  padding: 14px 20px 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  text-align: left;
-}
-
-.autocuts .head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.autocuts h2 {
-  font-size: 15px;
-  margin: 0;
-}
-
-.autocuts .count {
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.autocuts .changed {
-  color: var(--accent);
-  font-size: 12px;
-}
-
-.autocuts .head .link {
-  margin-left: auto;
-}
-
-.autocuts .note {
-  margin: 6px 0 0;
-  font-size: 12px;
-}
-
-.autocuts .rows {
-  list-style: none;
-  margin: 10px 0 0;
-  padding: 0;
-  /* 数十件並ぶことがある。完了画面が縦に伸び切ると書き出しボタンが行方不明になる */
-  max-height: 340px;
-  overflow-y: auto;
-}
-
-.autocuts .rows > li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 4px 0;
-  border-bottom: 1px solid #1e1e26;
-  font-size: 12px;
-}
-
-.autocuts .rows label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  flex: 1;
-  min-width: 0;
-}
-
-.autocuts .rows .time {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  min-width: 52px;
-}
-
-.autocuts .rows .kind {
-  font-size: 11px;
-  padding: 1px 6px;
-}
-
-.autocuts .rows .ctx {
-  color: #b0b0bc;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* カットされる長さ。文脈の中で見えるほうが判断しやすい */
-.autocuts .rows .ctx em {
-  font-style: normal;
-  color: #ff9d9d;
-  font-variant-numeric: tabular-nums;
-}
-
-.autocuts .rows .conf {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* 一覧の行に開くプレビュー */
+/* フィラー一覧の行に開くプレビュー */
 .rowclip {
   width: 100%;
   padding: 8px 0 10px 24px;
@@ -678,12 +643,19 @@ kbd {
   margin-left: 6px;
 }
 
+/*
+  🔴 文字リンクでも、押せる高さを確保すること。
+     以前は padding: 0 4px で当たり判定が高さ20px しかなかった。
+     「1件ずつ見る」「見る」「最初の保留を見る」が全部これで、
+     マウスで狙うのに集中が要る大きさだった。
+*/
 button.link {
   background: none;
   border: 0;
-  padding: 0 4px;
+  padding: 6px 8px;
+  min-height: 32px;
   color: var(--accent);
-  font-size: 12px;
+  font-size: 13px;
   text-decoration: underline;
   cursor: pointer;
 }

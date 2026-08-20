@@ -19,7 +19,7 @@ import {
 } from './drafts.js';
 import { Readable } from 'node:stream';
 import { sidecar } from './sidecar.js';
-import { isDev } from './paths.js';
+import { isDev, logDir, needsAppMenu } from './paths.js';
 import { runT1 } from './t1.js';
 import { runT2 } from './t2.js';
 import { runT4 } from './t4.js';
@@ -36,7 +36,10 @@ const appRoot = () => app.getAppPath();
  */
 function writeArtifact(name: string, data: Record<string, unknown>): void {
   try {
-    const dir = join(appRoot(), 'phase0-artifacts');
+    // 🔴 置き場所は paths.ts の logDir() に任せる（理由はそちらのコメント）。
+    //    ここで app.getAppPath() を使うと、配布時に app.asar の中へ書こうとして
+    //    黙って失敗し、不具合の記録が一切残らない。
+    const dir = logDir();
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, name), JSON.stringify(data, null, 2), 'utf8');
   } catch (e) {
@@ -63,9 +66,9 @@ const EDITING_PHASES = new Set([
 ]);
 
 ipcMain.on('app:context', (e, ctx: MenuContext) => {
-  menuContext = ctx;
+  menuContext = { ...ctx, isDev, logDir: logDir(), appMenu: needsAppMenu() };
   editingInProgress = EDITING_PHASES.has(ctx.phase);
-  buildMenu(BrowserWindow.fromWebContents(e.sender), ctx);
+  buildMenu(BrowserWindow.fromWebContents(e.sender), menuContext);
 });
 
 function createWindow(): void {
@@ -433,6 +436,12 @@ ipcMain.handle('app:confirmResume', async (e, info: { savedAt: string; decided: 
   });
   return (['resume', 'fresh', 'cancel'] as const)[result.response] ?? 'cancel';
 });
+
+/**
+ * 画面に出すキーの表記を決めるための情報。
+ * 🔴 OSの判定そのものは paths.ts に置く。レンダラ側へは結果だけ渡す。
+ */
+ipcMain.handle('app:uiInfo', () => ({ isMac: needsAppMenu() }));
 
 ipcMain.handle('app:revealFile', (_e, filePath: string) => {
   shell.showItemInFolder(filePath);

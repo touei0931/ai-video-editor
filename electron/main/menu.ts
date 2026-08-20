@@ -34,13 +34,31 @@ export interface MenuContext {
   workDir?: string | null;
   /** 書き出したファイル */
   outPath?: string | null;
+  /** 開発中か。開発者向けの項目を出すかの判断に使う */
+  isDev?: boolean;
+  /** 不具合の記録の置き場所 */
+  logDir?: string | null;
+  /** 先頭にアプリメニューが要るか（macOS）。paths.ts が判断する */
+  appMenu?: boolean;
 }
 
 function send(win: BrowserWindow | null, action: string): void {
   if (win && !win.isDestroyed()) win.webContents.send('app:menu', action);
 }
 
-/** 画面側のキーボード操作をそのまま呼ぶ */
+/**
+ * 画面側のキーボード操作をそのまま呼ぶ。
+ *
+ * 🔴 アクセラレータは登録するが、OS には横取りさせない（registerAccelerator: false）。
+ *
+ *    Y / N / E / 1 / 2 / 3 / P / Tab / Delete / Space のような1文字を
+ *    普通に登録すると、**テキスト入力にフォーカスがあっても OS のメニュー側が先に処理する**。
+ *    テロップの文言に「3つ紹介します」と打とうとすると 3 でスタイルが変わり、
+ *    Space で空白が入らず、Tab でフォームを移動できなくなる。
+ *
+ *    registerAccelerator: false なら「メニューに表示はするが、キーは奪わない」になる。
+ *    キー操作そのものは各画面の keydown が受け持っているので、動作は変わらない。
+ */
 function key(
   label: string,
   k: string,
@@ -48,7 +66,13 @@ function key(
   win: BrowserWindow | null,
   enabled: boolean,
 ): MenuItemConstructorOptions {
-  return { label, accelerator, enabled, click: () => send(win, `key:${k}`) };
+  return {
+    label,
+    accelerator,
+    registerAccelerator: false,
+    enabled,
+    click: () => send(win, `key:${k}`),
+  };
 }
 
 export function buildMenu(win: BrowserWindow | null, ctx: MenuContext): void {
@@ -60,6 +84,12 @@ export function buildMenu(win: BrowserWindow | null, ctx: MenuContext): void {
   const busy = phase === 'analyzing' || phase === 'exporting' || phase === 'telops-building' || phase === 'framing';
 
   const template: MenuItemConstructorOptions[] = [
+    /*
+      🔴 macOS では先頭がアプリメニューになる。
+         これを置かないと「ファイル」の中身がアプリ名の下に入り、
+         About / サービス / 隠す / 終了 が全部消える。
+    */
+    ...(ctx.appMenu ? ([{ role: 'appMenu' }] as MenuItemConstructorOptions[]) : []),
     {
       label: 'ファイル',
       submenu: [
@@ -95,9 +125,11 @@ export function buildMenu(win: BrowserWindow | null, ctx: MenuContext): void {
           click: () => send(win, 'quit'),
         },
         {
-          label: '解析をやめる',
+          label: '処理をやめる',
           accelerator: 'Esc',
-          enabled: phase === 'analyzing',
+          // Esc は画面側でも使うので、OS には奪わせない
+          registerAccelerator: false,
+          enabled: busy,
           click: () => send(win, 'cancel'),
         },
         { type: 'separator' },
@@ -196,9 +228,21 @@ export function buildMenu(win: BrowserWindow | null, ctx: MenuContext): void {
         { label: '標準の大きさ', role: 'resetZoom' },
         { type: 'separator' },
         { label: '全画面表示', role: 'togglefullscreen' },
-        { label: '再読み込み', role: 'reload', enabled: !busy },
-        { type: 'separator' },
-        { label: '開発者ツール', role: 'toggleDevTools' },
+        /*
+          🔴 編集中は「再読み込み」を出さない。
+             押すと編集中の状態が全部消えて最初の画面に戻る。
+             取り返しのつかない操作が、警告なしでメニューに並んでいた。
+          開発者ツールも同様に、開発時だけにする。
+        */
+        ...(inReview || inTelop || inPreview || busy
+          ? []
+          : ([{ label: '再読み込み', role: 'reload' }] as MenuItemConstructorOptions[])),
+        ...(ctx.isDev
+          ? ([
+              { type: 'separator' },
+              { label: '開発者ツール', role: 'toggleDevTools' },
+            ] as MenuItemConstructorOptions[])
+          : []),
       ],
     },
     {
@@ -211,8 +255,13 @@ export function buildMenu(win: BrowserWindow | null, ctx: MenuContext): void {
         },
         { type: 'separator' },
         {
+          // 🔴 開く場所は呼び出し側（paths.ts の logDir）から受け取る。
+          //    以前は app.asar の中を開こうとしていて、押しても何も起きなかった。
           label: '不具合の記録を開く',
-          click: () => void shell.openPath(app.getAppPath() + '/phase0-artifacts'),
+          enabled: Boolean(ctx.logDir),
+          click: () => {
+            if (ctx.logDir) void shell.openPath(ctx.logDir);
+          },
         },
         {
           label: `バージョン ${app.getVersion()}`,

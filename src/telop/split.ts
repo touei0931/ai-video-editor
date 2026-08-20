@@ -16,6 +16,7 @@ import {
   DEFAULT_STYLES,
   type TelopOverride,
   type TelopPosition,
+  type TelopStyle,
   type TelopStyleName,
 } from './style';
 import { fitJapanese, fitToLines } from './wrap';
@@ -256,9 +257,19 @@ export function rewrapCard(
   measure: Measure,
   frame: Frame,
   options: SplitOptions = {},
+  /**
+   * 今の雛形。省略すると既定の雛形で計算する。
+   *
+   * 🔴 雛形を編集したら、必ずここに渡すこと。
+   *    描画側（resolveStyle）は編集後の値を使うのに、折り返しの計算だけが
+   *    DEFAULT_STYLES を見ていた。そのため「大きさ」を 0.085 → 0.16 に上げると
+   *    行の幅は 0.085 基準のまま文字だけ大きくなり、**画面外へはみ出したまま書き出される**。
+   *    プレビューと書き出しは一致するので、両方おかしいことに気づけない。
+   */
+  styles?: Record<TelopStyleName, TelopStyle>,
 ): { lines: string[]; fontScale: number } {
   const marginRatio = options.marginRatio ?? 0.08;
-  const style = DEFAULT_STYLES[styleName];
+  const style = styles?.[styleName] ?? DEFAULT_STYLES[styleName];
   const fontPx = telopFontSize(style, frame);
   const fit = fitToLines(
     (t, scale) => measure(t, fontPx * scale, style.fontFamily),
