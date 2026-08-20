@@ -124,6 +124,10 @@ ipcMain.handle('app:analyze', async (e, params: Record<string, unknown>) =>
   runCancellable(BrowserWindow.fromWebContents(e.sender), 'analyze', params),
 );
 
+ipcMain.handle('app:planFraming', async (e, params: Record<string, unknown>) =>
+  runCancellable(BrowserWindow.fromWebContents(e.sender), 'plan_framing', params),
+);
+
 ipcMain.handle('app:buildTelops', async (e, params: Record<string, unknown>) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const off = forwardProgress(win);

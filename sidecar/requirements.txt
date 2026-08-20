@@ -21,6 +21,8 @@ faster-whisper          # ASR。CUDA が使えなければ自動で CPU に落�
 # pyworld               # F0（DIO/StoneMask）
 # sudachipy             # 形態素解析（BudouX が使えない場合のフォールバック）
 
-# --- Phase 3 ---
-# mediapipe             # 顔検出・口唇ランドマーク
+# --- Phase 3（③ズーム・画角の自動化）---
+mediapipe               # 顔検出（BlazeFace / Apache-2.0）
+                        # モデル本体は scripts/fetch_models.py で取得する
+                        # ⚠ Ultralytics YOLO は AGPL なので使わない
 # scenedetect           # シーンカット検出

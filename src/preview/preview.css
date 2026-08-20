@@ -104,12 +104,42 @@
   overflow: hidden;
 }
 
+/* 人物アップに寄っている区間 */
+.fullpreview .controls .shot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: #3a3a46;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.fullpreview .controls .shot.on {
+  background: #e0a84d;
+}
+
+.fullpreview header label.opt {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .fullpreview .controls .played {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
   background: var(--accent);
+  opacity: 0.55;
+  z-index: 3;
+  pointer-events: none;
 }
 
 .fullpreview .controls .time {

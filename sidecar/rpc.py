@@ -79,6 +79,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "transcribe": _transcribe,
     "analyze": _heavy("analyze"),
     "build_telops": _heavy("build_telops"),
+    "plan_framing": _heavy("plan_framing"),
     "export": _heavy("export"),
 }
 

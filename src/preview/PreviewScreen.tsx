@@ -24,6 +24,26 @@ export interface Keep {
   end: number;
 }
 
+/** 元素材の正規化座標（0〜1）で表した切り出し範囲 */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 人物アップに寄る1ショット（③ズーム・画角の自動化） */
+export interface Shot {
+  src_start: number;
+  src_end: number;
+  kind: string;
+  reason: string;
+  rect: Rect;
+  enabled: boolean;
+}
+
+const WIDE: Rect = { x: 0, y: 0, w: 1, h: 1 };
+
 /** カット区間から残る区間を求める（sidecar/cut.py の keep_ranges と同じ） */
 export function keepRanges(duration: number, cuts: { srcStart: number; srcEnd: number }[]): Keep[] {
   if (cuts.length === 0) return [{ start: 0, end: duration }];
@@ -60,6 +80,9 @@ export interface PreviewScreenProps {
   cuts: { srcStart: number; srcEnd: number }[];
   cards: TelopCard[];
   styles: StyleMap;
+  /** 人物アップに寄るショット。空なら常に引き */
+  shots: Shot[];
+  onShotsChange: (shots: Shot[]) => void;
   onBack: () => void;
   onExport: () => void;
 }
@@ -71,6 +94,8 @@ export function PreviewScreen({
   cuts,
   cards,
   styles,
+  shots,
+  onShotsChange,
   onBack,
   onExport,
 }: PreviewScreenProps) {
@@ -83,6 +108,13 @@ export function PreviewScreen({
 
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(true);
+  /** ズームをまとめて切る。使わない人は一括で外せたほうが早い */
+  const [useZoom, setUseZoom] = useState(true);
+
+  const activeShots = useMemo(
+    () => (useZoom ? shots.filter((s) => s.enabled) : []),
+    [shots, useZoom],
+  );
 
   const keeps = useMemo(() => keepRanges(duration, cuts), [duration, cuts]);
   const keptTotal = useMemo(() => keeps.reduce((a, k) => a + (k.end - k.start), 0), [keeps]);
@@ -147,6 +179,21 @@ export function PreviewScreen({
           }
         }
 
+        // ③ズーム・画角の自動化。書き出しでは crop するが、
+        // ここでは元映像を CSS で拡大してずらすだけで同じ見え方になる。
+        const shot = activeShots.find((sh) => t >= sh.src_start && t < sh.src_end);
+        const rect = shot?.rect ?? WIDE;
+        const video2 = videoRef.current;
+        if (video2) {
+          if (rect.w >= 0.999) {
+            video2.style.transform = '';
+          } else {
+            video2.style.transformOrigin = '0 0';
+            video2.style.transform =
+              `scale(${(1 / rect.w).toFixed(4)}) translate(${(-rect.x * 100).toFixed(2)}%, ${(-rect.y * 100).toFixed(2)}%)`;
+          }
+        }
+
         const out = toOutputTime(t);
         if (barRef.current) barRef.current.style.width = `${(out / Math.max(0.1, keptTotal)) * 100}%`;
         if (labelRef.current) {
@@ -157,7 +204,7 @@ export function PreviewScreen({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [keeps, cards, styles, frame, toOutputTime, keptTotal]);
+  }, [keeps, cards, styles, frame, toOutputTime, keptTotal, activeShots]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -222,6 +269,12 @@ export function PreviewScreen({
           </span>
         </span>
         <div className="grow" />
+        {shots.length > 0 && (
+          <label className="opt" title="人物アップへの切り替えをまとめて止めます">
+            <input type="checkbox" checked={useZoom} onChange={(e) => setUseZoom(e.target.checked)} />
+            人物アップ {shots.filter((s) => s.enabled).length}/{shots.length}
+          </label>
+        )}
         <button onClick={onBack}>テロップに戻る</button>
         <button className="primary" onClick={onExport}>
           書き出す
@@ -250,6 +303,27 @@ export function PreviewScreen({
           <button onClick={toggle}>{playing ? '一時停止' : '再生'}</button>
           <button onClick={start}>最初から</button>
           <span className="bar">
+            {/*
+              寄っている区間。押すとその1回だけ止められる。
+              「ここは寄らないでほしい」を1件ずつ直せないと、
+              全部切るか全部使うかの二択になってしまう。
+            */}
+            {useZoom &&
+              shots.map((sh, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className={`shot ${sh.enabled ? 'on' : ''}`}
+                  title={`${sh.reason}：${sh.src_start.toFixed(1)}秒から${(sh.src_end - sh.src_start).toFixed(1)}秒（押すと止める）`}
+                  style={{
+                    left: `${(toOutputTime(sh.src_start) / Math.max(0.1, keptTotal)) * 100}%`,
+                    width: `${((toOutputTime(sh.src_end) - toOutputTime(sh.src_start)) / Math.max(0.1, keptTotal)) * 100}%`,
+                  }}
+                  onClick={() =>
+                    onShotsChange(shots.map((x, j) => (j === i ? { ...x, enabled: !x.enabled } : x)))
+                  }
+                />
+              ))}
             <span ref={barRef} className="played" />
           </span>
           <span ref={labelRef} className="time">
@@ -268,7 +342,9 @@ export function PreviewScreen({
           カットした部分を飛ばしながら再生しています。飛ぶ瞬間に一瞬引っかかりますが、
           書き出した動画では滑らかに繋がります。
           <br />
-          テンポと、テロップの出るタイミングを確認してください。<kbd>Space</kbd> で一時停止。
+          テンポ・テロップの出るタイミング・人物アップへの切り替わりを確認してください。
+          {shots.length > 0 && 'バーの色が付いた部分が人物アップです。押すとその1回だけ止められます。'}
+          <kbd>Space</kbd> で一時停止。
         </p>
       </div>
     </div>

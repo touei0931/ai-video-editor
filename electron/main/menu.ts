@@ -23,6 +23,7 @@ export type Phase =
   | 'review'
   | 'telops-building'
   | 'telop'
+  | 'framing'
   | 'fullpreview'
   | 'exporting'
   | 'done';
@@ -56,7 +57,7 @@ export function buildMenu(win: BrowserWindow | null, ctx: MenuContext): void {
   const inTelop = phase === 'telop';
   const inPreview = phase === 'fullpreview';
   const idle = phase === 'idle' || phase === 'done' || phase === 'no-speech';
-  const busy = phase === 'analyzing' || phase === 'exporting' || phase === 'telops-building';
+  const busy = phase === 'analyzing' || phase === 'exporting' || phase === 'telops-building' || phase === 'framing';
 
   const template: MenuItemConstructorOptions[] = [
     {

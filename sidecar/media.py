@@ -195,12 +195,58 @@ def write_telop_track(
     return list_path
 
 
+def _crop_box(rect: dict[str, float], width: int, height: int) -> tuple[int, int, int, int]:
+    """正規化座標の矩形を、実際の画素の切り出し範囲にする。
+
+    幅・高さは必ず偶数にする。奇数だと yuv420p にできず ffmpeg が落ちる。
+    """
+    cw = max(16, int(round(rect["w"] * width / 2)) * 2)
+    ch = max(16, int(round(rect["h"] * height / 2)) * 2)
+    cw, ch = min(cw, width), min(ch, height)
+    cx = max(0, min(width - cw, int(round(rect["x"] * width))))
+    cy = max(0, min(height - ch, int(round(rect["y"] * height))))
+    return cw, ch, cx, cy
+
+
+def _split_by_framing(
+    keeps: list[tuple[float, float]],
+    framing: list[dict[str, Any]],
+) -> list[tuple[float, float, dict[str, float] | None]]:
+    """残す区間を画角の切り替わりでさらに分ける。
+
+    画角の区間は元素材の時刻で来るので、残す区間との重なりを取る。
+    重なりが極端に短い断片は、ジャンプカットを増やすだけなので前に吸収させる。
+    """
+    if not framing:
+        return [(s, e, None) for s, e in keeps]
+
+    pieces: list[tuple[float, float, dict[str, float] | None]] = []
+    for ks, ke in keeps:
+        cursor = ks
+        for seg in sorted(framing, key=lambda x: float(x["src_start"])):
+            fs, fe = float(seg["src_start"]), float(seg["src_end"])
+            start, end = max(cursor, fs), min(ke, fe)
+            if end - start <= 0.04:
+                continue
+            if start - cursor > 0.04:
+                pieces.append((round(cursor, 3), round(start, 3), None))
+            rect = seg.get("rect")
+            wide = not rect or (rect["w"] >= 0.999 and rect["h"] >= 0.999)
+            pieces.append((round(start, 3), round(end, 3), None if wide else rect))
+            cursor = end
+        if ke - cursor > 0.04:
+            pieces.append((round(cursor, 3), round(ke, 3), None))
+
+    return pieces or [(s, e, None) for s, e in keeps]
+
+
 def export_cut_video(
     video_path: str,
     out_path: str,
     keeps: list[tuple[float, float]],
     telop_track: str | None = None,
     fps: float = 30.0,
+    framing: list[dict[str, Any]] | None = None,
     on_progress: ProgressFn | None = None,
 ) -> dict[str, Any]:
     """残す区間だけを繋いで書き出す。テロップがあれば同じパスで焼き込む。
@@ -223,25 +269,47 @@ def export_cut_video(
     if on_progress:
         on_progress(0.05, f"書き出しています（{encoder}）")
 
+    width, height = info["width"], info["height"]
+
+    # ── 音声は残す区間ごと ──
+    #
+    # 🔴 繋ぎ目に短いフェードを入れる。
+    #    波形が0を跨がない位置で切ると「プチッ」というクリックノイズが乗る。
+    #    20分素材で100箇所カットすれば100回鳴るし、
+    #    書き出したあとに直すのは全繋ぎ目を手で探す作業になる。
+    #
+    #    クロスフェード（重ねる方式）にはしない。重ねると尺が縮み、
+    #    テロップの時刻対応（§11.2）が狂うため。
+    #    各区間の端を数フレームだけ絞れば、尺を変えずにクリックは消える。
+    #
+    # 🔴 音声は**画角の切り替えでは分割しない**。
+    #    画角が変わっても音は切れていないので、そこでフェードを入れると
+    #    喋っている途中で音量が凹む。
     parts: list[str] = []
     for i, (start, end) in enumerate(keeps):
-        # 🔴 繋ぎ目に短いフェードを入れる。
-        #    波形が0を跨がない位置で切ると「プチッ」というクリックノイズが乗る。
-        #    20分素材で100箇所カットすれば100回鳴るし、
-        #    書き出したあとに直すのは全繋ぎ目を手で探す作業になる。
-        #
-        #    クロスフェード（重ねる方式）にはしない。重ねると尺が縮み、
-        #    テロップの時刻対応（§11.2）が狂うため。
-        #    各区間の端を数フレームだけ絞れば、尺を変えずにクリックは消える。
         length = end - start
         fade = min(FADE_SECONDS, length / 4)
         parts.append(
-            f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[v{i}];"
             f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS,"
             f"afade=t=in:st=0:d={fade:.4f},"
             f"afade=t=out:st={max(0.0, length - fade):.4f}:d={fade:.4f}[a{i}];"
         )
-    concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(len(keeps)))
+    audio_inputs = "".join(f"[a{i}]" for i in range(len(keeps)))
+
+    # ── 映像は「残す区間 × 画角」で分ける ──
+    #
+    # ③ズーム・画角の自動化（引きと人物アップの切り替え）はここで効く。
+    # 寄りはゆっくり動かさず、切り替える。切り出した後は必ず元の大きさに戻す。
+    # 戻さないと区間ごとに解像度が変わって concat できない。
+    pieces = _split_by_framing(keeps, framing or [])
+    for i, (start, end, rect) in enumerate(pieces):
+        chain = f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS"
+        if rect is not None:
+            cw, ch, cx, cy = _crop_box(rect, width, height)
+            if (cw, ch) != (width, height):
+                chain += f",crop={cw}:{ch}:{cx}:{cy},scale={width}:{height},setsar=1"
+        parts.append(chain + f"[v{i}];")
+    video_inputs = "".join(f"[v{i}]" for i in range(len(pieces)))
 
     # 🔴 音量の正規化は filter_complex の中に入れること。
     #    -af は filter_complex の出力ラベルには適用できず "Invalid argument" になる
@@ -251,24 +319,25 @@ def export_cut_video(
     #    視聴者が毎回ボリュームを触ることになる。
     loudnorm = "loudnorm=I=-14:TP=-1.5:LRA=11"
 
+    # 映像と音声を別々に繋ぐ。分割数が違うので、まとめて concat できない。
+    joined = (
+        f"{video_inputs}concat=n={len(pieces)}:v=1:a=0[vcat];"
+        f"{audio_inputs}concat=n={len(keeps)}:v=0:a=1[acat];"
+        f"[acat]{loudnorm}[aout];"
+    )
+
     inputs = ["-i", video_path]
     if telop_track:
         inputs += ["-f", "concat", "-safe", "0", "-i", telop_track]
         filter_complex = (
-            "".join(parts)
-            + f"{concat_inputs}concat=n={len(keeps)}:v=1:a=1[vcat][acat];"
-            f"[acat]{loudnorm}[aout];"
+            "".join(parts) + joined
             # 静止画のままだとタイムスタンプが疎なので、動画と同じ fps に揃える
-            f"[1:v]format=rgba,fps={fps:.5g},setpts=PTS-STARTPTS[ov];"
+            + f"[1:v]format=rgba,fps={fps:.5g},setpts=PTS-STARTPTS[ov];"
             # repeatlast=0 にしないと、テロップ列が尽きた後も最後の1枚が残り続ける
             "[vcat][ov]overlay=0:0:eof_action=pass:repeatlast=0[vout]"
         )
     else:
-        filter_complex = (
-            "".join(parts)
-            + f"{concat_inputs}concat=n={len(keeps)}:v=1:a=1[vout][acat];"
-            f"[acat]{loudnorm}[aout]"
-        )
+        filter_complex = "".join(parts) + joined + "[vcat]null[vout]"
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     _run([
@@ -298,6 +367,8 @@ def export_cut_video(
         "quality": quality,
         "kept_seconds": round(kept, 2),
         "segments": len(keeps),
+        "video_pieces": len(pieces),
+        "closeups": sum(1 for _, _, r in pieces if r is not None),
         "size_mb": round(os.path.getsize(out_path) / 1024 / 1024, 2),
     }
 

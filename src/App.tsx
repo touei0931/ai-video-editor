@@ -12,7 +12,7 @@
  * ③ズーム・画角は Phase 3。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PreviewScreen } from './preview/PreviewScreen';
+import { PreviewScreen, type Shot } from './preview/PreviewScreen';
 import { ShortcutHelp } from './ShortcutHelp';
 import { ReviewScreen, type ReviewState } from './review/ReviewScreen';
 import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
@@ -36,6 +36,7 @@ type Phase =
   | 'review'
   | 'telops-building'
   | 'telop'
+  | 'framing'
   | 'fullpreview'
   | 'exporting'
   | 'done';
@@ -155,6 +156,8 @@ export function App() {
   const [savedReview, setSavedReview] = useState<ReviewState | null>(null);
   const [resumed, setResumed] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  /** ③ズーム・画角の自動化。人物アップに寄るショット */
+  const [shots, setShots] = useState<Shot[]>([]);
   const [exported, setExported] = useState<ExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(0);
@@ -345,14 +348,43 @@ export function App() {
     [measure, frame],
   );
 
-  /** テロップ確認のあとは、いきなり書き出さず通しで見せる */
+  /**
+   * テロップ確認のあとは、いきなり書き出さず通しで見せる。
+   * その前に③ズーム・画角の自動化（引きと人物アップの切り替え）を計画する。
+   *
+   * 🔴 テロップが決まってから計画すること。
+   *    どこを強調するかはテロップ側で決まっているので、そのまま寄る理由に使える。
+   *    テロップの位置も渡す。渡さないと寄ったときに顔がテロップに突っ込む。
+   */
   const goFullPreview = useCallback(
-    (finalCards: TelopCard[], styles: StyleMap, options: ExportOptions) => {
+    async (finalCards: TelopCard[], styles: StyleMap, options: ExportOptions) => {
+      if (!analysis) return;
       setFinalState({ cards: finalCards, styles, options });
       setCards(finalCards);
+      setPhase('framing');
+      setProgress({ value: 0, message: '画角を決めています' });
+
+      try {
+        const result = (await window.app.planFraming({
+          video_path: analysis.video_path,
+          duration: analysis.duration,
+          telop_position: styles.normal.position,
+          telops: finalCards.map((c) => ({
+            src_start: c.srcStart,
+            src_end: c.srcEnd,
+            style: c.style,
+            highlight: c.highlight ?? null,
+          })),
+        })) as { shots: Shot[] };
+        setShots(result.shots ?? []);
+      } catch (e) {
+        // 画角が決まらなくても通し確認と書き出しはできる。止める理由がない。
+        console.error('画角の計画に失敗しました:', e);
+        setShots([]);
+      }
       setPhase('fullpreview');
     },
-    [],
+    [analysis],
   );
 
   const runExport = useCallback(
@@ -365,6 +397,29 @@ export function App() {
       setError(null);
       setPhase('exporting');
       setProgress({ value: 0, message: 'テロップを描いています' });
+
+      // 有効な寄りだけを区間列にする。隙間は引き。
+      const enabled = shots.filter((s) => s.enabled);
+      const framingSegments: { src_start: number; src_end: number; rect: Shot['rect'] }[] = [];
+      let cursor = 0;
+      for (const sh of enabled) {
+        if (sh.src_start - cursor > 0.02) {
+          framingSegments.push({
+            src_start: cursor,
+            src_end: sh.src_start,
+            rect: { x: 0, y: 0, w: 1, h: 1 },
+          });
+        }
+        framingSegments.push({ src_start: sh.src_start, src_end: sh.src_end, rect: sh.rect });
+        cursor = sh.src_end;
+      }
+      if (analysis.duration - cursor > 0.02) {
+        framingSegments.push({
+          src_start: cursor,
+          src_end: analysis.duration,
+          rect: { x: 0, y: 0, w: 1, h: 1 },
+        });
+      }
 
       try {
         let telops: { src_start: number; src_end: number; text: string; png: string }[] = [];
@@ -409,6 +464,7 @@ export function App() {
           duration: analysis.duration,
           fps: analysis.video.fps,
           cuts: cuts.map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd })),
+          framing: framingSegments,
           telops,
           blank_png: blankPng,
           burn_telops: options.burn,
@@ -421,7 +477,7 @@ export function App() {
         setPhase('telop');
       }
     },
-    [analysis, cuts, frame],
+    [analysis, cuts, frame, shots],
   );
 
   if (!hasBridge) {
@@ -497,18 +553,30 @@ export function App() {
         frame={frame}
         duration={analysis.duration}
         cuts={cuts}
-        cards={finalState.cards}
-        styles={finalState.styles}
-        onBack={() => setPhase('telop')}
+          cards={finalState.cards}
+          styles={finalState.styles}
+          shots={shots}
+          onShotsChange={setShots}
+          onBack={() => setPhase('telop')}
           onExport={() => void runExport(finalState.cards, finalState.styles, finalState.options)}
         />
       </>
     );
   }
 
-  const busy = phase === 'analyzing' || phase === 'exporting' || phase === 'telops-building';
+  const busy =
+    phase === 'analyzing' ||
+    phase === 'exporting' ||
+    phase === 'telops-building' ||
+    phase === 'framing';
   const busyTitle =
-    phase === 'analyzing' ? '解析中' : phase === 'telops-building' ? 'テロップを作成中' : '書き出し中';
+    phase === 'analyzing'
+      ? '解析中'
+      : phase === 'telops-building'
+        ? 'テロップを作成中'
+        : phase === 'framing'
+          ? '画角を決めています'
+          : '書き出し中';
 
   return (
     <main>

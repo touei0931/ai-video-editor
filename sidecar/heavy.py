@@ -236,6 +236,58 @@ def _build_telops(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, 
     }
 
 
+def _plan_framing(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
+    """③ズーム・画角の自動化（引きと人物アップを自動で切り替える）。
+
+    テロップが決まったあとに呼ぶ。どこで強調するかがテロップ側で決まっているので、
+    それをそのまま「寄る理由」に使える。
+    """
+    from .framing import plan_framing, sample_faces, to_segments, wanted_windows
+    from .media import probe_video_info
+
+    video_path = params["video_path"]
+    telops = params.get("telops") or []
+    telop_position = params.get("telop_position", "top")
+
+    info = probe_video_info(video_path)
+    duration = float(params.get("duration") or info["duration"])
+
+    on_progress(0.05, "寄る候補を探しています")
+    wants = wanted_windows(telops, params.get("options"))
+    if not wants:
+        on_progress(1.0, "完了")
+        return {"cancelled": False, "shots": [], "segments": [], "faces_found": 0, "windows": 0}
+
+    def face_progress(v: float, m: str = "") -> None:
+        on_progress(0.05 + v * 0.9, m)
+
+    samples = sample_faces(
+        video_path,
+        [(s, e) for s, e, _ in wants],
+        info["width"],
+        info["height"],
+        params.get("options"),
+        face_progress,
+    )
+
+    shots = plan_framing(samples, telops, duration, telop_position, params.get("options"))
+    on_progress(1.0, "完了")
+
+    reasons: dict[str, int] = {}
+    for s in shots:
+        reasons[s["reason"]] = reasons.get(s["reason"], 0) + 1
+
+    return {
+        "cancelled": False,
+        "shots": shots,
+        "segments": to_segments(shots, duration),
+        "faces_found": sum(1 for s in samples if s["faces"]),
+        "samples": len(samples),
+        "windows": len(wants),
+        "reasons": reasons,
+    }
+
+
 def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     """承認されたカットとテロップを適用して書き出す。"""
     from .cut import keep_ranges, map_time_to_output
@@ -307,6 +359,7 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
         keeps,
         telop_track=telop_track,
         fps=float(params.get("fps") or 30.0),
+        framing=params.get("framing") or None,
         on_progress=on_progress,
     )
     result["cancelled"] = False
@@ -321,6 +374,7 @@ HEAVY_HANDLERS: dict[str, Callable[..., Any]] = {
     "transcribe": _transcribe,
     "analyze": _analyze,
     "build_telops": _build_telops,
+    "plan_framing": _plan_framing,
     "export": _export,
 }
 
