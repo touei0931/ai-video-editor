@@ -1,0 +1,87 @@
+# Mac 版のアプリを作る。
+#
+# 🔴 作者は Mac を持っていない。**この仕組みが唯一の配布手段**になる。
+#    手元でビルドできないので、失敗しても気づけるように成果物と一緒に
+#    中身の一覧（何が同梱されたか）も残す。
+#
+# 手動で走らせる（Actions → このワークフロー → Run workflow）か、
+# v1.2.3 のようなタグを push すると走る。
+name: Mac版アプリを作る
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-mac:
+    # arm64（Apple Silicon）。友達の機械は MacBook Air M2。
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: npm ci
+
+      - name: Python の依存をそろえる
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r sidecar/requirements.txt
+          python -m pip install pyinstaller
+
+      - name: ffmpeg を用意（LGPL ビルド）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/fetch_ffmpeg.py
+
+      - name: 顔のモデルを取得
+        run: python scripts/fetch_models.py
+
+      - name: フォントを取得
+        run: python scripts/fetch_fonts.py
+
+      # 🔴 渡す前に、Mac で実際に動くところまで確かめる。
+      #    レビュー用クリップは Mac だけ全滅していたことがあるので、必ず通す。
+      - name: レビュー用クリップが作れるか
+        run: |
+          python scripts/make_test_media.py
+          python scripts/test_review_clip.py
+
+      - name: サイドカーを固める
+        run: pyinstaller packaging/sidecar.spec --noconfirm
+
+      - name: 固めたサイドカーが起動するか
+        run: |
+          printf '%s\n' '{"id":1,"method":"env","params":{}}' \
+            | ./dist-sidecar/sidecar/sidecar | tee /tmp/env.jsonl
+          grep -q '"platform"' /tmp/env.jsonl
+
+      - name: アプリを作る
+        run: npm run dist:mac
+
+      # 何が同梱されたかを残す。実機で「動かない」と言われたとき、
+      # まずここを見れば同梱漏れかどうかが分かる。
+      - name: 同梱物の一覧
+        run: |
+          APP="release/mac-arm64/AI動画編集.app"
+          [ -d "$APP" ] || APP=$(find release -name '*.app' -maxdepth 3 | head -1)
+          echo "app: $APP"
+          find "$APP/Contents/Resources" -maxdepth 2 | head -50 | tee release/contents.txt
+          ls -la release/*.dmg release/*.zip 2>/dev/null | tee -a release/contents.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-app
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/contents.txt
+          if-no-files-found: error

@@ -145,7 +145,35 @@ npm run build
 | `python scripts/fetch_fonts.py` | テロップ用フォント（SIL OFL）を取得 |
 | `python scripts/validate_workflows.py` | push 前にワークフロー YAML を検証 |
 
+自動テスト（どれも数秒。ffmpeg を動かすのは `test:clip` だけ）:
+
+| コマンド | 何を守っているか |
+|---|---|
+| `npm run test:drafts` | 下書きの索引。壊れると「保存したのに一覧に出ない」 |
+| `npm run test:graph` | 書き出しフィルタがコマンドライン上限を超えないこと |
+| `npm run test:clip` | レビュー用クリップが**そのOSで実際に作れて再生できる形**か |
+| `npm run test:cut` | 確信度の3分割が成立していること（向き・件数配分） |
+| `npm run test:fcpxml` | Final Cut へ渡すタイムライン（フレーム境界・file:// URL） |
+
 検証スクリプトの依存: `python -m pip install -r scripts/requirements-dev.txt`
+
+### 配布物を作る
+
+```bash
+python scripts/fetch_models.py            # 顔のモデル
+python scripts/fetch_fonts.py             # テロップ用フォント
+pyinstaller packaging/sidecar.spec --noconfirm   # Python サイドカーを固める
+npm run dist:win                          # Windows 版
+```
+
+🔴 **Mac 版は手元で作れない**（Mac 非所持）。
+GitHub Actions の「Mac版アプリを作る」ワークフロー（`.github/workflows/release-mac.yml`）が唯一の手段。
+Actions から手動実行するか、`v1.0.0` のようなタグを push すると走り、
+`.dmg` と `.zip`、それに**同梱物の一覧**が成果物として残る。
+「実機で動かない」と言われたとき、まず同梱漏れかどうかを切り分けられるようにしてある。
+
+友達に渡すものは `.dmg` と `docs/はじめての使い方.md` の2つ。
+署名していないので、**初回だけ右クリック→開く**が要る（手順書に書いてある）。
 
 Python は 3.12 系。Phase 0 時点では追加パッケージ不要（`sidecar/requirements.txt` は全てコメントアウト）。
 
