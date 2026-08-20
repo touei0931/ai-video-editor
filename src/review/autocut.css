@@ -193,6 +193,65 @@
   transform: none;
 }
 
+/* 手で選んでいるカット範囲 */
+.autocut .controls .range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(224, 168, 77, 0.35);
+  border-left: 2px solid #e0a84d;
+  border-right: 2px solid #e0a84d;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* 範囲を指定して切る操作 */
+.rangecut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rangecut button {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+  background: #26262e;
+  color: #d0d0d8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rangecut button kbd {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.rangecut .docut {
+  background: #a8484a;
+  color: #fff;
+  font-weight: 700;
+}
+
+.rangecut .docut:disabled {
+  background: #26262e;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.rangecut .minor {
+  background: transparent;
+  color: var(--muted);
+}
+
+/* 手で足したカットの印 */
+.autocut .controls .mk.manual::before {
+  background: #c99fe0;
+}
+
 .autocut .controls .played {
   position: absolute;
   left: 0;

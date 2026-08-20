@@ -53,6 +53,9 @@ jobs:
       # 🔴 確信度の3分割。「自動で見送り」が構造上ずっと空だったので数字で縛る
       - name: カット候補の確信度
         run: python scripts/test_cut_confidence.py
+      # Final Cut へ渡すタイムライン。フレーム境界と file:// URL が要点
+      - name: FCPXML の書き出し
+        run: python scripts/test_fcpxml.py
       - name: stdio JSON-RPC の疎通（ping / env）
         shell: bash
         run: |

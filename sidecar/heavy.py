@@ -476,11 +476,35 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
         # 中間ファイルで汚さない。
         work_dir=str(work_dir),
     )
+    # ── 編集ソフトへ渡す用のタイムライン ──
+    #
+    # 🔴 焼き込んだ MP4 だけを出口にしない。
+    #    そこで止まると BGM も差し込み映像も足せず、あとからカットを1箇所直すだけで
+    #    テロップが単語の途中で切れる。
+    #    「カットの判断はこのアプリ、仕上げは編集ソフト」という使い分けができるようにする。
+    fcpxml_path = None
+    if params.get("write_fcpxml"):
+        from .fcpxml import write_fcpxml
+
+        info = probe_video_info(video_path)
+        fcpxml_path = write_fcpxml(
+            str(Path(out_path).with_suffix(".fcpxml")),
+            video_path,
+            keeps,
+            fps=float(params.get("fps") or info["fps"] or 30.0),
+            width=info["width"],
+            height=info["height"],
+            duration=duration,
+            telops=[{"src_start": t["src_start"], "src_end": t["src_end"], "text": t.get("text", "")}
+                    for t in telops],
+        )
+
     result["cancelled"] = False
     result["original_seconds"] = round(duration, 2)
     result["cut_count"] = len(cuts)
     result["telop_count"] = burned
     result["srt_path"] = srt_path
+    result["fcpxml_path"] = fcpxml_path
     return result
 
 

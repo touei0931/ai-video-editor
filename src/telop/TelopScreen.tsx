@@ -32,6 +32,11 @@ export interface ExportOptions {
   burn: boolean;
   /** 字幕ファイル(SRT)も出すか */
   srt: boolean;
+  /**
+   * Final Cut などに読み込めるタイムライン(FCPXML)も出すか。
+   * 「カットの判断はこのアプリ、仕上げは編集ソフト」という使い分けのため。
+   */
+  fcpxml: boolean;
 }
 
 const STYLE_LABEL: Record<TelopStyleName, string> = {
@@ -144,7 +149,7 @@ export function TelopScreen({
   /** 雛形の編集パネルで今どのスタイルを触っているか */
   const [editingStyle, setEditingStyle] = useState<TelopStyleName>('normal');
   const [exportOptions, setExportOptions] = useState<ExportOptions>(
-    () => initialOptions ?? { burn: true, srt: true },
+    () => initialOptions ?? { burn: true, srt: true, fcpxml: false },
   );
   /** この画面で消したテロップ。作り直したときに復活させないために持ち出す */
   const [removed, setRemoved] = useState<TelopCard[]>(() => initialRemoved ?? []);
@@ -633,6 +638,17 @@ export function TelopScreen({
             onChange={(e) => setExportOptions((o) => ({ ...o, srt: e.target.checked }))}
           />
           字幕ファイルも作る
+        </label>
+        <label
+          className="opt"
+          title="Final Cut Pro に読み込めるタイムラインを作ります。カットの位置がそのまま入ります"
+        >
+          <input
+            type="checkbox"
+            checked={exportOptions.fcpxml}
+            onChange={(e) => setExportOptions((o) => ({ ...o, fcpxml: e.target.checked }))}
+          />
+          Final Cut 用も作る
         </label>
         {onBack && <button onClick={() => onBack(goBack())}>カットに戻る</button>}
         {onQuit && <button onClick={onQuit}>編集をやめる</button>}

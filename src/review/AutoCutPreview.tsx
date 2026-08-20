@@ -48,6 +48,15 @@ export interface AutoCutPreviewProps {
   fixedCuts: { srcStart: number; srcEnd: number }[];
   items: AutoCutItem[];
   onToggle: (id: string) => void;
+  /**
+   * 範囲を指定してカットを足す。
+   *
+   * 🔴 AIが出した候補しか切れない、では編集の道具にならない。
+   *    脱線した30秒を丸ごと落とす、失敗テイクを消す、犬が吠えた箇所を切る——
+   *    実際の編集で時間を使うのはこちらで、無音とフィラーの削除ではない。
+   *    通しで流しながら範囲を決められるのが自然なので、この画面に置く。
+   */
+  onAddManual?: (srcStart: number, srcEnd: number) => void;
   onClose: () => void;
 }
 
@@ -58,6 +67,7 @@ export function AutoCutPreview({
   fixedCuts,
   items,
   onToggle,
+  onAddManual,
   onClose,
 }: AutoCutPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -86,6 +96,9 @@ export function AutoCutPreview({
    * 密すぎると感じた人が下ろせればよい。
    */
   const [showFillers, setShowFillers] = useState(true);
+  /** 手で指定したカット範囲（元素材の時刻）。両端が決まったら切れる */
+  const [markIn, setMarkIn] = useState<number | null>(null);
+  const [markOut, setMarkOut] = useState<number | null>(null);
 
   const cuts = useMemo(
     () => [...fixedCuts, ...items.filter((i) => i.cut)],
@@ -147,6 +160,36 @@ export function AutoCutPreview({
     },
     [onToggle, playFrom],
   );
+
+  /** 今の再生位置を、手動カットの始まり／終わりにする */
+  const mark = useCallback((side: 'in' | 'out') => {
+    const video = videoRef.current;
+    if (!video) return;
+    const t = Number(video.currentTime.toFixed(3));
+    if (side === 'in') {
+      setMarkIn(t);
+      setMarkOut((prev) => (prev !== null && prev <= t ? null : prev));
+    } else {
+      setMarkOut(t);
+      setMarkIn((prev) => (prev !== null && prev >= t ? null : prev));
+    }
+  }, []);
+
+  const clearMarks = useCallback(() => {
+    setMarkIn(null);
+    setMarkOut(null);
+  }, []);
+
+  const canCutRange = markIn !== null && markOut !== null && markOut - markIn > 0.05;
+
+  const cutRange = useCallback(() => {
+    if (!onAddManual || markIn === null || markOut === null) return;
+    if (markOut - markIn <= 0.05) return;
+    onAddManual(markIn, markOut);
+    clearMarks();
+    // 切った直後の繋ぎを聞かせる。ここが自然かどうかが確かめたいこと。
+    playFrom(Math.max(0, markIn - REPLAY_LEAD), markIn);
+  }, [onAddManual, markIn, markOut, clearMarks, playFrom]);
 
   /** 前後の自動判定へ移動して、その手前から流す */
   const step = useCallback(
@@ -257,11 +300,22 @@ export function AutoCutPreview({
           step(-1);
           break;
         case 'Enter':
-          // 今見ているカットを切る/戻す
-          if (near) toggleAndReplay(near);
+          // 範囲を決めている最中なら、そちらを優先する
+          if (canCutRange) cutRange();
+          else if (near) toggleAndReplay(near);
+          break;
+        // 編集ソフトの慣習に合わせて I / O
+        case 'i':
+        case 'I':
+          mark('in');
+          break;
+        case 'o':
+        case 'O':
+          mark('out');
           break;
         case 'Escape':
-          onClose();
+          if (markIn !== null || markOut !== null) clearMarks();
+          else onClose();
           break;
         default:
           return;
@@ -273,7 +327,7 @@ export function AutoCutPreview({
     //    そちらに届くと候補の判定が書き換わる。
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [toggle, step, near, toggleAndReplay, onClose]);
+  }, [toggle, step, near, toggleAndReplay, onClose, mark, clearMarks, cutRange, canCutRange, markIn, markOut]);
 
   /** バーの空いている場所を押したらその位置へ飛ぶ */
   const seekTo = useCallback(
@@ -300,7 +354,7 @@ export function AutoCutPreview({
   );
 
   /** 1件ぶんの印。切ってあれば線、残してあれば帯。 */
-  const mark = (item: AutoCutItem, lane: string) => {
+  const markOf = (item: AutoCutItem, lane: string) => {
     // 末尾のカットは繋ぎ目がちょうど 100% に来る。そのままだとバーの外に出て押せない。
     // 0.4% ずらしても 20分素材で 5 秒未満、見た目には分からない。
     const left = Math.min(99.6, pct(toOutputTime(item.srcStart)));
@@ -318,7 +372,7 @@ export function AutoCutPreview({
         key={item.id}
         type="button"
         className={
-          `mk ${lane} ${item.cut ? 'cut' : 'kept'}` +
+          `mk ${lane} ${item.kind} ${item.cut ? 'cut' : 'kept'}` +
           `${item.cut !== item.auto ? ' changed' : ''}` +
           `${item.id === nearId ? ' near' : ''}`
         }
@@ -384,9 +438,47 @@ export function AutoCutPreview({
             次 ▶
           </button>
 
+          {/*
+            範囲を指定して切る。編集ソフトの慣習に合わせて I / O。
+            AIが出した候補しか切れないのでは、脱線や失敗テイクを落とせない。
+          */}
+          {onAddManual && (
+            <span className="rangecut">
+              <button onClick={() => mark('in')} title="今の位置をカットの始まりにします">
+                ここから <kbd>I</kbd>
+              </button>
+              <button onClick={() => mark('out')} title="今の位置をカットの終わりにします">
+                ここまで <kbd>O</kbd>
+              </button>
+              <button className="docut" disabled={!canCutRange} onClick={cutRange}>
+                {canCutRange
+                  ? `${(markOut! - markIn!).toFixed(1)}秒を切る`
+                  : '範囲を選ぶ'}
+              </button>
+              {(markIn !== null || markOut !== null) && (
+                <button className="minor" onClick={clearMarks}>
+                  やめる
+                </button>
+              )}
+            </span>
+          )}
+
           <span className="bar" onClick={seekTo} title="押すとその位置へ飛びます">
-            {silences.map((i) => mark(i, 'main'))}
-            {showFillers && fillers.map((i) => mark(i, 'sub'))}
+            {/* 手で選んでいる範囲 */}
+            {markIn !== null && (
+              <span
+                className="range"
+                style={{
+                  left: `${pct(toOutputTime(markIn))}%`,
+                  width:
+                    markOut !== null
+                      ? `${Math.max(0.4, pct(toOutputTime(markOut)) - pct(toOutputTime(markIn)))}%`
+                      : '2px',
+                }}
+              />
+            )}
+            {silences.map((i) => markOf(i, 'main'))}
+            {showFillers && fillers.map((i) => markOf(i, 'sub'))}
             <span ref={barRef} className="played" />
           </span>
 
@@ -458,6 +550,9 @@ export function AutoCutPreview({
           <strong>その少し手前から流し直します</strong>。
           <kbd>Space</kbd> 一時停止 / <kbd>←</kbd>
           <kbd>→</kbd> 前後のカットへ / <kbd>Enter</kbd> 切る・戻す / <kbd>Esc</kbd> 閉じる
+          <br />
+          要らない箇所は <kbd>I</kbd>（ここから）と <kbd>O</kbd>（ここまで）で範囲を決めて、
+          <kbd>Enter</kbd> で切れます。無音やフィラーでなくても切れます。
         </p>
       </div>
     </div>

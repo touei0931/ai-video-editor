@@ -104,6 +104,7 @@ interface ExportResult {
   cut_count: number;
   telop_count: number;
   srt_path: string | null;
+  fcpxml_path: string | null;
   encoder_fallback: boolean;
   segments: number;
   size_mb: number;
@@ -425,7 +426,7 @@ export function App() {
       setFinalState({
         cards: draft.cards,
         styles: draft.styles ?? structuredClone(DEFAULT_STYLES),
-        options: draft.options ?? { burn: true, srt: true },
+        options: draft.options ?? { burn: true, srt: true, fcpxml: false },
         removed: draft.removed ?? [],
       });
       // 同じカットで作ったテロップが残っているので、作り直さない
@@ -602,8 +603,25 @@ export function App() {
 
         setAnalysis((prev) => (prev ? { ...prev, ...result } : prev));
         setPace(next);
-        setSavedReview(null);
-        reviewStateRef.current = null;
+
+        /*
+          🔴 手で足したカットは残す。
+             AIの候補ではなく、人が「ここは要らない」と決めた時間の範囲なので、
+             候補の作り直しとは無関係。消すと、脱線を落とす作業をやり直させることになる。
+        */
+        const keptManual = reviewStateRef.current?.manualCuts ?? [];
+        const fresh: ReviewState = {
+          decisions: {},
+          adjust: {},
+          excludedFillers: [],
+          index: 0,
+          resumeIndex: 0,
+          history: [],
+          autoOverride: {},
+          manualCuts: keptManual,
+        };
+        setSavedReview(fresh);
+        reviewStateRef.current = fresh;
         builtForRef.current = null;
       } catch (e) {
         setError((e as Error).message);
@@ -977,6 +995,7 @@ export function App() {
           blank_png: blankPng,
           burn_telops: options.burn,
           write_srt: options.srt,
+          write_fcpxml: options.fcpxml,
         })) as ExportResult;
         setExported(result);
         setPhase('done');
@@ -1291,6 +1310,19 @@ export function App() {
                 <dt>字幕ファイル</dt>
                 <dd>
                   <code>{exported.srt_path}</code>
+                </dd>
+              </>
+            )}
+            {exported.fcpxml_path && (
+              <>
+                <dt>Final Cut 用</dt>
+                <dd>
+                  <code>{exported.fcpxml_path}</code>
+                  <br />
+                  <span className="muted">
+                    Final Cut Pro のファイル →「読み込む」→「XML…」から開くと、
+                    カットした状態のタイムラインになります。
+                  </span>
                 </dd>
               </>
             )}

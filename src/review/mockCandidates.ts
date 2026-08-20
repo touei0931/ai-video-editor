@@ -1,11 +1,15 @@
 /**
- * カット候補のモックデータ（操作感の確認用）。
+ * カット候補の型と、操作感の確認用のモックデータ。
  *
- * 解析パイプラインはまだ繋がっていないので、20分素材を想定した
- * それらしい分布を手で作ってある。実装が進んだら analysis.json に置き換える。
+ * 型（CutCandidate / CutKind / KIND_LABEL）は本番でも使う。
+ * generateMockCandidates は `?mode=review-demo` 専用で、本番の経路では呼ばれない。
  */
 
-export type CutKind = 'silence' | 'filler' | 'restate';
+/**
+ * カットの種類。
+ * manual は人が範囲を指定して足したもので、AIが出した候補ではない。
+ */
+export type CutKind = 'silence' | 'filler' | 'restate' | 'manual';
 
 export interface CutCandidate {
   id: string;
@@ -41,6 +45,7 @@ export const KIND_LABEL: Record<CutKind, string> = {
   silence: '無音',
   filler: 'フィラー',
   restate: '言い直し',
+  manual: '手動',
 };
 
 const FILLERS = ['えー', 'あの', 'えーと', 'まぁ', 'そのー', 'なんか'];

@@ -15,6 +15,7 @@ import {
   generateMockCandidates,
   KIND_LABEL,
   type CutCandidate,
+  type CutKind,
   type ReviewBand,
 } from './mockCandidates';
 import './review.css';
@@ -155,6 +156,18 @@ export interface ReviewState {
    *    あとから一覧でまとめて直した分を混ぜると意味を失う。
    */
   autoOverride?: Record<string, AutoOverride>;
+  /**
+   * 人が範囲を指定して足したカット。
+   * AIの候補ではないので decisions とも autoOverride とも別に持つ。
+   */
+  manualCuts?: ManualCut[];
+}
+
+/** 手で足したカット。元素材の時刻。 */
+export interface ManualCut {
+  id: string;
+  srcStart: number;
+  srcEnd: number;
 }
 
 /** 'cut' = 自動では見送ったが切る / 'keep' = 自動では切ったが残す */
@@ -247,6 +260,10 @@ export function ReviewScreen({
   const [autoOverride, setAutoOverride] = useState<Record<string, AutoOverride>>(
     () => initialState?.autoOverride ?? {},
   );
+  /** 人が範囲を指定して足したカット */
+  const [manualCuts, setManualCuts] = useState<ManualCut[]>(
+    () => initialState?.manualCuts ?? [],
+  );
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const liveRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -298,6 +315,7 @@ export function ReviewScreen({
       resumeIndex,
       history,
       autoOverride,
+      manualCuts,
     });
   }, [
     decisions,
@@ -307,6 +325,7 @@ export function ReviewScreen({
     resumeIndex,
     history,
     autoOverride,
+    manualCuts,
     onStateChange,
   ]);
 
@@ -654,6 +673,16 @@ export function ReviewScreen({
         ...fillers.filter((c) => !excludedFillers.has(c.id)),
         ...toReview.filter((c) => decisions[c.id] === 'approved'),
         ...autoRejected.filter((c) => autoOverride[c.id] === 'cut'),
+        // 手で足した分は必ず切る
+        ...manualCuts.map((m) => ({
+          id: m.id,
+          kind: 'manual' as CutKind,
+          srcStart: m.srcStart,
+          srcEnd: m.srcEnd,
+          confidence: 1,
+          before: '',
+          after: '',
+        })),
       ]
         .sort((a, b) => a.srcStart - b.srcStart)
         .map((c) => withTrim(c, adjust[c.id], fps)),
@@ -667,6 +696,7 @@ export function ReviewScreen({
       decisions,
       adjust,
       fps,
+      manualCuts,
     ],
   );
 
@@ -690,9 +720,35 @@ export function ReviewScreen({
         ...autoApproved.map((c) => ({ ...c, cut: autoOverride[c.id] !== 'keep', auto: true })),
         ...fillers.map((c) => ({ ...c, cut: !excludedFillers.has(c.id), auto: true })),
         ...autoRejected.map((c) => ({ ...c, cut: autoOverride[c.id] === 'cut', auto: false })),
+        // 手で足した分。既定では「切る」で、印を押すと消える
+        ...manualCuts.map((m) => ({
+          id: m.id,
+          kind: 'manual' as CutKind,
+          srcStart: m.srcStart,
+          srcEnd: m.srcEnd,
+          confidence: 1,
+          before: '',
+          after: '',
+          cut: true,
+          auto: false,
+        })),
       ].sort((a, b) => a.srcStart - b.srcStart),
-    [autoApproved, fillers, autoRejected, autoOverride, excludedFillers],
+    [autoApproved, fillers, autoRejected, autoOverride, excludedFillers, manualCuts],
   );
+
+  /** 範囲を指定してカットを足す */
+  const addManualCut = useCallback((srcStart: number, srcEnd: number) => {
+    setManualCuts((prev) =>
+      [
+        ...prev,
+        {
+          id: `manual-${Date.now()}-${prev.length}`,
+          srcStart: Number(srcStart.toFixed(3)),
+          srcEnd: Number(srcEnd.toFixed(3)),
+        },
+      ].sort((a, b) => a.srcStart - b.srcStart),
+    );
+  }, []);
 
   /** 通し確認では触らせない分（人が1件ずつ判断したもの）。再生には反映する */
   const fixedCuts = useMemo(
@@ -717,6 +773,11 @@ export function ReviewScreen({
 
   const toggleAutoItem = useCallback(
     (id: string) => {
+      // 手で足したカットは「戻す」＝消す
+      if (id.startsWith('manual-')) {
+        setManualCuts((prev) => prev.filter((m) => m.id !== id));
+        return;
+      }
       const from = autoIndex.get(id);
       if (from === 'filler') {
         toggleFiller(id);
@@ -741,6 +802,7 @@ export function ReviewScreen({
         fixedCuts={fixedCuts}
         items={autoItems}
         onToggle={toggleAutoItem}
+        onAddManual={addManualCut}
         onClose={() => setAutoPreview(false)}
       />
     );
@@ -796,6 +858,29 @@ export function ReviewScreen({
 
         {bulkApproved > 0 && (
           <p className="note">残り {bulkApproved} 件は、まとめてカットにしました。</p>
+        )}
+
+        {/*
+          🔴 詰め具合はここからも変えられること。
+             最初の画面で Enter を押せば一瞬でここへ来るので、
+             「切りすぎ／足りない」に気づくのはたいていこの画面か通し確認のとき。
+        */}
+        {onChangePace && (
+          <div className="pacepick done-pace" title="どのくらい間を詰めるか。候補を作り直します">
+            <span className="label">間の詰め具合</span>
+            {PACE_ORDER.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={p === pace ? 'on' : ''}
+                disabled={repacing}
+                onClick={() => onChangePace(p)}
+              >
+                {PACE_LABEL[p]}
+              </button>
+            ))}
+            {repacing && <span className="label">作り直しています…</span>}
+          </div>
         )}
 
         {/*
