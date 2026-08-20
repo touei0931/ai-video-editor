@@ -82,6 +82,8 @@ export interface PreviewScreenProps {
   styles: StyleMap;
   /** 人物アップに寄るショット。空なら常に引き */
   shots: Shot[];
+  /** 寄らなかった理由と件数 */
+  skipped?: Record<string, number>;
   onShotsChange: (shots: Shot[]) => void;
   onBack: () => void;
   onExport: () => void;
@@ -95,6 +97,7 @@ export function PreviewScreen({
   cards,
   styles,
   shots,
+  skipped,
   onShotsChange,
   onBack,
   onExport,
@@ -345,6 +348,17 @@ export function PreviewScreen({
           テンポ・テロップの出るタイミング・人物アップへの切り替わりを確認してください。
           {shots.length > 0 && 'バーの色が付いた部分が人物アップです。押すとその1回だけ止められます。'}
           <kbd>Space</kbd> で一時停止。
+          {skipped && Object.keys(skipped).length > 0 && (
+            <>
+              <br />
+              <span className="skipped">
+                アップにしなかった箇所:{' '}
+                {Object.entries(skipped)
+                  .map(([reason, n]) => `${reason} ${n}件`)
+                  .join(' / ')}
+              </span>
+            </>
+          )}
         </p>
       </div>
     </div>

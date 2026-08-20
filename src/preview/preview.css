@@ -175,3 +175,8 @@
   text-align: center;
   margin: 0;
 }
+
+/* 寄らなかった理由。不具合に見えないよう説明する */
+.fullpreview .note .skipped {
+  color: #6a6a76;
+}

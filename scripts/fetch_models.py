@@ -25,6 +25,15 @@ OUT_DIR = ROOT / "vendor" / "models"
 
 MODELS = [
     {
+        "name": "face_landmarker.task",
+        "url": (
+            "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+            "face_landmarker/float16/1/face_landmarker.task"
+        ),
+        "license": "Apache-2.0",
+        "note": "顔のランドマーク＋表情係数。口の動きから「今喋っている人」を選ぶのに使う",
+    },
+    {
         "name": "blaze_face_short_range.tflite",
         "url": (
             "https://storage.googleapis.com/mediapipe-models/face_detector/"

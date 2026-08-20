@@ -270,12 +270,18 @@ def _plan_framing(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, 
         face_progress,
     )
 
-    shots = plan_framing(samples, telops, duration, telop_position, params.get("options"))
+    shots, skipped = plan_framing(
+        samples, telops, duration, telop_position, params.get("options")
+    )
     on_progress(1.0, "完了")
 
     reasons: dict[str, int] = {}
-    for s in shots:
-        reasons[s["reason"]] = reasons.get(s["reason"], 0) + 1
+    for shot in shots:
+        reasons[shot["reason"]] = reasons.get(shot["reason"], 0) + 1
+
+    skipped_reasons: dict[str, int] = {}
+    for item in skipped:
+        skipped_reasons[item["reason"]] = skipped_reasons.get(item["reason"], 0) + 1
 
     return {
         "cancelled": False,
@@ -285,6 +291,8 @@ def _plan_framing(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, 
         "samples": len(samples),
         "windows": len(wants),
         "reasons": reasons,
+        # 寄らなかった理由。「なぜアップにならないのか」を画面に出すため
+        "skipped": skipped_reasons,
     }
 
 

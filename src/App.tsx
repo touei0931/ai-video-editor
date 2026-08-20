@@ -158,6 +158,8 @@ export function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   /** ③ズーム・画角の自動化。人物アップに寄るショット */
   const [shots, setShots] = useState<Shot[]>([]);
+  /** 寄らなかった理由。「なぜアップにならないのか」が分からないと不具合に見える */
+  const [skippedShots, setSkippedShots] = useState<Record<string, number>>({});
   const [exported, setExported] = useState<ExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(0);
@@ -375,12 +377,14 @@ export function App() {
             style: c.style,
             highlight: c.highlight ?? null,
           })),
-        })) as { shots: Shot[] };
+        })) as { shots: Shot[]; skipped?: Record<string, number> };
         setShots(result.shots ?? []);
+        setSkippedShots(result.skipped ?? {});
       } catch (e) {
         // 画角が決まらなくても通し確認と書き出しはできる。止める理由がない。
         console.error('画角の計画に失敗しました:', e);
         setShots([]);
+        setSkippedShots({});
       }
       setPhase('fullpreview');
     },
@@ -556,6 +560,7 @@ export function App() {
           cards={finalState.cards}
           styles={finalState.styles}
           shots={shots}
+          skipped={skippedShots}
           onShotsChange={setShots}
           onBack={() => setPhase('telop')}
           onExport={() => void runExport(finalState.cards, finalState.styles, finalState.options)}

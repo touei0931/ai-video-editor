@@ -27,8 +27,11 @@ from typing import Any, Callable
 ProgressFn = Callable[[float, str], None]
 
 DEFAULTS = {
-    # 顔を探す間隔（秒）。細かくしても寄り先はほとんど変わらない
-    "sample_interval": 0.4,
+    # 顔を探す間隔（秒）。
+    # 寄り先を決めるだけなら 0.4 秒で足りるが、
+    # 口の動きを見るには粗すぎる（喋る速さは毎秒4〜8音）。
+    # 調べる区間はもともと数十箇所しかないので、細かくしても総時間は知れている。
+    "sample_interval": 0.25,
     # 解析用の高さ。顔の位置を知るのに元解像度は要らない
     "analysis_height": 360,
     # 1ショットの最短の長さ。これより短い切り替えは目が疲れるだけ
@@ -41,6 +44,25 @@ DEFAULTS = {
     "max_zoom": 2.2,
     # 顔がこの確度未満なら見なかったことにする
     "min_score": 0.5,
+
+    # ── 「寄らない」判断 ──
+    #
+    # 🔴 顔が見えていないのに寄ってはいけない。
+    #    区間の一部にしか顔が映っていないのに寄ると、
+    #    ほとんどの時間は「誰もいない場所のアップ」になる。
+    #    確信が持てないときは引きのままにする。
+    "min_presence": 0.5,      # 区間のサンプルのうち、顔が見えていた割合
+    # 顔の位置がこれ以上ばらつくなら、寄り先が定まらないので寄らない
+    "max_wander": 0.18,
+
+    # ── 「誰に寄るか」の判断 ──
+    #
+    # 🔴 大きく映っている人＝喋っている人ではない。
+    #    実際に「喋っていない方の人にアップした」という不具合が出た。
+    #    複数人いるときは口の動きで選ぶ。
+    "speaker_min_motion": 0.04,   # 口の開きの振れ幅がこれ未満なら「喋っていない」
+    "speaker_margin": 1.4,        # 2位の何倍動いていれば話者と言い切れるか
+    "mouth_crop_size": 256,       # 口を測るときに顔を切り抜いて拡大する大きさ
 }
 
 
@@ -54,6 +76,7 @@ def sample_faces(
     frame_height: int,
     options: dict[str, Any] | None = None,
     on_progress: ProgressFn | None = None,
+    keep_frames: bool = True,
 ) -> list[dict[str, Any]]:
     """指定した区間だけ顔を探し、時刻つきで返す。
 
@@ -110,7 +133,13 @@ def sample_faces(
                         break
                     image = np.frombuffer(raw, dtype=np.uint8).reshape(height, width, 3).copy()
                     faces = [f for f in detector.detect(image) if f["score"] >= opts["min_score"]]
-                    samples.append({"t": round(start + index / fps, 3), "faces": faces})
+                    entry: dict[str, Any] = {"t": round(start + index / fps, 3), "faces": faces}
+                    # 複数人いるフレームだけ画像を残す。
+                    # 誰が喋っているかを口の動きで決めるのに要る。
+                    # 全フレーム残すとメモリを食うので、必要なものだけ。
+                    if len(faces) > 1 and keep_frames:
+                        entry["image"] = image
+                    samples.append(entry)
                     index += 1
             finally:
                 if proc.stdout:
@@ -129,37 +158,168 @@ def sample_faces(
 # ── 顔を1人に絞る ─────────────────────────────────────────
 
 
-def _pick_main_face(faces: list[dict[str, float]]) -> dict[str, float] | None:
-    """寄り先の顔を選ぶ。
+def _center(f: dict[str, float]) -> tuple[float, float]:
+    return f["x"] + f["w"] / 2, f["y"] + f["h"] / 2
 
-    複数人いるときは**一番大きく映っている顔**を選ぶ。
-    話者判定（口の動きと音量の相関）はここではやらない。
-    大きく映っている＝カメラに近い＝主役、で実用上ほぼ外さない。
+
+def _track(samples: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """フレームをまたいで同じ人を繋ぐ。
+
+    位置がいちばん近いものを同じ人とみなす。
+    数フレームの間に人が入れ替わることは考えなくてよい。
     """
-    if not faces:
-        return None
-    return max(faces, key=lambda f: f["w"] * f["h"])
+    tracks: list[list[dict[str, Any]]] = []
+    for sample in samples:
+        for face in sample["faces"]:
+            cx, cy = _center(face)
+            best, best_dist = None, 1e9
+            for track in tracks:
+                lx, ly = _center(track[-1]["face"])
+                dist = ((cx - lx) ** 2 + (cy - ly) ** 2) ** 0.5
+                if dist < best_dist:
+                    best, best_dist = track, dist
+            # 顔の幅ぶんくらい離れていたら別人とみなす
+            if best is not None and best_dist < max(0.12, face["w"]):
+                best.append({"t": sample["t"], "face": face})
+            else:
+                tracks.append([{"t": sample["t"], "face": face}])
+    return tracks
 
 
-def _face_at(samples: list[dict[str, Any]], start: float, end: float) -> dict[str, float] | None:
-    """区間の顔の平均。ブレを均すために平均を取る。"""
-    picked = [
-        _pick_main_face(s["faces"])
-        for s in samples
-        if start <= s["t"] <= end
-    ]
-    picked = [f for f in picked if f]
-    if not picked:
-        return None
-
-    n = len(picked)
+def _average(entries: list[dict[str, Any]]) -> dict[str, float]:
+    n = len(entries)
     return {
-        "x": sum(f["x"] for f in picked) / n,
-        "y": sum(f["y"] for f in picked) / n,
-        "w": sum(f["w"] for f in picked) / n,
-        "h": sum(f["h"] for f in picked) / n,
-        "score": sum(f["score"] for f in picked) / n,
+        "x": sum(e["face"]["x"] for e in entries) / n,
+        "y": sum(e["face"]["y"] for e in entries) / n,
+        "w": sum(e["face"]["w"] for e in entries) / n,
+        "h": sum(e["face"]["h"] for e in entries) / n,
+        "score": sum(e["face"]["score"] for e in entries) / n,
     }
+
+
+def _wander(entries: list[dict[str, Any]]) -> float:
+    """顔の中心がどれだけ動き回ったか。大きいと寄り先が定まらない。"""
+    if len(entries) < 2:
+        return 0.0
+    xs = [_center(e["face"])[0] for e in entries]
+    ys = [_center(e["face"])[1] for e in entries]
+    return max(max(xs) - min(xs), max(ys) - min(ys))
+
+
+def pick_target(
+    samples: list[dict[str, Any]],
+    start: float,
+    end: float,
+    read_mouth: Callable[[float, dict[str, float]], float | None] | None,
+    options: dict[str, Any] | None = None,
+) -> tuple[dict[str, float] | None, str]:
+    """区間の寄り先を決める。(顔, 理由) を返す。顔が None なら寄らない。
+
+    🔴 「寄らない」を積極的に選ぶこと。
+       顔が見えていない、位置が定まらない、誰が喋っているか分からない——
+       どれか一つでも当てはまるなら引きのままにする。
+       外した寄りは、寄らなかったことより明らかに悪い。
+    """
+    opts = {**DEFAULTS, **(options or {})}
+    window = [s for s in samples if start <= s["t"] <= end]
+    if not window:
+        return None, "顔を調べていない"
+
+    # ① そもそも顔が見えているか
+    seen = sum(1 for s in window if s["faces"])
+    presence = seen / len(window)
+    if presence < opts["min_presence"]:
+        return None, f"顔がほとんど映っていない（{presence * 100:.0f}%）"
+
+    tracks = [t for t in _track(window) if t]
+    if not tracks:
+        return None, "顔を追えなかった"
+
+    # 区間を通して映っていた人だけを候補にする
+    solid = [t for t in tracks if len(t) / len(window) >= opts["min_presence"]]
+    if not solid:
+        return None, "同じ人が映り続けていない"
+
+    # ② 1人だけなら迷う余地がない
+    if len(solid) == 1:
+        entries = solid[0]
+        if _wander(entries) > opts["max_wander"]:
+            return None, "顔が動き回っていて寄り先が定まらない"
+        return _average(entries), "話し手"
+
+    # ③ 複数人。口が動いている人を選ぶ
+    if read_mouth is None:
+        return None, "誰が喋っているか判断できない"
+
+    motions: list[tuple[float, list[dict[str, Any]]]] = []
+    for entries in solid:
+        values = []
+        for e in entries:
+            value = read_mouth(e["t"], e["face"])
+            if value is not None:
+                values.append(value)
+        # 口の「開き具合」ではなく「振れ幅」を見る。
+        # 口を開けたまま黙っている人もいるので、動いているかどうかが要る。
+        motion = (max(values) - min(values)) if len(values) >= 2 else 0.0
+        motions.append((motion, entries))
+
+    motions.sort(key=lambda m: m[0], reverse=True)
+    best, second = motions[0][0], motions[1][0]
+
+    if best < opts["speaker_min_motion"]:
+        return None, "誰も口を動かしていない"
+    if second > 0 and best < second * opts["speaker_margin"]:
+        return None, "誰が喋っているか決められない"
+
+    entries = motions[0][1]
+    if _wander(entries) > opts["max_wander"]:
+        return None, "顔が動き回っていて寄り先が定まらない"
+    return _average(entries), f"喋っている人（口の動き {best:.2f}）"
+
+
+def make_mouth_reader(samples: list[dict[str, Any]]) -> Callable[[float, dict[str, float]], float | None] | None:
+    """顔を切り抜いて拡大し、口の開き具合を測る関数を作る。
+
+    🔴 画面全体を渡してはいけない。
+       FaceLandmarker は顔が小さいとほぼ拾わない（実測で検出率5%）。
+       顔だけを切り抜いて拡大してから渡すと、ちゃんと取れる。
+    """
+    frames = {s["t"]: s["image"] for s in samples if "image" in s}
+    if not frames:
+        return None
+
+    try:
+        import numpy as np  # noqa: F401
+    except ImportError:  # pragma: no cover
+        return None
+
+    from .face import make_mouth_reader as make_reader
+
+    reader = make_reader()
+    size = int(DEFAULTS["mouth_crop_size"])
+
+    def read(t: float, face: dict[str, float]) -> float | None:
+        image = frames.get(t)
+        if image is None:
+            return None
+        h, w = image.shape[:2]
+        # 顔の周りに少し余白を足す。ぴったり切ると輪郭が入らず検出しにくい
+        pad = 0.35
+        x0 = max(0, int((face["x"] - face["w"] * pad) * w))
+        x1 = min(w, int((face["x"] + face["w"] * (1 + pad)) * w))
+        y0 = max(0, int((face["y"] - face["h"] * pad) * h))
+        y1 = min(h, int((face["y"] + face["h"] * (1 + pad)) * h))
+        if x1 - x0 < 16 or y1 - y0 < 16:
+            return None
+
+        crop = image[y0:y1, x0:x1]
+        # 拡大は素朴な繰り返しで十分。輪郭の精度は要らない
+        scale = max(1, size // max(1, min(crop.shape[0], crop.shape[1])))
+        if scale > 1:
+            crop = crop.repeat(scale, axis=0).repeat(scale, axis=1)
+        return reader.openness(np.ascontiguousarray(crop))
+
+    return read
 
 
 # ── 寄りの画角を作る ──────────────────────────────────────
@@ -248,13 +408,15 @@ def plan_framing(
     duration: float,
     telop_position: str = "top",
     options: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    """いつ寄るかを決める。"""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """いつ・誰に寄るかを決める。(寄るショット, 寄らなかった理由) を返す。"""
     opts = {**DEFAULTS, **(options or {})}
     if duration <= 0:
-        return []
+        return [], []
 
     wants = wanted_windows(telops, opts)
+    read_mouth = make_mouth_reader(samples)
+    skipped: list[dict[str, Any]] = []
 
     # ── 重なりと短すぎるショットを整理する ──
     shots: list[dict[str, Any]] = []
@@ -271,11 +433,13 @@ def plan_framing(
             cursor = end
             continue
 
-        face = _face_at(samples, start, end)
+        face, why = pick_target(samples, start, end, read_mouth, opts)
         if not face:
+            skipped.append({"src_start": round(start, 3), "reason": why})
             continue
         rect = closeup_rect(face, telop_position, opts)
         if not rect:
+            skipped.append({"src_start": round(start, 3), "reason": "元から顔が大きく映っている"})
             continue
 
         shots.append({
@@ -283,12 +447,13 @@ def plan_framing(
             "src_end": round(min(end, duration), 3),
             "kind": "closeup",
             "reason": reason,
+            "target": why,
             "rect": rect,
             "enabled": True,
         })
         cursor = end
 
-    return shots
+    return shots, skipped
 
 
 def to_segments(
