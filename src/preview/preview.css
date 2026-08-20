@@ -32,9 +32,20 @@
   min-height: 0;
 }
 
+/*
+ * 🔴 高さを必ず指定すること。
+ *
+ * 中の映像とキャンバスは position: absolute なので、この箱の中身は
+ * レイアウト上は空。max-height / max-width だけだと縦横とも 0 に潰れ、
+ * **音だけ鳴って何も映らない**（実際に起きた）。
+ *
+ * 高さを決めれば aspect-ratio から幅が決まり、
+ * 幅が max-width で頭打ちになれば高さもそれに合わせて縮む。
+ */
 .fullpreview .canvas-wrap {
   position: relative;
-  max-height: 70vh;
+  height: 70vh;
+  min-height: 240px;
   max-width: 100%;
   background: #000;
   border-radius: 10px;
