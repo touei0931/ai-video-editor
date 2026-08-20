@@ -737,6 +737,9 @@ export function App() {
           candidates={analysis.candidates.map(toCandidate)}
           band={analysis.review_band}
           fps={analysis.video.fps}
+          videoPath={analysis.video_path}
+          videoDuration={analysis.duration}
+          frame={frame}
           initialState={savedReview}
           onStateChange={saveReview}
           onNeedClip={requestClip}

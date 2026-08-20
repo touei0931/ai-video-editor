@@ -1,0 +1,315 @@
+/*
+  自動で決めたカットの通し確認。
+  作りは通し確認（preview.css）に合わせる。同じ操作感のものを別の見た目にしない。
+*/
+
+.autocut {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 16px 20px 12px;
+  gap: 12px;
+}
+
+.autocut header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.autocut header .grow {
+  flex: 1;
+}
+
+.autocut .counter strong {
+  font-size: 20px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.autocut .counter .changed {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.autocut header label.opt {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.autocut .stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-height: 0;
+}
+
+/*
+  🔴 高さを必ず指定すること。
+     中の映像は position: absolute なので、この箱の中身はレイアウト上は空。
+     max-height / max-width だけだと縦横とも 0 に潰れ、音だけ鳴って何も映らない。
+*/
+.autocut .canvas-wrap {
+  position: relative;
+  height: 58vh;
+  min-height: 220px;
+  max-width: 100%;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.autocut .canvas-wrap video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.autocut .controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 1000px;
+}
+
+.autocut .controls button {
+  white-space: nowrap;
+}
+
+/*
+  シークバー。
+  上段=無音・言い直し / 下段=フィラー。
+  切ってある箇所は「線」、残してある箇所は「帯」。
+  同じ印で色だけ変えると、切ったのか残したのかが一目で分からない。
+*/
+.autocut .controls .bar {
+  position: relative;
+  flex: 1;
+  height: 26px;
+  border-radius: 4px;
+  background: #26262e;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.autocut .controls .mk {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  z-index: 4;
+  transition: transform 0.08s ease-out;
+}
+
+.autocut .controls .mk.main {
+  top: 2px;
+  height: 14px;
+}
+
+.autocut .controls .mk.sub {
+  top: 18px;
+  height: 6px;
+}
+
+/* 切ってある = そこに映像が無い。位置だけを示す線 */
+.autocut .controls .mk.cut {
+  width: 3px;
+  margin-left: -1.5px;
+  background: #ff5a5a;
+}
+
+/* 残してある = その長さぶん再生される。帯で長さを示す */
+.autocut .controls .mk.kept {
+  min-width: 3px;
+  background: #4a5a72;
+}
+
+/* 自動判定から人が変えたもの */
+.autocut .controls .mk.changed {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+}
+
+/* 今その辺りを再生している */
+.autocut .controls .mk.near {
+  transform: scaleY(1.25);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.7);
+  z-index: 6;
+}
+
+.autocut .controls .mk:hover {
+  filter: brightness(1.4);
+}
+
+.autocut .controls .played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  opacity: 0.28;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.autocut .controls .time {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 90px;
+  text-align: right;
+}
+
+.autocut .speeds {
+  display: flex;
+  gap: 4px;
+}
+
+.autocut .speeds button {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 5px;
+}
+
+.autocut .speeds button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0b0f;
+  font-weight: 700;
+}
+
+/*
+  今どのカットを見ているか。
+  切った箇所は一瞬で通り過ぎるので、映像だけでは何が起きたか分からない。
+*/
+.autocut .nowat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 1000px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #14141a;
+  font-size: 13px;
+}
+
+.autocut .nowat.empty {
+  border-style: dashed;
+  justify-content: center;
+}
+
+.autocut .nowat .kind {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #0b0b0f;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.autocut .nowat .kind.silence {
+  background: #8fb4e0;
+}
+.autocut .nowat .kind.filler {
+  background: #e0d08f;
+}
+.autocut .nowat .kind.restate {
+  background: #c99fe0;
+}
+
+.autocut .nowat .time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+}
+
+.autocut .nowat .ctx {
+  flex: 1;
+  min-width: 0;
+  color: #d0d0d8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.autocut .nowat .ctx em {
+  font-style: normal;
+  color: #ff9d9d;
+  font-variant-numeric: tabular-nums;
+}
+
+.autocut .nowat .conf {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.autocut .nowat button {
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.autocut .nowat button.restore {
+  background: #3a3a46;
+}
+
+.autocut .nowat button.docut {
+  background: #a8484a;
+}
+
+.autocut .legend {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--muted);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.autocut .legend i {
+  display: inline-block;
+  width: 12px;
+  height: 5px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.autocut .legend .k-cut i {
+  width: 3px;
+  height: 12px;
+  background: #ff5a5a;
+}
+.autocut .legend .k-kept i {
+  background: #4a5a72;
+}
+.autocut .legend .k-changed i {
+  background: transparent;
+  height: 10px;
+  width: 10px;
+  outline: 1px solid var(--accent);
+}
+
+.autocut .note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+  margin: 0;
+}

@@ -156,6 +156,25 @@ export function PreviewScreen({
   );
 
   /**
+   * カット区間に入っていたら次の残存区間へ飛ぶ。
+   *
+   * 🔴 requestAnimationFrame だけに任せてはいけない。
+   *    ウィンドウが他のウィンドウに隠れると Chromium は rAF を止める。
+   *    止まった間はカット区間が飛ばされず、切ったはずの音がそのまま流れる。
+   *    timeupdate は隠れていても 4回/秒 ほど届くので、こちらからも呼ぶ。
+   */
+  const skipCuts = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.paused) return;
+    const t = video.currentTime;
+    const keep = keeps.find((k) => t >= k.start && t < k.end);
+    if (keep) return;
+    const next = keeps.find((k) => k.start > t);
+    if (next) video.currentTime = next.start;
+    else video.pause();
+  }, [keeps]);
+
+  /**
    * 毎フレーム、カット区間に入っていたら次の残存区間へ飛ぶ。
    * あわせて、その時刻に出るテロップを描く。
    */
@@ -166,13 +185,7 @@ export function PreviewScreen({
       if (video && !video.paused) {
         const t = video.currentTime;
 
-        // カット区間に入ったら次へ飛ぶ
-        const keep = keeps.find((k) => t >= k.start && t < k.end);
-        if (!keep) {
-          const next = keeps.find((k) => k.start > t);
-          if (next) video.currentTime = next.start;
-          else video.pause();
-        }
+        skipCuts();
 
         // その時刻に出るテロップ
         const card = cards.find((c) => t >= c.srcStart && t <= c.srcEnd) ?? null;
@@ -226,7 +239,7 @@ export function PreviewScreen({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [keeps, cards, styles, frame, toOutputTime, keptTotal, activeShots]);
+  }, [skipCuts, cards, styles, frame, toOutputTime, keptTotal, activeShots]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -340,6 +353,7 @@ export function PreviewScreen({
             playsInline
             preload="auto"
             onLoadedMetadata={start}
+            onTimeUpdate={skipCuts}
             onClick={toggle}
           />
           <canvas ref={canvasRef} className="overlay" />

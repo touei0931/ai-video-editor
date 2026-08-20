@@ -520,6 +520,43 @@ kbd {
   font-weight: 700;
 }
 
+/* 自動で決めたカットへの入口（中身の確認は通し再生でやる） */
+.autocheck {
+  margin: 20px 0;
+  padding: 14px 20px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: left;
+}
+
+.autocheck .head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.autocheck h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.autocheck .count {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.autocheck .changed {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.autocheck .note {
+  margin: 6px 0 12px;
+  font-size: 12px;
+}
+
 /*
   自動で判定した箇所の一覧。
   既定では畳んでおき、見たい人だけ開く。
