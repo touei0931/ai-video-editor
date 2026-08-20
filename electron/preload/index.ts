@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld('app', {
   saveProject: (payload: { workDir: string; data: unknown }) =>
     ipcRenderer.invoke('app:saveProject', payload),
   loadProject: (workDir: string) => ipcRenderer.invoke('app:loadProject', workDir),
+  confirmQuit: (info: { hasWork: boolean }) => ipcRenderer.invoke('app:confirmQuit', info),
+  confirmResume: (info: { savedAt: string; decided: number }) =>
+    ipcRenderer.invoke('app:confirmResume', info),
   revealFile: (filePath: string) => ipcRenderer.invoke('app:revealFile', filePath),
   /** 画面の段階を知らせる。メニューの有効/無効はこれで決まる */
   setContext: (ctx: { phase: string; workDir?: string | null; outPath?: string | null }) =>

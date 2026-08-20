@@ -78,6 +78,8 @@ export interface ReviewScreenProps {
   /** 書き出しへ進む。省略すると書き出しボタンを出さない */
   onExport?: (approved: CutCandidate[]) => void;
   exporting?: boolean;
+  /** 編集をやめて動画の選択に戻る */
+  onQuit?: () => void;
   /** 前回の続きから始める */
   initialState?: ReviewState | null;
   /** 判定が変わるたびに呼ばれる。呼び出し側で保存する */
@@ -126,6 +128,7 @@ export function ReviewScreen({
   fps = 30,
   onExport,
   exporting,
+  onQuit,
   initialState,
   onStateChange,
 }: ReviewScreenProps = {}) {
@@ -586,7 +589,7 @@ export function ReviewScreen({
               {exporting ? '処理中…' : `${approvedCuts.length} 箇所をカットしてテロップへ進む`}
             </button>
           )}
-          <button onClick={() => window.location.reload()}>最初から</button>
+          {onQuit && <button onClick={onQuit}>編集をやめる</button>}
         </div>
       </div>
     );
@@ -610,6 +613,11 @@ export function ReviewScreen({
           ✅ {counts.approved} ❌ {counts.rejected} ⏸ {counts.held}
         </span>
         <div className="pace">{history.length > 0 && <>1件 {perItem.toFixed(2)} 秒</>}</div>
+        {onQuit && (
+          <button className="quit" onClick={onQuit} title="動画の選択に戻ります">
+            編集をやめる
+          </button>
+        )}
       </header>
 
       {/*

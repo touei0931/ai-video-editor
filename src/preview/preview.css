@@ -95,26 +95,56 @@
   max-width: 900px;
 }
 
+/*
+  シークバー。3段に分けて、どこに何の編集が入ったかを出す。
+  上段=人物アップ / 中段=テロップ / 全高=カットの繋ぎ目
+  切った箇所は映像から消えているので、印が無いと二度と辿れない。
+*/
 .fullpreview .controls .bar {
   position: relative;
   flex: 1;
-  height: 6px;
-  border-radius: 3px;
+  height: 22px;
+  border-radius: 4px;
   background: #26262e;
   overflow: hidden;
+  cursor: pointer;
 }
 
 /* 人物アップに寄っている区間 */
+/* 人物アップの区間（上段） */
 .fullpreview .controls .shot {
+  position: absolute;
+  top: 2px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: #3a3a46;
+  cursor: pointer;
+  z-index: 4;
+}
+
+/* テロップが出ている区間（中段） */
+.fullpreview .controls .tel {
+  position: absolute;
+  top: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: #6f8db8;
+  z-index: 4;
+  pointer-events: none;
+}
+
+/* カットで繋いだ位置（全高） */
+.fullpreview .controls .join {
   position: absolute;
   top: 0;
   bottom: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  background: #3a3a46;
-  cursor: pointer;
-  z-index: 2;
+  width: 2px;
+  margin-left: -1px;
+  background: #ff5a5a;
+  z-index: 5;
+  pointer-events: none;
 }
 
 .fullpreview .controls .shot.on {
@@ -137,9 +167,40 @@
   top: 0;
   bottom: 0;
   background: var(--accent);
-  opacity: 0.55;
+  opacity: 0.28;
   z-index: 3;
   pointer-events: none;
+}
+
+/* 何の印かの説明 */
+.fullpreview .legend {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--muted);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fullpreview .legend i {
+  display: inline-block;
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.fullpreview .legend .k-join i {
+  width: 2px;
+  height: 12px;
+  background: #ff5a5a;
+}
+.fullpreview .legend .k-tel i {
+  background: #6f8db8;
+}
+.fullpreview .legend .k-zoom i {
+  background: #e0a84d;
 }
 
 .fullpreview .controls .time {

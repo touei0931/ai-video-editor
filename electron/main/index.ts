@@ -225,6 +225,60 @@ ipcMain.handle('app:loadProject', (_e, workDir: string) => {
   }
 });
 
+/**
+ * 編集をやめるときの確認。
+ *
+ * 🔴 黙って捨ててはいけない。レビューを何十件も終えたあとかもしれない。
+ *    かといって毎回「保存しますか」だけ出しても、
+ *    やめたいのか間違えて押したのか分からない。3択にする。
+ */
+ipcMain.handle('app:confirmQuit', async (e, info: { hasWork: boolean }) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!info?.hasWork) {
+    const plain = await dialog.showMessageBox(win!, {
+      type: 'question',
+      buttons: ['編集をやめる', 'キャンセル'],
+      defaultId: 1,
+      cancelId: 1,
+      message: '編集をやめますか？',
+      detail: 'まだ何も変更していないので、失われるものはありません。',
+    });
+    return plain.response === 0 ? 'discard' : 'cancel';
+  }
+
+  const result = await dialog.showMessageBox(win!, {
+    type: 'question',
+    buttons: ['下書きを保存してやめる', '保存せずにやめる', 'キャンセル'],
+    defaultId: 0,
+    cancelId: 2,
+    message: '編集をやめますか？',
+    detail:
+      '下書きを保存しておくと、次に同じ動画を開いたときに続きから始められます。\n' +
+      '解析はやり直さずに済みます。',
+  });
+  return (['save', 'discard', 'cancel'] as const)[result.response] ?? 'cancel';
+});
+
+/** 下書きが見つかったときに、続きから始めるか聞く */
+ipcMain.handle('app:confirmResume', async (e, info: { savedAt: string; decided: number }) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const when = new Date(info.savedAt).toLocaleString('ja-JP');
+  const result = await dialog.showMessageBox(win!, {
+    type: 'question',
+    buttons: ['続きから始める', '最初からやり直す', 'キャンセル'],
+    defaultId: 0,
+    cancelId: 2,
+    message: 'この動画の下書きがあります',
+    detail:
+      `保存: ${when}
+判定済み: ${info.decided} 件
+
+` +
+      '続きから始めれば、解析をやり直さずに済みます。',
+  });
+  return (['resume', 'fresh', 'cancel'] as const)[result.response] ?? 'cancel';
+});
+
 ipcMain.handle('app:revealFile', (_e, filePath: string) => {
   shell.showItemInFolder(filePath);
 });

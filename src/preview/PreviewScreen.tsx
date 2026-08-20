@@ -86,6 +86,8 @@ export interface PreviewScreenProps {
   skipped?: Record<string, number>;
   onShotsChange: (shots: Shot[]) => void;
   onBack: () => void;
+  /** 編集をやめて動画の選択に戻る */
+  onQuit?: () => void;
   onExport: () => void;
 }
 
@@ -100,6 +102,7 @@ export function PreviewScreen({
   skipped,
   onShotsChange,
   onBack,
+  onQuit,
   onExport,
 }: PreviewScreenProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -121,6 +124,22 @@ export function PreviewScreen({
 
   const keeps = useMemo(() => keepRanges(duration, cuts), [duration, cuts]);
   const keptTotal = useMemo(() => keeps.reduce((a, k) => a + (k.end - k.start), 0), [keeps]);
+
+  /**
+   * カットで繋いだ位置（編集後タイムラインの時刻）。
+   *
+   * 🔴 書き出したあとに「どこを切ったか」を確かめる手段が要る。
+   *    切った箇所は映像から消えているので、印を出さないと二度と辿れない。
+   */
+  const joins = useMemo(() => {
+    const out: { at: number; cut: number }[] = [];
+    let acc = 0;
+    for (let i = 0; i < keeps.length - 1; i++) {
+      acc += keeps[i].end - keeps[i].start;
+      out.push({ at: acc, cut: keeps[i + 1].start - keeps[i].end });
+    }
+    return out;
+  }, [keeps]);
 
   /** 元素材の時刻 → 編集後タイムラインの時刻 */
   const toOutputTime = useCallback(
@@ -244,6 +263,33 @@ export function PreviewScreen({
     };
   }, [toggle, onExport]);
 
+  /** バーの位置（0〜1）を編集後タイムラインの割合にする */
+  const pct = useCallback(
+    (outTime: number) => (outTime / Math.max(0.1, keptTotal)) * 100,
+    [keptTotal],
+  );
+
+  /** バーを押した位置へ飛ぶ。編集後の時刻から元素材の時刻に戻して探す。 */
+  const seekTo = useCallback(
+    (e: React.MouseEvent<HTMLSpanElement>) => {
+      const video = videoRef.current;
+      if (!video) return;
+      const box = e.currentTarget.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - box.left) / box.width));
+      let want = ratio * keptTotal;
+      for (const k of keeps) {
+        const length = k.end - k.start;
+        if (want <= length) {
+          video.currentTime = k.start + want;
+          return;
+        }
+        want -= length;
+      }
+      video.currentTime = keeps[keeps.length - 1]?.end ?? 0;
+    },
+    [keeps, keptTotal],
+  );
+
   const start = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -279,6 +325,7 @@ export function PreviewScreen({
           </label>
         )}
         <button onClick={onBack}>テロップに戻る</button>
+        {onQuit && <button onClick={onQuit}>編集をやめる</button>}
         <button className="primary" onClick={onExport}>
           書き出す
         </button>
@@ -305,28 +352,49 @@ export function PreviewScreen({
         <div className="controls">
           <button onClick={toggle}>{playing ? '一時停止' : '再生'}</button>
           <button onClick={start}>最初から</button>
-          <span className="bar">
-            {/*
-              寄っている区間。押すとその1回だけ止められる。
-              「ここは寄らないでほしい」を1件ずつ直せないと、
-              全部切るか全部使うかの二択になってしまう。
-            */}
+          <span className="bar" onClick={seekTo} title="押すとその位置へ飛びます">
+            {/* 人物アップの区間。押すとその1回だけ止められる */}
             {useZoom &&
               shots.map((sh, i) => (
                 <button
-                  key={i}
+                  key={`z${i}`}
                   type="button"
                   className={`shot ${sh.enabled ? 'on' : ''}`}
-                  title={`${sh.reason}：${sh.src_start.toFixed(1)}秒から${(sh.src_end - sh.src_start).toFixed(1)}秒（押すと止める）`}
+                  title={`人物アップ（${sh.reason}）：${sh.src_start.toFixed(1)}秒から${(sh.src_end - sh.src_start).toFixed(1)}秒。押すとこの1回だけ止めます`}
                   style={{
-                    left: `${(toOutputTime(sh.src_start) / Math.max(0.1, keptTotal)) * 100}%`,
-                    width: `${((toOutputTime(sh.src_end) - toOutputTime(sh.src_start)) / Math.max(0.1, keptTotal)) * 100}%`,
+                    left: `${pct(toOutputTime(sh.src_start))}%`,
+                    width: `${Math.max(0.4, pct(toOutputTime(sh.src_end)) - pct(toOutputTime(sh.src_start)))}%`,
                   }}
-                  onClick={() =>
-                    onShotsChange(shots.map((x, j) => (j === i ? { ...x, enabled: !x.enabled } : x)))
-                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onShotsChange(shots.map((x, j) => (j === i ? { ...x, enabled: !x.enabled } : x)));
+                  }}
                 />
               ))}
+
+            {/* テロップが出ている区間 */}
+            {cards.map((c) => (
+              <span
+                key={`t${c.id}`}
+                className="tel"
+                title={`テロップ「${c.text}」`}
+                style={{
+                  left: `${pct(toOutputTime(c.srcStart))}%`,
+                  width: `${Math.max(0.3, pct(toOutputTime(c.srcEnd)) - pct(toOutputTime(c.srcStart)))}%`,
+                }}
+              />
+            ))}
+
+            {/* カットで繋いだ位置 */}
+            {joins.map((j, i) => (
+              <span
+                key={`c${i}`}
+                className="join"
+                title={`ここで ${j.cut.toFixed(1)} 秒カットしました`}
+                style={{ left: `${pct(j.at)}%` }}
+              />
+            ))}
+
             <span ref={barRef} className="played" />
           </span>
           <span ref={labelRef} className="time">
@@ -339,6 +407,24 @@ export function PreviewScreen({
               </button>
             ))}
           </span>
+        </div>
+
+        <div className="legend">
+          <span className="k-join">
+            <i />
+            カットで繋いだ位置 {joins.length}箇所
+          </span>
+          <span className="k-tel">
+            <i />
+            テロップ {cards.length}枚
+          </span>
+          {shots.length > 0 && (
+            <span className="k-zoom">
+              <i />
+              人物アップ {shots.filter((s) => s.enabled).length}箇所
+            </span>
+          )}
+          <span>バーを押すとその位置へ飛びます</span>
         </div>
 
         <p className="note">

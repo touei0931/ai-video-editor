@@ -17,6 +17,11 @@
   margin-left: auto;
 }
 
+.review header .quit {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
 .counter strong {
   font-size: 20px;
   color: #fff;

@@ -32,6 +32,11 @@ declare global {
       exportVideo: (params: Record<string, unknown>) => Promise<unknown>;
       saveProject: (payload: { workDir: string; data: unknown }) => Promise<string>;
       loadProject: (workDir: string) => Promise<unknown | null>;
+      confirmQuit: (info: { hasWork: boolean }) => Promise<'save' | 'discard' | 'cancel'>;
+      confirmResume: (info: {
+        savedAt: string;
+        decided: number;
+      }) => Promise<'resume' | 'fresh' | 'cancel'>;
       revealFile: (filePath: string) => Promise<void>;
       setContext: (ctx: { phase: string; workDir?: string | null; outPath?: string | null }) => void;
       onMenu: (cb: (action: string) => void) => () => void;

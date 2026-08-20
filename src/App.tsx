@@ -135,6 +135,25 @@ function toUnit(t: TelopResult['telops'][number]): TelopUnit {
   };
 }
 
+/**
+ * 下書き。作業フォルダの project.json に入る。
+ *
+ * 🔴 解析結果ごと保存する。
+ *    判定だけ保存しても、開き直したときに解析からやり直しになる。
+ *    20分素材の解析は数十秒〜数分かかるので、それでは「続きから」にならない。
+ */
+interface Draft {
+  video_path: string;
+  savedAt: string;
+  phase: Phase;
+  analysis: AnalyzeResult;
+  review?: ReviewState;
+  cuts?: { srcStart: number; srcEnd: number }[];
+  cards?: TelopCard[];
+  styles?: StyleMap;
+  shots?: Shot[];
+}
+
 /** SRT の1エントリ内の改行 */
 const NEWLINE = '\n';
 
@@ -219,10 +238,51 @@ export function App() {
     setError(null);
   }, []);
 
+  /**
+   * 下書きから続きを再開する。
+   * 🔴 解析はやり直さない。解析結果ごと保存してあるので読むだけで済む。
+   */
+  const resumeDraft = useCallback((draft: Draft): boolean => {
+    if (!draft?.analysis) return false;
+    setAnalysis(draft.analysis);
+    setSavedReview(draft.review ?? null);
+    setShots(draft.shots ?? []);
+    setCards(draft.cards ?? []);
+    setCuts(
+      (draft.cuts ?? []).map((c) => ({
+        id: '',
+        kind: 'silence' as CutKind,
+        srcStart: c.srcStart,
+        srcEnd: c.srcEnd,
+        confidence: 1,
+        before: '',
+        after: '',
+      })),
+    );
+    reviewStateRef.current = draft.review ?? null;
+    setResumed(true);
+    // テロップ以降まで進んでいても、カットの確認からやり直せたほうが安全。
+    // 判定は残っているので、そのまま Enter で先へ進める。
+    setPhase('review');
+    return true;
+  }, []);
+
   const pickAndAnalyze = useCallback(async () => {
     setError(null);
     const path = await window.app.pickVideo();
     if (!path) return;
+
+    // 先に下書きを探す。あれば解析せずに続きから始められる。
+    const workDir = path.replace(/[\/][^\/]+$/, '') + '/.ai-video-editor';
+    const existing = (await window.app.loadProject(workDir)) as Draft | null;
+    if (existing?.video_path === path && existing.analysis) {
+      const useIt = await window.app.confirmResume({
+        savedAt: existing.savedAt,
+        decided: Object.keys(existing.review?.decisions ?? {}).length,
+      });
+      if (useIt === 'cancel') return;
+      if (useIt === 'resume' && resumeDraft(existing)) return;
+    }
 
     setPhase('analyzing');
     setProgress({ value: 0, message: '準備しています' });
@@ -239,15 +299,8 @@ export function App() {
       }
       setAnalysis(result);
 
-      // 前回の続きがあれば拾う。100件レビューした状態でアプリが落ちても、
-      // 解析からやり直しにはならない。
-      const project = (await window.app.loadProject(result.work_dir)) as
-        | { video_path?: string; review?: ReviewState }
-        | null;
-      const resume =
-        project?.video_path === result.video_path && project.review ? project.review : null;
-      setSavedReview(resume);
-      setResumed(Boolean(resume && Object.keys(resume.decisions).length > 0));
+      setSavedReview(null);
+      setResumed(false);
 
       // 使える発話がひとつも無い素材。ここで止めないと、
       // 素材全体が無音扱いになって「全部カット」という壊れた結果になる。
@@ -258,43 +311,6 @@ export function App() {
     }
   }, []);
 
-  /**
-   * メニューからの指示を受ける。
-   *
-   * 🔴 キー操作に対応する項目は、**そのキーを押したことにする**だけにする。
-   *    メニュー用に処理をもう一本書くと、片方だけ直して食い違う。
-   */
-  useEffect(() => {
-    if (!hasBridge) return;
-    return window.app.onMenu((action) => {
-      if (action.startsWith('key:')) {
-        const spec = action.slice(4);
-        const shift = spec.startsWith('Shift+');
-        window.dispatchEvent(
-          new KeyboardEvent('keydown', {
-            key: shift ? spec.slice(6) : spec,
-            shiftKey: shift,
-            bubbles: true,
-          }),
-        );
-        return;
-      }
-      if (action === 'undo') {
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
-        return;
-      }
-      if (action === 'shortcuts') setShowShortcuts(true);
-      if (action === 'open') void pickAndAnalyze();
-      if (action === 'cancel') void cancelAnalyze();
-      if (action === 'addTelop') {
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true }));
-      }
-      if (action === 'fullpreview' || action === 'export' || action === 'save') {
-        // 画面側のボタンと同じ処理を呼びたいので、専用のイベントで知らせる
-        window.dispatchEvent(new CustomEvent('app:menu-action', { detail: action }));
-      }
-    });
-  }, [hasBridge, pickAndAnalyze, cancelAnalyze]);
 
   /** カットのレビューが終わったら、その結果を踏まえてテロップを作る */
   const buildTelops = useCallback(
@@ -330,19 +346,101 @@ export function App() {
    * 押すたびに書くと I/O が多すぎるので、少し待ってからまとめて書く。
    */
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 最後に受け取ったレビューの判定。下書きに含める */
+  const reviewStateRef = useRef<ReviewState | null>(null);
+
+  const saveDraft = useCallback(async () => {
+    if (!analysis) return;
+    const draft: Draft = {
+      video_path: analysis.video_path,
+      savedAt: new Date().toISOString(),
+      phase,
+      analysis,
+      review: reviewStateRef.current ?? undefined,
+      cuts: cuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
+      cards: finalState?.cards ?? (cards.length ? cards : undefined),
+      styles: finalState?.styles,
+      shots,
+    };
+    await window.app.saveProject({ workDir: analysis.work_dir, data: draft });
+  }, [analysis, phase, cuts, cards, finalState, shots]);
+
   const saveReview = useCallback(
     (state: ReviewState) => {
+      reviewStateRef.current = state;
       if (!analysis) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        void window.app.saveProject({
-          workDir: analysis.work_dir,
-          data: { video_path: analysis.video_path, savedAt: new Date().toISOString(), review: state },
-        });
-      }, 800);
+      saveTimer.current = setTimeout(() => void saveDraft(), 800);
     },
-    [analysis],
+    [analysis, saveDraft],
   );
+
+  /**
+   * 編集をやめて動画の選択に戻る。
+   * 一度入ると書き出すまで抜けられないのは、間違ったファイルを選んだときに詰む。
+   */
+  const quitEditing = useCallback(async () => {
+    const hasWork =
+      Object.keys(reviewStateRef.current?.decisions ?? {}).length > 0 ||
+      cards.length > 0 ||
+      cuts.length > 0;
+    const answer = await window.app.confirmQuit({ hasWork });
+    if (answer === 'cancel') return;
+    if (answer === 'save') await saveDraft();
+
+    setAnalysis(null);
+    setCards([]);
+    setCuts([]);
+    setShots([]);
+    setSkippedShots({});
+    setFinalState(null);
+    setSavedReview(null);
+    setResumed(false);
+    setExported(null);
+    setError(null);
+    reviewStateRef.current = null;
+    setPhase('idle');
+  }, [cards.length, cuts.length, saveDraft]);
+
+  /**
+   * メニューからの指示を受ける。
+   *
+   * 🔴 キー操作に対応する項目は、**そのキーを押したことにする**だけにする。
+   *    メニュー用に処理をもう一本書くと、片方だけ直して食い違う。
+   */
+  useEffect(() => {
+    if (!hasBridge) return;
+    return window.app.onMenu((action) => {
+      if (action.startsWith('key:')) {
+        const spec = action.slice(4);
+        const shift = spec.startsWith('Shift+');
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: shift ? spec.slice(6) : spec,
+            shiftKey: shift,
+            bubbles: true,
+          }),
+        );
+        return;
+      }
+      if (action === 'undo') {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+        return;
+      }
+      if (action === 'shortcuts') setShowShortcuts(true);
+      if (action === 'quit') void quitEditing();
+      if (action === 'open') void pickAndAnalyze();
+      if (action === 'cancel') void cancelAnalyze();
+      if (action === 'addTelop') {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true }));
+      }
+      if (action === 'save') void saveDraft();
+      if (action === 'fullpreview' || action === 'export') {
+        // 画面側のボタンと同じ処理を呼びたいので、専用のイベントで知らせる
+        window.dispatchEvent(new CustomEvent('app:menu-action', { detail: action }));
+      }
+    });
+  }, [hasBridge, pickAndAnalyze, cancelAnalyze, quitEditing]);
 
   const rewrap = useCallback(
     (text: string, style: TelopStyleName) =>
@@ -523,6 +621,7 @@ export function App() {
           fps={analysis.video.fps}
           initialState={savedReview}
           onStateChange={saveReview}
+          onQuit={() => void quitEditing()}
           onExport={buildTelops}
           exporting={false}
         />
@@ -563,6 +662,7 @@ export function App() {
           skipped={skippedShots}
           onShotsChange={setShots}
           onBack={() => setPhase('telop')}
+          onQuit={() => void quitEditing()}
           onExport={() => void runExport(finalState.cards, finalState.styles, finalState.options)}
         />
       </>

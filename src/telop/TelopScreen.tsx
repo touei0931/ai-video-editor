@@ -70,6 +70,8 @@ export interface TelopScreenProps {
   /** 実測幅で折り返す関数（編集したテキストを折り返し直すのに使う） */
   rewrap: (text: string, style: TelopStyleName) => { lines: string[]; fontScale: number };
   onBack?: () => void;
+  /** 編集をやめて動画の選択に戻る */
+  onQuit?: () => void;
   onExport: (cards: TelopCard[], styles: StyleMap, options: ExportOptions) => void;
   exporting?: boolean;
   /**
@@ -85,6 +87,7 @@ export function TelopScreen({
   frame,
   rewrap,
   onBack,
+  onQuit,
   onExport,
   exporting,
   error,
@@ -529,6 +532,7 @@ export function TelopScreen({
           字幕(SRT)
         </label>
         {onBack && <button onClick={onBack}>カットに戻る</button>}
+        {onQuit && <button onClick={onQuit}>編集をやめる</button>}
         <button className="primary" disabled={exporting} onClick={() => onExport(cards, styles, exportOptions)}>
           {exporting ? '書き出し中…' : '通しで確認 →'}
         </button>

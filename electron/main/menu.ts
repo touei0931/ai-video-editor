@@ -83,6 +83,12 @@ export function buildMenu(win: BrowserWindow | null, ctx: MenuContext): void {
           click: () => send(win, 'export'),
         },
         {
+          label: '編集をやめる',
+          accelerator: 'CmdOrCtrl+W',
+          enabled: inReview || inTelop || inPreview,
+          click: () => send(win, 'quit'),
+        },
+        {
           label: '解析をやめる',
           accelerator: 'Esc',
           enabled: phase === 'analyzing',
