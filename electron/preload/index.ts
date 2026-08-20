@@ -35,9 +35,13 @@ contextBridge.exposeInMainWorld('app', {
   saveTelopFrames: (payload: { dir: string; frames: { name: string; base64: string }[] }) =>
     ipcRenderer.invoke('app:saveTelopFrames', payload),
   exportVideo: (params: Record<string, unknown>) => ipcRenderer.invoke('app:export', params),
-  saveProject: (payload: { workDir: string; data: unknown }) =>
+  saveProject: (payload: { workDir: string; data: unknown; summary?: unknown }) =>
     ipcRenderer.invoke('app:saveProject', payload),
   loadProject: (workDir: string) => ipcRenderer.invoke('app:loadProject', workDir),
+  listDrafts: () => ipcRenderer.invoke('app:listDrafts'),
+  findDraft: (videoPath: string) => ipcRenderer.invoke('app:findDraft', videoPath),
+  deleteDraft: (workDir: string) => ipcRenderer.invoke('app:deleteDraft', workDir),
+  makeClip: (params: Record<string, unknown>) => ipcRenderer.invoke('app:makeClip', params),
   confirmQuit: (info: { hasWork: boolean }) => ipcRenderer.invoke('app:confirmQuit', info),
   confirmResume: (info: { savedAt: string; decided: number }) =>
     ipcRenderer.invoke('app:confirmResume', info),

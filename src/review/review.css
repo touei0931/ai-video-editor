@@ -488,6 +488,9 @@ kbd {
 }
 
 .fillers .instances li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   padding: 3px 0;
   font-size: 12px;
 }
@@ -497,6 +500,8 @@ kbd {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  flex: 1;
+  min-width: 0;
 }
 
 .fillers .instances .time {
@@ -513,6 +518,127 @@ kbd {
   font-style: normal;
   color: #e0d08f;
   font-weight: 700;
+}
+
+/*
+  自動で判定した箇所の一覧。
+  既定では畳んでおき、見たい人だけ開く。
+*/
+.autocuts {
+  margin: 20px 0;
+  padding: 14px 20px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: left;
+}
+
+.autocuts .head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.autocuts h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.autocuts .count {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.autocuts .changed {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.autocuts .head .link {
+  margin-left: auto;
+}
+
+.autocuts .note {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.autocuts .rows {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  /* 数十件並ぶことがある。完了画面が縦に伸び切ると書き出しボタンが行方不明になる */
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.autocuts .rows > li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+  border-bottom: 1px solid #1e1e26;
+  font-size: 12px;
+}
+
+.autocuts .rows label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+
+.autocuts .rows .time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+}
+
+.autocuts .rows .kind {
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
+.autocuts .rows .ctx {
+  color: #b0b0bc;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* カットされる長さ。文脈の中で見えるほうが判断しやすい */
+.autocuts .rows .ctx em {
+  font-style: normal;
+  color: #ff9d9d;
+  font-variant-numeric: tabular-nums;
+}
+
+.autocuts .rows .conf {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 一覧の行に開くプレビュー */
+.rowclip {
+  width: 100%;
+  padding: 8px 0 10px 24px;
+}
+
+.rowclip video {
+  max-height: 40vh;
+  max-width: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+
+.fillers .instances li .link {
+  margin-left: 6px;
 }
 
 button.link {

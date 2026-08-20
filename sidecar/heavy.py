@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Callable  # noqa: F401
@@ -32,6 +34,25 @@ def _get_asr():
     if _asr is None:
         _asr = make_asr()
     return _asr
+
+
+def default_work_dir(video_path: str) -> Path:
+    """素材ごとの作業フォルダ。
+
+    🔴 動画ごとに分けること。
+       以前は「動画のあるフォルダ / .ai-video-editor」を素材によらず共有していた。
+       同じフォルダに動画が2本あると、audio.wav も analysis.json も clips/ も
+       project.json（下書き）も後から開いたほうに上書きされる。
+       下書きを保存したのに消えている、という壊れ方をする。
+
+    名前は「元のファイル名 + パスのハッシュ」。
+    ファイル名だけだと別フォルダの同名ファイルとぶつかり、
+    ハッシュだけだと人がフォルダを見たときにどれか分からない。
+    """
+    src = Path(video_path)
+    stem = re.sub(r'[<>:"/\\|?*\s]+', "_", src.stem)[:40] or "video"
+    digest = hashlib.sha1(str(src.resolve()).encode("utf-8")).hexdigest()[:8]
+    return src.parent / ".ai-video-editor" / f"{stem}-{digest}"
 
 
 def _transcribe(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
@@ -83,7 +104,7 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     if not video_path:
         raise ValueError("video_path が必要です")
 
-    work_dir = Path(params.get("work_dir") or Path(video_path).parent / ".ai-video-editor")
+    work_dir = Path(params.get("work_dir") or default_work_dir(video_path))
     work_dir.mkdir(parents=True, exist_ok=True)
 
     video_info = probe_video_info(video_path)
@@ -309,7 +330,7 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     keeps = keep_ranges(duration, cuts)
     kept_total = sum(e - s for s, e in keeps)
 
-    work_dir = Path(params.get("work_dir") or Path(video_path).parent / ".ai-video-editor")
+    work_dir = Path(params.get("work_dir") or default_work_dir(video_path))
 
     # ── テロップを編集後タイムラインへ写す ──
     telop_track = None

@@ -28,6 +28,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      # 下書きの索引。壊れると「保存したのに一覧に出ない」という気づきにくい壊れ方をする
+      - run: npm run test:drafts
 
   # サイドカーが両OSで起動し、stdio JSON-RPC が成立するか
   sidecar:

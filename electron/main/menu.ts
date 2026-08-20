@@ -70,6 +70,12 @@ export function buildMenu(win: BrowserWindow | null, ctx: MenuContext): void {
           click: () => send(win, 'open'),
         },
         {
+          label: '下書きの続きから…',
+          accelerator: 'CmdOrCtrl+R',
+          enabled: idle,
+          click: () => send(win, 'drafts'),
+        },
+        {
           label: '作業内容を保存',
           accelerator: 'CmdOrCtrl+S',
           enabled: inReview || inTelop,

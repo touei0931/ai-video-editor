@@ -65,6 +65,114 @@ function Waveform({ candidate }: { candidate: CutCandidate }) {
   );
 }
 
+/**
+ * 自動で判定した箇所の一覧（完了画面）。
+ *
+ * 🔴 「118件のうち25件だけ人が見る」という設計は、
+ *    残り93件を人が**見られない**という意味ではない。
+ *    見なくて済むだけで、見たいときに見られなければ、
+ *    自動判定は結局ブラックボックスのままになる。
+ *
+ * 既定では畳んでおく。開かなければ今までと同じ速さで進める。
+ */
+function AutoSection({
+  title,
+  lead,
+  items,
+  isCut,
+  onToggle,
+  changed,
+  clips,
+  playingId,
+  onPlay,
+  canPlay,
+}: {
+  title: string;
+  lead: string;
+  items: CutCandidate[];
+  /** この候補を今カットする設定になっているか */
+  isCut: (c: CutCandidate) => boolean;
+  onToggle: (c: CutCandidate) => void;
+  /** 自動判定から人間が変えた件数 */
+  changed: number;
+  clips: Record<string, ClipState>;
+  playingId: string | null;
+  onPlay: (c: CutCandidate) => void;
+  canPlay: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  if (items.length === 0) return null;
+
+  return (
+    <section className="autocuts">
+      <div className="head">
+        <h2>{title}</h2>
+        <span className="count">{items.length} 件</span>
+        {changed > 0 && <span className="changed">{changed} 件を手で直しました</span>}
+        <button type="button" className="link" onClick={() => setOpen((v) => !v)}>
+          {open ? '閉じる' : '中身を見る'}
+        </button>
+      </div>
+      <p className="note">{lead}</p>
+
+      {open && (
+        <ul className="rows">
+          {items.map((c) => {
+            const clip = clips[c.id];
+            const playing = playingId === c.id;
+            return (
+              <li key={c.id}>
+                <label>
+                  <input type="checkbox" checked={isCut(c)} onChange={() => onToggle(c)} />
+                  <span className="time">{formatTime(c.srcStart)}</span>
+                  <span className={`kind ${c.kind}`}>{KIND_LABEL[c.kind]}</span>
+                  <span className="ctx">
+                    …{c.before}
+                    <em>⟨{(c.srcEnd - c.srcStart).toFixed(2)}秒⟩</em>
+                    {c.after}…
+                  </span>
+                  <span className="conf">{c.confidence.toFixed(2)}</span>
+                </label>
+                {canPlay && (
+                  <button type="button" className="link" onClick={() => onPlay(c)}>
+                    {playing ? '閉じる' : '見る'}
+                  </button>
+                )}
+
+                {playing && (
+                  <div className="rowclip">
+                    {clip?.status === 'loading' && (
+                      <span className="muted">プレビューを作っています…</span>
+                    )}
+                    {clip?.status === 'failed' && (
+                      <span className="error">プレビューを作れませんでした</span>
+                    )}
+                    {clip?.status === 'ready' && (
+                      <video
+                        key={clip.path}
+                        src={`media://local/${encodeURIComponent(clip.path.replace(/\\/g, '/'))}`}
+                        autoPlay
+                        loop
+                        playsInline
+                        controls
+                        onLoadedMetadata={(e) => {
+                          // 繋ぎ目の手前から。頭から流すと繋ぎ目まで待たされる
+                          e.currentTarget.currentTime = Math.max(0, clip.joinAt - LEAD_IN);
+                          void e.currentTarget.play().catch(() => undefined);
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export interface ReviewScreenProps {
   /** 実データ。省略するとモックで動く（操作感の確認用） */
   candidates?: CutCandidate[];
@@ -84,6 +192,14 @@ export interface ReviewScreenProps {
   initialState?: ReviewState | null;
   /** 判定が変わるたびに呼ばれる。呼び出し側で保存する */
   onStateChange?: (state: ReviewState) => void;
+  /**
+   * 自動判定した箇所のプレビューを作る。
+   * 解析時にクリップを作るのは人間が1件ずつ見る候補だけなので、
+   * 自動分は見たいと言われた時点で作る。
+   */
+  onNeedClip?: (
+    c: CutCandidate,
+  ) => Promise<{ path: string; joinAt: number; duration: number } | null>;
 }
 
 /**
@@ -99,7 +215,25 @@ export interface ReviewState {
   index: number;
   resumeIndex: number;
   history: string[];
+  /**
+   * 自動で判定した箇所を、人間がひっくり返した分。
+   *
+   * 🔴 decisions とは別に持つ。混ぜると
+   *    「人間が1件ずつ確認した件数」「1件あたりの所要時間」が狂う。
+   *    あの数字はレビューが速くなっているかを見るためのものなので、
+   *    あとから一覧でまとめて直した分を混ぜると意味を失う。
+   */
+  autoOverride?: Record<string, AutoOverride>;
 }
+
+/** 'cut' = 自動では見送ったが切る / 'keep' = 自動では切ったが残す */
+type AutoOverride = 'cut' | 'keep';
+
+/** 自動判定分のプレビュー。必要になった時点で作るので、状態を持つ */
+type ClipState =
+  | { status: 'loading' }
+  | { status: 'failed' }
+  | { status: 'ready'; path: string; joinAt: number; duration: number };
 
 /** 境界の微調整量（フレーム単位）。前側と後側を別々に持つ。 */
 interface Trim {
@@ -131,6 +265,7 @@ export function ReviewScreen({
   onQuit,
   initialState,
   onStateChange,
+  onNeedClip,
 }: ReviewScreenProps = {}) {
   const all = useMemo(() => candidates ?? generateMockCandidates(118), [candidates]);
   const { low: LOW, high: HIGH } = band;
@@ -171,6 +306,10 @@ export function ReviewScreen({
     () => new Set(initialState?.excludedFillers ?? []),
   );
   const [history, setHistory] = useState<string[]>(() => initialState?.history ?? []);
+  /** 自動判定をひっくり返した分 */
+  const [autoOverride, setAutoOverride] = useState<Record<string, AutoOverride>>(
+    () => initialState?.autoOverride ?? {},
+  );
   const [startedAt] = useState(() => Date.now());
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const liveRef = useRef<HTMLDivElement>(null);
@@ -215,8 +354,18 @@ export function ReviewScreen({
       index,
       resumeIndex,
       history,
+      autoOverride,
     });
-  }, [decisions, adjust, excludedFillers, index, resumeIndex, history, onStateChange]);
+  }, [
+    decisions,
+    adjust,
+    excludedFillers,
+    index,
+    resumeIndex,
+    history,
+    autoOverride,
+    onStateChange,
+  ]);
 
   const decide = useCallback(
     (decision: Decision) => {
@@ -447,6 +596,58 @@ export function ReviewScreen({
     [fillers],
   );
 
+  /**
+   * 自動でこう決めました、を人間がひっくり返す。
+   *
+   * 🔴 自動判定を確認できて、かつ戻せること。
+   *    確信度が高い＝正しい、ではない。無音が長いだけで
+   *    「間を取っているところ」も高い確信度で切る。
+   *    確認できないと、書き出した動画を見て初めて気づくことになる。
+   */
+  const toggleAuto = useCallback((id: string, value: AutoOverride | null) => {
+    setAutoOverride((prev) => {
+      const next = { ...prev };
+      if (value === null) delete next[id];
+      else next[id] = value;
+      return next;
+    });
+  }, []);
+
+  /** 自動判定分のプレビュー。一度作ったら覚えておく */
+  const [clips, setClips] = useState<Record<string, ClipState>>({});
+  const [playingId, setPlayingId] = useState<string | null>(null);
+
+  const playAuto = useCallback(
+    async (c: CutCandidate) => {
+      // 開いているものをもう一度押したら閉じる
+      if (playingId === c.id) {
+        setPlayingId(null);
+        return;
+      }
+      setPlayingId(c.id);
+
+      if (clips[c.id]?.status === 'ready' || clips[c.id]?.status === 'loading') return;
+      if (!onNeedClip) {
+        setClips((p) => ({ ...p, [c.id]: { status: 'failed' } }));
+        return;
+      }
+
+      setClips((p) => ({ ...p, [c.id]: { status: 'loading' } }));
+      try {
+        const clip = await onNeedClip(c);
+        setClips((p) => ({
+          ...p,
+          [c.id]: clip
+            ? { status: 'ready', path: clip.path, joinAt: clip.joinAt, duration: clip.duration }
+            : { status: 'failed' },
+        }));
+      } catch {
+        setClips((p) => ({ ...p, [c.id]: { status: 'failed' } }));
+      }
+    },
+    [clips, onNeedClip, playingId],
+  );
+
   const revisitHeld = useCallback(() => {
     const target = toReview.findIndex((c) => decisions[c.id] === 'held');
     if (target >= 0) {
@@ -459,16 +660,40 @@ export function ReviewScreen({
   /**
    * 実際に書き出すカット。
    * 🔴 必ず withTrim を通す。ここを通さないと境界の微調整が消える。
+   * 🔴 autoOverride を必ず見る。一覧で「残す」に直したのに切られていたら、
+   *    確認できるようにした意味がない。
    */
   const approvedCuts = useMemo(
     () =>
       [
-        ...autoApproved,
+        ...autoApproved.filter((c) => autoOverride[c.id] !== 'keep'),
         ...fillers.filter((c) => !excludedFillers.has(c.id)),
         ...toReview.filter((c) => decisions[c.id] === 'approved'),
-      ].map((c) => withTrim(c, adjust[c.id], fps)),
-    [autoApproved, fillers, excludedFillers, toReview, decisions, adjust, fps],
+        ...autoRejected.filter((c) => autoOverride[c.id] === 'cut'),
+      ]
+        .sort((a, b) => a.srcStart - b.srcStart)
+        .map((c) => withTrim(c, adjust[c.id], fps)),
+    [
+      autoApproved,
+      autoRejected,
+      autoOverride,
+      fillers,
+      excludedFillers,
+      toReview,
+      decisions,
+      adjust,
+      fps,
+    ],
   );
+
+  /** 自動判定を人間が直した件数。直した事実は完了画面に出す */
+  const overrideCounts = useMemo(() => {
+    const v = Object.values(autoOverride);
+    return {
+      keep: v.filter((o) => o === 'keep').length,
+      cut: v.filter((o) => o === 'cut').length,
+    };
+  }, [autoOverride]);
 
   if (done) {
     return (
@@ -483,12 +708,22 @@ export function ReviewScreen({
         </p>
 
         <dl className="summary">
-          <dt>自動承認（確信度 0.90 以上）</dt>
-          <dd>{autoApproved.length} 件</dd>
+          <dt>自動でカット（確信度 {HIGH.toFixed(2)} 以上）</dt>
+          <dd>
+            {autoApproved.length} 件
+            {overrideCounts.keep > 0 && (
+              <span className="muted"> （うち {overrideCounts.keep} 件を残す設定に変更）</span>
+            )}
+          </dd>
           <dt>フィラー一括処理</dt>
           <dd>{fillers.length} 件</dd>
-          <dt>自動却下（確信度 0.60 未満）</dt>
-          <dd>{autoRejected.length} 件</dd>
+          <dt>自動で見送り（確信度 {LOW.toFixed(2)} 未満）</dt>
+          <dd>
+            {autoRejected.length} 件
+            {overrideCounts.cut > 0 && (
+              <span className="muted"> （うち {overrideCounts.cut} 件をカットに変更）</span>
+            )}
+          </dd>
           <dt>人間が確認した件数</dt>
           <dd>
             <strong>{toReview.length} 件</strong>（承認 {counts.approved} / 却下 {counts.rejected} / 保留{' '}
@@ -501,6 +736,43 @@ export function ReviewScreen({
         {bulkApproved > 0 && (
           <p className="note">Enter で残り {bulkApproved} 件をまとめて承認しました。</p>
         )}
+
+        {/*
+          自動で決めた分も見られるようにする。
+          「確信度が高いから正しい」ではない。長い無音は確信度が高く出るが、
+          そこが「間を取っている箇所」であることは普通にある。
+        */}
+        <AutoSection
+          title="自動でカットした箇所"
+          lead={
+            '確信度が高かったので確認を省いた分です。' +
+            'チェックを外すとカットせずに残します。'
+          }
+          items={autoApproved}
+          isCut={(c) => autoOverride[c.id] !== 'keep'}
+          onToggle={(c) => toggleAuto(c.id, autoOverride[c.id] === 'keep' ? null : 'keep')}
+          changed={overrideCounts.keep}
+          clips={clips}
+          playingId={playingId}
+          onPlay={(c) => void playAuto(c)}
+          canPlay={Boolean(onNeedClip)}
+        />
+
+        <AutoSection
+          title="自動でカットしなかった箇所"
+          lead={
+            '確信度が低かったので見送った分です。' +
+            'チェックを入れるとカットします。'
+          }
+          items={autoRejected}
+          isCut={(c) => autoOverride[c.id] === 'cut'}
+          onToggle={(c) => toggleAuto(c.id, autoOverride[c.id] === 'cut' ? null : 'cut')}
+          changed={overrideCounts.cut}
+          clips={clips}
+          playingId={playingId}
+          onPlay={(c) => void playAuto(c)}
+          canPlay={Boolean(onNeedClip)}
+        />
 
         {/*
           フィラーの一括処理は確認できないと危ない。
@@ -539,23 +811,63 @@ export function ReviewScreen({
                     </button>
                     {expandedWord === word && (
                       <ul className="instances">
-                        {items.map((c) => (
-                          <li key={c.id}>
-                            <label>
-                              <input
-                                type="checkbox"
-                                checked={!excludedFillers.has(c.id)}
-                                onChange={() => toggleFiller(c.id)}
-                              />
-                              <span className="time">{formatTime(c.srcStart)}</span>
-                              <span className="ctx">
-                                …{c.before}
-                                <em>{word}</em>
-                                {c.after}…
-                              </span>
-                            </label>
-                          </li>
-                        ))}
+                        {items.map((c) => {
+                          const clip = clips[c.id];
+                          const playing = playingId === c.id;
+                          return (
+                            <li key={c.id}>
+                              <label>
+                                <input
+                                  type="checkbox"
+                                  checked={!excludedFillers.has(c.id)}
+                                  onChange={() => toggleFiller(c.id)}
+                                />
+                                <span className="time">{formatTime(c.srcStart)}</span>
+                                <span className="ctx">
+                                  …{c.before}
+                                  <em>{word}</em>
+                                  {c.after}…
+                                </span>
+                              </label>
+                              {onNeedClip && (
+                                <button
+                                  type="button"
+                                  className="link"
+                                  onClick={() => void playAuto(c)}
+                                >
+                                  {playing ? '閉じる' : '見る'}
+                                </button>
+                              )}
+                              {playing && (
+                                <div className="rowclip">
+                                  {clip?.status === 'loading' && (
+                                    <span className="muted">プレビューを作っています…</span>
+                                  )}
+                                  {clip?.status === 'failed' && (
+                                    <span className="error">プレビューを作れませんでした</span>
+                                  )}
+                                  {clip?.status === 'ready' && (
+                                    <video
+                                      key={clip.path}
+                                      src={`media://local/${encodeURIComponent(clip.path.replace(/\\/g, '/'))}`}
+                                      autoPlay
+                                      loop
+                                      playsInline
+                                      controls
+                                      onLoadedMetadata={(e) => {
+                                        e.currentTarget.currentTime = Math.max(
+                                          0,
+                                          clip.joinAt - LEAD_IN,
+                                        );
+                                        void e.currentTarget.play().catch(() => undefined);
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </li>

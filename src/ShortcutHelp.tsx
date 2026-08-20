@@ -41,7 +41,9 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
     title: '全体',
     items: [
       ['Ctrl + O', '動画を読み込む'],
+      ['Ctrl + R', '下書きの続きから'],
       ['Ctrl + S', '作業内容を保存'],
+      ['Ctrl + W', '編集をやめる'],
       ['Ctrl + E', '書き出す'],
       ['Ctrl + T', 'テロップを追加'],
       ['F1', 'この一覧'],

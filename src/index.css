@@ -136,6 +136,53 @@ button:disabled {
   cursor: default;
 }
 
+/* 下書きの一覧。最初の画面から続きを開くための入口 */
+.drafts ul {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.drafts li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.drafts li:last-child {
+  border-bottom: 1px solid var(--border);
+}
+
+.drafts .who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.drafts .who strong {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.drafts .who .error {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.drafts .ops {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.drafts li.missing .who strong {
+  color: var(--muted);
+}
+
 /* 前回の続きから始めたことの通知 */
 .resumed {
   margin: 0;

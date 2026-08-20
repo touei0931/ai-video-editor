@@ -1,6 +1,21 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import { extname, join } from 'node:path';
-import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import {
+  forgetDraft,
+  isWorkDir,
+  listDrafts,
+  rememberDraft,
+  type DraftEntry,
+} from './drafts.js';
 import { Readable } from 'node:stream';
 import { sidecar } from './sidecar.js';
 import { isDev } from './paths.js';
@@ -207,12 +222,27 @@ ipcMain.handle('app:export', async (e, params: Record<string, unknown>) => {
  *    解析結果（文字起こし・候補・クリップ）は作業フォルダに残っているので、
  *    判定の内容だけ保存すれば再開できる。
  */
-ipcMain.handle('app:saveProject', (_e, payload: { workDir: string; data: unknown }) => {
-  const target = join(payload.workDir, 'project.json');
-  mkdirSync(payload.workDir, { recursive: true });
-  writeFileSync(target, JSON.stringify(payload.data, null, 2), 'utf8');
-  return target;
-});
+ipcMain.handle(
+  'app:saveProject',
+  (_e, payload: { workDir: string; data: unknown; summary?: Partial<DraftEntry> }) => {
+    const target = join(payload.workDir, 'project.json');
+    mkdirSync(payload.workDir, { recursive: true });
+    writeFileSync(target, JSON.stringify(payload.data, null, 2), 'utf8');
+    if (payload.summary) {
+      try {
+        rememberDraft(draftsIndexPath(), {
+          ...payload.summary,
+          workDir: payload.workDir,
+        } as DraftEntry);
+      } catch (e) {
+        // 索引が書けなくても下書き本体は保存できている。ここで失敗を投げると
+        // 「保存できませんでした」に見えてしまう。
+        recordFailure('rememberDraft', e, { workDir: payload.workDir });
+      }
+    }
+    return target;
+  },
+);
 
 ipcMain.handle('app:loadProject', (_e, workDir: string) => {
   const target = join(workDir, 'project.json');
@@ -221,6 +251,67 @@ ipcMain.handle('app:loadProject', (_e, workDir: string) => {
     return JSON.parse(readFileSync(target, 'utf8'));
   } catch (e) {
     recordFailure('loadProject', e, { workDir });
+    return null;
+  }
+});
+
+/** 索引の置き場所。動画の隣ではなくアプリ側に持つ（drafts.ts の冒頭参照） */
+const draftsIndexPath = () => join(app.getPath('userData'), 'drafts.json');
+
+ipcMain.handle('app:listDrafts', () => listDrafts(draftsIndexPath()));
+
+ipcMain.handle(
+  'app:findDraft',
+  (_e, videoPath: string) =>
+    listDrafts(draftsIndexPath()).find((d) => d.videoPath === videoPath) ?? null,
+);
+
+/**
+ * 下書きを捨てる。
+ *
+ * 🔴 作業フォルダごと消す。project.json だけ消しても
+ *    音声・クリップ・解析結果（20分素材で数十MB）が残り続け、
+ *    それを片付ける手段がアプリのどこにも無くなる。
+ * 🔴 消す前に必ずパスを確かめる。渡された文字列を無条件に rm するのは危ない。
+ */
+ipcMain.handle('app:deleteDraft', async (e, workDir: string) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!isWorkDir(workDir)) {
+    recordFailure('deleteDraft', new Error('作業フォルダではないパスを指定されました'), { workDir });
+    return false;
+  }
+
+  const answer = await dialog.showMessageBox(win!, {
+    type: 'warning',
+    buttons: ['下書きを削除する', 'キャンセル'],
+    defaultId: 1,
+    cancelId: 1,
+    message: 'この下書きを削除しますか？',
+    detail:
+      '判定した内容と、解析の結果（音声・プレビュー）をまとめて削除します。\n' +
+      '元の動画は消えません。もう一度編集するときは解析からやり直しになります。',
+  });
+  if (answer.response !== 0) return false;
+
+  try {
+    rmSync(workDir, { recursive: true, force: true });
+  } catch (err) {
+    recordFailure('deleteDraft', err, { workDir });
+  }
+  forgetDraft(draftsIndexPath(), workDir);
+  return true;
+});
+
+/**
+ * レビュー用クリップを1本その場で作る。
+ * 自動でカット/見送りにした箇所には解析時のクリップが無いので、
+ * 「見て確かめたい」と言われた時点で作る（sidecar/rpc.py の _make_clip 参照）。
+ */
+ipcMain.handle('app:makeClip', async (_e, params: Record<string, unknown>) => {
+  try {
+    return await sidecar.call('make_clip', params);
+  } catch (error) {
+    recordFailure('makeClip', error, params);
     return null;
   }
 });

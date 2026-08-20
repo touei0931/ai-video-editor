@@ -15,8 +15,12 @@ function Root() {
   if (mode === 't1') return <T1Wysiwyg />;
   if (mode === 't2') return <T2Budoux />;
   if (mode === 'telop-e2e') return <TelopE2E />;
-  // モックデータでレビューUIの操作感だけ見たいとき
-  if (mode === 'review-demo') return <ReviewScreen />;
+  // モックデータでレビューUIの操作感だけ見たいとき。
+  // 「結局何箇所カットされるのか」はこの画面が出す唯一の数字なので、
+  // 書き出しへ進むボタンごと出す（押しても書き出しはしない）。
+  if (mode === 'review-demo') {
+    return <ReviewScreen onExport={(cuts) => console.log('カット', cuts.length, cuts)} />;
+  }
   return <App />;
 }
 

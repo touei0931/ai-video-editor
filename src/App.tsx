@@ -12,6 +12,7 @@
  * ③ズーム・画角は Phase 3。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DraftEntry } from './global';
 import { PreviewScreen, type Shot } from './preview/PreviewScreen';
 import { ShortcutHelp } from './ShortcutHelp';
 import { ReviewScreen, type ReviewState } from './review/ReviewScreen';
@@ -163,6 +164,29 @@ function formatDuration(sec: number): string {
   return `${m}分${String(s).padStart(2, '0')}秒`;
 }
 
+/** 「5分前」「昨日 14:32」のように、いつの作業か分かる形にする */
+function formatSavedAt(iso: string): string {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return '不明';
+  const minutes = Math.floor((Date.now() - then.getTime()) / 60000);
+  if (minutes < 1) return 'さっき';
+  if (minutes < 60) return `${minutes}分前`;
+  const time = then.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  const days = Math.floor(minutes / 60 / 24);
+  if (days === 0) return `今日 ${time}`;
+  if (days === 1) return `昨日 ${time}`;
+  return `${then.toLocaleDateString('ja-JP')} ${time}`;
+}
+
+const PHASE_LABEL: Partial<Record<Phase, string>> = {
+  review: 'カットの確認中',
+  telop: 'テロップの確認中',
+  framing: 'テロップの確認中',
+  fullpreview: '通し確認中',
+  exporting: '書き出し前',
+  done: '書き出し済み',
+};
+
 export function App() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState({ value: 0, message: '' });
@@ -182,6 +206,8 @@ export function App() {
   const [exported, setExported] = useState<ExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(0);
+  /** 保存済みの下書き。最初の画面から直接開けるようにするために持つ */
+  const [drafts, setDrafts] = useState<DraftEntry[]>([]);
 
   /**
    * preload が読み込まれていないと window.app が無い。
@@ -267,21 +293,64 @@ export function App() {
     return true;
   }, []);
 
+  /** 下書きの一覧を読み直す。最初の画面に出す */
+  const refreshDrafts = useCallback(async () => {
+    if (!hasBridge) return;
+    try {
+      setDrafts(await window.app.listDrafts());
+    } catch (e) {
+      console.error('下書きの一覧を読めませんでした:', e);
+    }
+  }, [hasBridge]);
+
+  useEffect(() => {
+    if (phase === 'idle') void refreshDrafts();
+  }, [phase, refreshDrafts]);
+
+  /** 一覧から下書きを開く */
+  const openDraft = useCallback(
+    async (entry: DraftEntry) => {
+      setError(null);
+      const saved = (await window.app.loadProject(entry.workDir)) as Draft | null;
+      if (!saved?.analysis) {
+        setError('下書きを読み込めませんでした。ファイルが壊れているようです。');
+        void refreshDrafts();
+        return;
+      }
+      if (!resumeDraft(saved)) {
+        setError('下書きの中身が古い形式のため開けませんでした。');
+      }
+    },
+    [resumeDraft, refreshDrafts],
+  );
+
+  const deleteDraft = useCallback(
+    async (entry: DraftEntry) => {
+      await window.app.deleteDraft(entry.workDir);
+      void refreshDrafts();
+    },
+    [refreshDrafts],
+  );
+
   const pickAndAnalyze = useCallback(async () => {
     setError(null);
     const path = await window.app.pickVideo();
     if (!path) return;
 
     // 先に下書きを探す。あれば解析せずに続きから始められる。
-    const workDir = path.replace(/[\/][^\/]+$/, '') + '/.ai-video-editor';
-    const existing = (await window.app.loadProject(workDir)) as Draft | null;
-    if (existing?.video_path === path && existing.analysis) {
+    // 🔴 作業フォルダの場所は推測しない。素材ごとに違ううえ、
+    //    推測がずれると「下書きがあるのに無いことになる」という気づけない壊れ方をする。
+    const found = await window.app.findDraft(path);
+    if (found) {
       const useIt = await window.app.confirmResume({
-        savedAt: existing.savedAt,
-        decided: Object.keys(existing.review?.decisions ?? {}).length,
+        savedAt: found.savedAt,
+        decided: found.decided,
       });
       if (useIt === 'cancel') return;
-      if (useIt === 'resume' && resumeDraft(existing)) return;
+      if (useIt === 'resume') {
+        await openDraft(found);
+        return;
+      }
     }
 
     setPhase('analyzing');
@@ -309,8 +378,29 @@ export function App() {
       setError((e as Error).message);
       setPhase('idle');
     }
-  }, []);
+  }, [openDraft]);
 
+
+  /**
+   * 自動で判定した箇所のプレビューを、必要になった時点で作る。
+   *
+   * 解析時に作るのは人間が1件ずつ見る候補ぶんだけ（sidecar/heavy.py 参照）。
+   * 全部作ると候補118件ぶんのクリップを作ることになり、解析が何倍にも延びる。
+   * 「自動で切った箇所を見せろ」と言われた時にだけ、その1本を作る（実測 0.24 秒）。
+   */
+  const requestClip = useCallback(
+    async (c: CutCandidate) => {
+      if (!analysis) return null;
+      const res = await window.app.makeClip({
+        video_path: analysis.video_path,
+        out_path: `${analysis.work_dir}/clips/${c.id}.mp4`,
+        src_start: c.srcStart,
+        src_end: c.srcEnd,
+      });
+      return res ? { path: res.path, joinAt: res.join_at, duration: res.duration } : null;
+    },
+    [analysis],
+  );
 
   /** カットのレビューが終わったら、その結果を踏まえてテロップを作る */
   const buildTelops = useCallback(
@@ -362,7 +452,20 @@ export function App() {
       styles: finalState?.styles,
       shots,
     };
-    await window.app.saveProject({ workDir: analysis.work_dir, data: draft });
+    await window.app.saveProject({
+      workDir: analysis.work_dir,
+      data: draft,
+      // 一覧に出すぶんだけ別に渡す。本体を読まずに一覧を作れるようにする
+      // （20分素材の下書きは数MBあり、一覧のたびに全部読むと重い）
+      summary: {
+        videoPath: analysis.video_path,
+        savedAt: draft.savedAt,
+        phase,
+        decided: Object.keys(reviewStateRef.current?.decisions ?? {}).length,
+        total: analysis.candidates.length,
+        duration: analysis.duration,
+      },
+    });
   }, [analysis, phase, cuts, cards, finalState, shots]);
 
   const saveReview = useCallback(
@@ -430,6 +533,7 @@ export function App() {
       if (action === 'shortcuts') setShowShortcuts(true);
       if (action === 'quit') void quitEditing();
       if (action === 'open') void pickAndAnalyze();
+      if (action === 'drafts') void refreshDrafts();
       if (action === 'cancel') void cancelAnalyze();
       if (action === 'addTelop') {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true }));
@@ -440,7 +544,7 @@ export function App() {
         window.dispatchEvent(new CustomEvent('app:menu-action', { detail: action }));
       }
     });
-  }, [hasBridge, pickAndAnalyze, cancelAnalyze, quitEditing]);
+  }, [hasBridge, pickAndAnalyze, cancelAnalyze, quitEditing, refreshDrafts, saveDraft]);
 
   const rewrap = useCallback(
     (text: string, style: TelopStyleName) =>
@@ -621,6 +725,7 @@ export function App() {
           fps={analysis.video.fps}
           initialState={savedReview}
           onStateChange={saveReview}
+          onNeedClip={requestClip}
           onQuit={() => void quitEditing()}
           onExport={buildTelops}
           exporting={false}
@@ -732,15 +837,71 @@ export function App() {
       )}
 
       {phase === 'idle' && (
-        <section>
-          <h2>動画を読み込む</h2>
-          <p className="muted">
-            読み込むと、音声を文字起こししてカット候補を作ります。
-            <br />
-            カットを決めたあと、その結果に合わせてテロップを作ります。
-          </p>
-          <button onClick={pickAndAnalyze}>動画を選ぶ</button>
-        </section>
+        <>
+          <section>
+            <h2>動画を読み込む</h2>
+            <p className="muted">
+              読み込むと、音声を文字起こししてカット候補を作ります。
+              <br />
+              カットを決めたあと、その結果に合わせてテロップを作ります。
+            </p>
+            <button onClick={pickAndAnalyze}>動画を選ぶ</button>
+          </section>
+
+          {/*
+            🔴 下書きは最初の画面から開けること。
+               以前は「同じ動画をもう一度選ぶ」以外に開く道が無く、
+               保存したのに辿り着けなかった。
+               どこに保存したか覚えているのはアプリ側の仕事で、人間の仕事ではない。
+          */}
+          {drafts.length > 0 && (
+            <section className="drafts">
+              <h2>途中の編集を続ける</h2>
+              <p className="muted">
+                解析はやり直しません。判定した内容もそのまま残っています。
+              </p>
+              <ul>
+                {drafts.map((d) => (
+                  <li key={d.workDir} className={d.videoMissing ? 'missing' : undefined}>
+                    <div className="who">
+                      <strong>{d.videoName}</strong>
+                      <span className="muted">
+                        {formatSavedAt(d.savedAt)}
+                        {d.duration > 0 && <> ・ {formatDuration(d.duration)}</>}
+                        {d.total > 0 && (
+                          <>
+                            {' '}
+                            ・ カット候補 {d.total} 件中 {d.decided} 件を判定済み
+                          </>
+                        )}
+                        {PHASE_LABEL[d.phase as Phase] && <> ・ {PHASE_LABEL[d.phase as Phase]}</>}
+                      </span>
+                      {/*
+                        動画そのものが移動・削除されている場合。
+                        判定は残っていても再生も書き出しもできないので、押させる前に伝える。
+                      */}
+                      {d.videoMissing && (
+                        <span className="error">
+                          元の動画が見つかりません（{d.videoPath}）
+                        </span>
+                      )}
+                    </div>
+                    <div className="ops">
+                      <button
+                        className="primary"
+                        disabled={d.videoMissing}
+                        onClick={() => void openDraft(d)}
+                      >
+                        続きから
+                      </button>
+                      <button onClick={() => void deleteDraft(d)}>削除</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
       )}
 
       {busy && (

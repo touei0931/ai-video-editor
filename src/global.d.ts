@@ -1,5 +1,19 @@
 export {};
 
+/** 下書きの一覧に出す1件分。本体は作業フォルダの project.json。 */
+export interface DraftEntry {
+  videoPath: string;
+  videoName: string;
+  /** 元の動画が見つからない（移動・削除された） */
+  videoMissing: boolean;
+  workDir: string;
+  savedAt: string;
+  phase: string;
+  decided: number;
+  total: number;
+  duration: number;
+}
+
 declare global {
   interface Window {
     sidecar: {
@@ -30,8 +44,18 @@ declare global {
         frames: { name: string; base64: string }[];
       }) => Promise<Record<string, string>>;
       exportVideo: (params: Record<string, unknown>) => Promise<unknown>;
-      saveProject: (payload: { workDir: string; data: unknown }) => Promise<string>;
+      saveProject: (payload: {
+        workDir: string;
+        data: unknown;
+        summary?: Record<string, unknown>;
+      }) => Promise<string>;
       loadProject: (workDir: string) => Promise<unknown | null>;
+      listDrafts: () => Promise<DraftEntry[]>;
+      findDraft: (videoPath: string) => Promise<DraftEntry | null>;
+      deleteDraft: (workDir: string) => Promise<boolean>;
+      makeClip: (
+        params: Record<string, unknown>,
+      ) => Promise<{ path: string; join_at: number; duration: number } | null>;
       confirmQuit: (info: { hasWork: boolean }) => Promise<'save' | 'discard' | 'cancel'>;
       confirmResume: (info: {
         savedAt: string;
