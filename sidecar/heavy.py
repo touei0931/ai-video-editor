@@ -239,7 +239,7 @@ def _build_telops(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, 
 def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     """承認されたカットとテロップを適用して書き出す。"""
     from .cut import keep_ranges, map_time_to_output
-    from .media import export_cut_video, png_size, probe_video_info, write_telop_track
+    from .media import export_cut_video, png_size, probe_video_info, write_srt, write_telop_track
 
     video_path = params["video_path"]
     out_path = params["out_path"]
@@ -249,24 +249,31 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     keeps = keep_ranges(duration, cuts)
     kept_total = sum(e - s for s, e in keeps)
 
+    work_dir = Path(params.get("work_dir") or Path(video_path).parent / ".ai-video-editor")
+
     # ── テロップを編集後タイムラインへ写す ──
     telop_track = None
     burned = 0
+    srt_path = None
     telops = params.get("telops") or []
+    # 焼き込むかどうかに関わらず、字幕ファイルは書けるようにしておく
+    burn = bool(params.get("burn_telops", True))
+
     if telops:
         on_progress(0.02, "テロップを配置しています")
 
-        # 🔴 テロップの大きさが映像と一致していることを確かめる。
-        #    ずれていると overlay は黙って左上に貼り付けるだけなので、
-        #    「テロップがずれて見切れる」という形で書き出したあとに初めて気づく。
-        #    実際に iPhone の縦動画（回転情報つき）で起きた。
-        info = probe_video_info(video_path)
-        pw, ph = png_size(telops[0]["png"])
-        if (pw, ph) != (info["width"], info["height"]):
-            raise ValueError(
-                f"テロップの大きさが映像と違います（テロップ {pw}x{ph} / 映像 {info['width']}x{info['height']}）。"
-                "動画を読み込み直してください。"
-            )
+        if burn:
+            # 🔴 テロップの大きさが映像と一致していることを確かめる。
+            #    ずれていると overlay は黙って左上に貼り付けるだけなので、
+            #    「テロップがずれて見切れる」という形で書き出したあとに初めて気づく。
+            #    実際に iPhone の縦動画（回転情報つき）で起きた。
+            info = probe_video_info(video_path)
+            pw, ph = png_size(telops[0]["png"])
+            if (pw, ph) != (info["width"], info["height"]):
+                raise ValueError(
+                    f"テロップの大きさが映像と違います（テロップ {pw}x{ph} / 映像 {info['width']}x{info['height']}）。"
+                    "動画を読み込み直してください。"
+                )
 
         placed: list[dict[str, Any]] = []
         for t in telops:
@@ -275,17 +282,24 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
             # まるごとカットに入った、または詰められて一瞬になったものは出さない
             if out_end - out_start < 0.15:
                 continue
-            placed.append({"out_start": out_start, "out_end": out_end, "png": t["png"]})
+            placed.append({
+                "out_start": out_start,
+                "out_end": out_end,
+                "png": t.get("png"),
+                "text": t.get("text", ""),
+            })
 
         if placed:
-            work_dir = Path(params.get("work_dir") or Path(video_path).parent / ".ai-video-editor")
-            telop_track = write_telop_track(
-                str(work_dir / "telops" / "track.txt"),
-                params["blank_png"],
-                placed,
-                kept_total,
-            )
-            burned = len(placed)
+            if params.get("write_srt", True):
+                srt_path = write_srt(str(Path(out_path).with_suffix(".srt")), placed)
+            if burn:
+                telop_track = write_telop_track(
+                    str(work_dir / "telops" / "track.txt"),
+                    params["blank_png"],
+                    placed,
+                    kept_total,
+                )
+                burned = len(placed)
 
     result = export_cut_video(
         video_path,
@@ -299,6 +313,7 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     result["original_seconds"] = round(duration, 2)
     result["cut_count"] = len(cuts)
     result["telop_count"] = burned
+    result["srt_path"] = srt_path
     return result
 
 

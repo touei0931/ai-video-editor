@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ReviewScreen } from './review/ReviewScreen';
 import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
-import { TelopScreen, type StyleMap } from './telop/TelopScreen';
+import { TelopScreen, type ExportOptions, type StyleMap } from './telop/TelopScreen';
 import { loadTelopFonts } from './telop/fonts';
 import { renderBlank, renderTelopPngs } from './telop/rasterize';
 import {
@@ -93,6 +93,8 @@ interface ExportResult {
   original_seconds: number;
   cut_count: number;
   telop_count: number;
+  srt_path: string | null;
+  encoder_fallback: boolean;
   segments: number;
   size_mb: number;
 }
@@ -128,6 +130,9 @@ function toUnit(t: TelopResult['telops'][number]): TelopUnit {
     words: t.words.map((w) => ({ text: w.text, srcStart: w.src_start, srcEnd: w.src_end })),
   };
 }
+
+/** SRT の1エントリ内の改行 */
+const NEWLINE = '\n';
 
 function formatDuration(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -225,7 +230,7 @@ export function App() {
   );
 
   const runExport = useCallback(
-    async (finalCards: TelopCard[], styles: StyleMap) => {
+    async (finalCards: TelopCard[], styles: StyleMap, options: ExportOptions) => {
       if (!analysis) return;
       const base = analysis.video_path.replace(/\.[^.]+$/, '');
       const target = await window.app.pickOutput(`${base}_edited.mp4`);
@@ -236,10 +241,10 @@ export function App() {
       setProgress({ value: 0, message: 'テロップを描いています' });
 
       try {
-        let telops: { src_start: number; src_end: number; png: string }[] = [];
+        let telops: { src_start: number; src_end: number; text: string; png: string }[] = [];
         let blankPng = '';
 
-        if (finalCards.length > 0) {
+        if (finalCards.length > 0 && options.burn) {
           const dir = `${analysis.work_dir}/telops`;
           const rendered = await renderTelopPngs(finalCards, frame, styles, (done, total) =>
             setProgress({ value: done / total, message: `テロップを描いています ${done}/${total}` }),
@@ -257,7 +262,16 @@ export function App() {
           telops = finalCards.map((c, i) => ({
             src_start: c.srcStart,
             src_end: c.srcEnd,
+            text: c.lines.join(NEWLINE),
             png: saved[rendered[i].name],
+          }));
+        } else if (finalCards.length > 0) {
+          // 焼き込まない場合でも、字幕ファイルを出すために時刻と文言は渡す
+          telops = finalCards.map((c) => ({
+            src_start: c.srcStart,
+            src_end: c.srcEnd,
+            text: c.lines.join(NEWLINE),
+            png: '',
           }));
         }
 
@@ -271,6 +285,8 @@ export function App() {
           cuts: cuts.map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd })),
           telops,
           blank_png: blankPng,
+          burn_telops: options.burn,
+          write_srt: options.srt,
         })) as ExportResult;
         setExported(result);
         setPhase('done');
@@ -428,8 +444,29 @@ export function App() {
             <dd>{exported.cut_count} 箇所</dd>
             <dt>焼き込んだテロップ</dt>
             <dd>{exported.telop_count} 枚</dd>
+            {exported.srt_path && (
+              <>
+                <dt>字幕ファイル</dt>
+                <dd>
+                  <code>{exported.srt_path}</code>
+                </dd>
+              </>
+            )}
             <dt>エンコーダ</dt>
-            <dd>{exported.encoder}</dd>
+            <dd>
+              {exported.encoder}
+              {/*
+                ハードウェアエンコーダが使えず落ちたことは必ず伝える。
+                mpeg4 まで落ちると画質が明らかに悪くなるが、
+                エンコーダ名を見て異常だと気づくのは無理。
+              */}
+              {exported.encoder_fallback && (
+                <span className="error">
+                  {' '}
+                  ← ハードウェアの支援が使えず、ソフトウェアで書き出しました（画質が落ちます）
+                </span>
+              )}
+            </dd>
             <dt>ファイル</dt>
             <dd>
               <code>{exported.out_path}</code>（{exported.size_mb} MB）

@@ -214,7 +214,11 @@ def export_cut_video(
         raise ValueError("残す区間がありません（全部カットされています）")
 
     ffmpeg = find_ffmpeg()
-    vargs, encoder = available_video_args(ffmpeg)
+    # 解像度に見合ったビットレートを選ぶ。1080p 用の固定値のままだと 4K で破綻する。
+    info = probe_video_info(video_path)
+    pixels = max(1, info["width"] * info["height"])
+    quality = "high" if pixels > 1920 * 1080 else "standard"
+    vargs, encoder = available_video_args(ffmpeg, quality)
 
     if on_progress:
         on_progress(0.05, f"書き出しています（{encoder}）")
@@ -239,12 +243,21 @@ def export_cut_video(
         )
     concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(len(keeps)))
 
+    # 🔴 音量の正規化は filter_complex の中に入れること。
+    #    -af は filter_complex の出力ラベルには適用できず "Invalid argument" になる
+    #    （-vf でも同じ罠を踏んでいる。make_review_clip のコメント参照）。
+    #
+    #    配信基準の -14 LUFS へ揃える。素材ごとに音量がバラバラだと、
+    #    視聴者が毎回ボリュームを触ることになる。
+    loudnorm = "loudnorm=I=-14:TP=-1.5:LRA=11"
+
     inputs = ["-i", video_path]
     if telop_track:
         inputs += ["-f", "concat", "-safe", "0", "-i", telop_track]
         filter_complex = (
             "".join(parts)
-            + f"{concat_inputs}concat=n={len(keeps)}:v=1:a=1[vcat][aout];"
+            + f"{concat_inputs}concat=n={len(keeps)}:v=1:a=1[vcat][acat];"
+            f"[acat]{loudnorm}[aout];"
             # 静止画のままだとタイムスタンプが疎なので、動画と同じ fps に揃える
             f"[1:v]format=rgba,fps={fps:.5g},setpts=PTS-STARTPTS[ov];"
             # repeatlast=0 にしないと、テロップ列が尽きた後も最後の1枚が残り続ける
@@ -252,7 +265,9 @@ def export_cut_video(
         )
     else:
         filter_complex = (
-            "".join(parts) + f"{concat_inputs}concat=n={len(keeps)}:v=1:a=1[vout][aout]"
+            "".join(parts)
+            + f"{concat_inputs}concat=n={len(keeps)}:v=1:a=1[vout][acat];"
+            f"[acat]{loudnorm}[aout]"
         )
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
@@ -263,6 +278,9 @@ def export_cut_video(
         "-map", "[vout]", "-map", "[aout]",
         *vargs,
         "-c:a", "aac", "-b:a", "192k",
+        # 🔴 これが無いと、Web にそのまま上げたとき頭出しに時間がかかる。
+        #    メタデータがファイル末尾に置かれ、再生前に全体を読む必要が出るため。
+        "-movflags", "+faststart",
         out_path,
     ])
 
@@ -273,6 +291,11 @@ def export_cut_video(
     return {
         "out_path": out_path,
         "encoder": encoder,
+        # 🔴 ソフトウェアエンコーダに落ちたかを呼び出し側に伝える。
+        #    mpeg4 まで落ちると画質が明らかに悪くなるが、
+        #    IT知識のない人がエンコーダ名を見て異常だと気づくのは無理。
+        "encoder_fallback": encoder in ("libopenh264", "mpeg4"),
+        "quality": quality,
         "kept_seconds": round(kept, 2),
         "segments": len(keeps),
         "size_mb": round(os.path.getsize(out_path) / 1024 / 1024, 2),
@@ -373,6 +396,39 @@ def make_review_clip(
         "join_at": before_len if len(segments) > 1 else 0.0,
         "duration": round(sum(length for _, length in segments), 3),
     }
+
+
+def _srt_time(seconds: float) -> str:
+    ms = int(round(max(0.0, seconds) * 1000))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def write_srt(path: str, entries: list[dict[str, Any]]) -> str:
+    """字幕ファイルを書く。
+
+    🔴 焼き込み済みの動画しか出せないと、後工程が全部詰む。
+       BGM も SE も B-roll も足せず、あとでカットを1箇所足すだけで
+       テロップが単語の途中で切れる。
+       SRT があれば「カットはこのアプリ、テロップは編集ソフト」という
+       現実的な使い分けができる。
+
+    時刻は**編集後タイムライン**で書く。元素材の時刻で書くと、
+    カットを適用した動画に読み込んだ瞬間にずれる。
+    """
+    lines: list[str] = []
+    for i, e in enumerate(sorted(entries, key=lambda x: x["out_start"]), start=1):
+        lines.append(str(i))
+        lines.append(f"{_srt_time(e['out_start'])} --> {_srt_time(e['out_end'])}")
+        lines.append(str(e["text"]).replace("\r", ""))
+        lines.append("")
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    # BOM 付きにしておくと、Windows のメモ帳や一部の編集ソフトで文字化けしない
+    Path(path).write_text("\n".join(lines), encoding="utf-8-sig")
+    return path
 
 
 def write_json(path: str, data: Any) -> str:

@@ -25,6 +25,14 @@ import './telop.css';
 
 export type StyleMap = Record<TelopStyleName, TelopStyle>;
 
+/** 書き出し方の選択。 */
+export interface ExportOptions {
+  /** 映像にテロップを焼き込むか */
+  burn: boolean;
+  /** 字幕ファイル(SRT)も出すか */
+  srt: boolean;
+}
+
 const STYLE_LABEL: Record<TelopStyleName, string> = {
   normal: '通常',
   note: '補足',
@@ -62,7 +70,7 @@ export interface TelopScreenProps {
   /** 実測幅で折り返す関数（編集したテキストを折り返し直すのに使う） */
   rewrap: (text: string, style: TelopStyleName) => { lines: string[]; fontScale: number };
   onBack?: () => void;
-  onExport: (cards: TelopCard[], styles: StyleMap) => void;
+  onExport: (cards: TelopCard[], styles: StyleMap, options: ExportOptions) => void;
   exporting?: boolean;
   /**
    * 書き出しに失敗したときの内容。
@@ -92,6 +100,7 @@ export function TelopScreen({
   const [styles, setStyles] = useState<StyleMap>(() => structuredClone(DEFAULT_STYLES));
   /** 雛形の編集パネルで今どのスタイルを触っているか */
   const [editingStyle, setEditingStyle] = useState<TelopStyleName>('normal');
+  const [exportOptions, setExportOptions] = useState<ExportOptions>({ burn: true, srt: true });
 
   const patchStyle = useCallback((name: TelopStyleName, patch: Partial<TelopStyle>) => {
     setStyles((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
@@ -405,7 +414,7 @@ export function TelopScreen({
         <p className="muted">文字起こしから作れるテロップがありませんでした。</p>
         <div className="actions">
           {onBack && <button onClick={onBack}>戻る</button>}
-          <button className="primary" onClick={() => onExport([], styles)}>
+          <button className="primary" onClick={() => onExport([], styles, exportOptions)}>
             テロップ無しで書き出す
           </button>
         </div>
@@ -433,8 +442,29 @@ export function TelopScreen({
         )}
         <div className="grow" />
         <button onClick={addTelop} title="今の再生位置にテロップを足す">＋ テロップを追加</button>
+        {/*
+          焼き込み一択だと後工程が詰む。BGM も B-roll も足せず、
+          あとからカットを1箇所足すだけでテロップが単語の途中で切れる。
+          SRT を出せば「カットはこのアプリ、テロップは編集ソフト」が選べる。
+        */}
+        <label className="opt" title="映像にテロップを直接描き込みます">
+          <input
+            type="checkbox"
+            checked={exportOptions.burn}
+            onChange={(e) => setExportOptions((o) => ({ ...o, burn: e.target.checked }))}
+          />
+          焼き込む
+        </label>
+        <label className="opt" title="編集ソフトに読み込める字幕ファイルを出します">
+          <input
+            type="checkbox"
+            checked={exportOptions.srt}
+            onChange={(e) => setExportOptions((o) => ({ ...o, srt: e.target.checked }))}
+          />
+          字幕(SRT)
+        </label>
         {onBack && <button onClick={onBack}>カットに戻る</button>}
-        <button className="primary" disabled={exporting} onClick={() => onExport(cards, styles)}>
+        <button className="primary" disabled={exporting} onClick={() => onExport(cards, styles, exportOptions)}>
           {exporting ? '書き出し中…' : '書き出す'}
         </button>
       </header>
