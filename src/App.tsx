@@ -301,6 +301,8 @@ export function App() {
   const [exported, setExported] = useState<ExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(0);
+  /** 待ち画面の「経過」「残り」を1秒ごとに動かすための現在時刻 */
+  const [now, setNow] = useState(() => Date.now());
   /** 保存済みの下書き。最初の画面から直接開けるようにするために持つ */
   const [drafts, setDrafts] = useState<DraftEntry[]>([]);
   /**
@@ -320,6 +322,19 @@ export function App() {
     if (!hasBridge) return;
     return window.app.onProgress(setProgress);
   }, [hasBridge]);
+
+  /** 待っている間だけ時計を動かす。終わったら止める。 */
+  useEffect(() => {
+    const running =
+      phase === 'analyzing' ||
+      phase === 'exporting' ||
+      phase === 'telops-building' ||
+      phase === 'framing';
+    if (!running) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [phase]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -358,11 +373,25 @@ export function App() {
    * 解析を途中でやめる。
    * 間違ったファイルを選んだときに十数分待たされるのは、実用上ありえない。
    */
+  /**
+   * 待っている処理をやめる。
+   *
+   * 🔴 解析だけでなく書き出しにも要る。間違ったファイルで書き出しを始めたら、
+   *    十数分待つか強制終了するしかなかった。
+   * 🔴 中断したあとの行き先は工程によって違う。解析中なら動画の選択、
+   *    それ以降は直前の画面。ここで idle に落とすと編集内容が消える。
+   */
   const cancelAnalyze = useCallback(async () => {
     await window.app.cancel();
-    setPhase('idle');
     setError(null);
-  }, []);
+    setPhase((p) => {
+      if (p === 'analyzing') return 'idle';
+      if (p === 'exporting') return finalState ? 'fullpreview' : 'telop';
+      if (p === 'telops-building') return 'review';
+      if (p === 'framing') return 'telop';
+      return p;
+    });
+  }, [finalState]);
 
   /**
    * 下書きから続きを再開する。
@@ -554,6 +583,7 @@ export function App() {
       }
 
       setPhase('telops-building');
+      setStartedAt(Date.now());
       setProgress({ value: 0, message: 'テロップを作っています' });
 
       try {
@@ -618,6 +648,26 @@ export function App() {
     });
   }, [analysis, phase, cuts, cards, finalState, shots]);
 
+  /**
+   * 少し待ってからまとめて書く。押すたびに書くと I/O が多すぎる。
+   * 🔴 やめるときは必ず打ち切ること（quitEditing 参照）。
+   */
+  const scheduleSave = useCallback(() => {
+    if (!analysis) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => void saveDraft(), 800);
+  }, [analysis, saveDraft]);
+
+  /** テロップ画面で直した内容を受け取る。カット画面の onStateChange と同じ形 */
+  const saveTelopEdits = useCallback(
+    (edits: TelopEdits) => {
+      setFinalState(edits);
+      setCards(edits.cards);
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+
   const saveReview = useCallback(
     (state: ReviewState) => {
       reviewStateRef.current = state;
@@ -630,26 +680,25 @@ export function App() {
         （テロップ画面が同じ理由で消えていたのと同じ話）
       */
       setSavedReview(state);
-      if (!analysis) return;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => void saveDraft(), 800);
+      scheduleSave();
     },
-    [analysis, saveDraft],
+    [scheduleSave],
   );
 
   /**
-   * 編集をやめて動画の選択に戻る。
-   * 一度入ると書き出すまで抜けられないのは、間違ったファイルを選んだときに詰む。
+   * 編集中の状態をすべて捨てて、最初の画面に戻す。
+   *
+   * 🔴 消す対象を呼び出し側で列挙しないこと。
+   *    以前は「編集をやめる」と「別の動画を編集する」で別々に列挙しており、
+   *    後者が finalState / shots / builtForRef / reviewStateRef を消し忘れていた。
+   *    結果、2本目の下書きに**1本目のテロップが書き込まれる**。
+   *    状態を足すたびに片方だけ直る形は、必ずまた起きる。
    */
-  const quitEditing = useCallback(async () => {
-    const hasWork =
-      Object.keys(reviewStateRef.current?.decisions ?? {}).length > 0 ||
-      cards.length > 0 ||
-      cuts.length > 0;
-    const answer = await window.app.confirmQuit({ hasWork });
-    if (answer === 'cancel') return;
-    if (answer === 'save') await saveDraft();
-
+  const resetEditing = useCallback(() => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
     setAnalysis(null);
     setCards([]);
     setCuts([]);
@@ -660,9 +709,35 @@ export function App() {
     setResumed(false);
     setExported(null);
     setError(null);
+    setStartedAt(0);
     reviewStateRef.current = null;
+    builtForRef.current = null;
     setPhase('idle');
-  }, [cards.length, cuts.length, saveDraft]);
+  }, []);
+
+  /**
+   * 編集をやめて動画の選択に戻る。
+   * 一度入ると書き出すまで抜けられないのは、間違ったファイルを選んだときに詰む。
+   */
+  const quitEditing = useCallback(async () => {
+    // 🔴 先に自動保存を打ち切る。
+    //    ここで止めないと、確認ダイアログを出している 800ms の間にタイマーが発火し、
+    //    「保存せずにやめる」を選んだのに下書きが残る——選択と逆のことが起きる。
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+
+    const hasWork =
+      Object.keys(reviewStateRef.current?.decisions ?? {}).length > 0 ||
+      cards.length > 0 ||
+      cuts.length > 0;
+    const answer = await window.app.confirmQuit({ hasWork });
+    if (answer === 'cancel') return;
+    if (answer === 'save') await saveDraft();
+
+    resetEditing();
+  }, [cards.length, cuts.length, saveDraft, resetEditing]);
 
   /**
    * メニューからの指示を受ける。
@@ -731,6 +806,7 @@ export function App() {
       }));
       setCards(finalCards);
       setPhase('framing');
+      setStartedAt(Date.now());
       setProgress({ value: 0, message: '画角を決めています' });
 
       try {
@@ -767,6 +843,7 @@ export function App() {
 
       setError(null);
       setPhase('exporting');
+      setStartedAt(Date.now());
       setProgress({ value: 0, message: 'テロップを描いています' });
 
       // 有効な寄りだけを区間列にする。隙間は引き。
@@ -914,6 +991,7 @@ export function App() {
           videoPath={analysis.video_path}
           frame={frame}
           rewrap={rewrap}
+          onEditsChange={saveTelopEdits}
           onBack={(edits) => {
             // 🔴 戻る前に直した内容を受け取っておく。
             //    受け取らないと、この画面が消えた時点で全部消える。
@@ -921,6 +999,7 @@ export function App() {
             setFinalState(edits);
             setPhase('review');
           }}
+          onQuit={() => void quitEditing()}
           onExport={goFullPreview}
           exporting={false}
           error={error}
@@ -956,6 +1035,19 @@ export function App() {
     phase === 'exporting' ||
     phase === 'telops-building' ||
     phase === 'framing';
+
+  /*
+    🔴 経過時間は工程ごとに測ること。
+       以前は「動画を選ぶ」経路でしか開始時刻を入れておらず、初期値が 0 のまま。
+       下書きから再開すると Date.now() - 0 が秒に化けて
+       「1787000000秒経過」と出ていた。書き出し中の画面に
+       「解析開始からの経過」が出るのも同じ間違い。
+  */
+  const elapsedSeconds = startedAt > 0 ? Math.round((now - startedAt) / 1000) : 0;
+  const remain =
+    progress.value > 0.02 && elapsedSeconds > 3
+      ? Math.round((elapsedSeconds / progress.value) * (1 - progress.value))
+      : null;
   const busyTitle =
     phase === 'analyzing'
       ? '解析中'
@@ -1088,15 +1180,31 @@ export function App() {
             <div className="progress-fill" style={{ width: `${progress.value * 100}%` }} />
           </div>
           <p className="muted">
-            {progress.message}（{Math.round(progress.value * 100)}%・
-            {Math.round((Date.now() - startedAt) / 1000)}秒経過）
+            {progress.message}（{Math.round(progress.value * 100)}%）
           </p>
-          <p className="muted">他のアプリを使っていて構いません。</p>
-          {phase === 'analyzing' && (
-            <div className="actions">
-              <button onClick={cancelAnalyze}>解析をやめる</button>
-            </div>
-          )}
+          {/*
+            🔴 残り時間を出す。
+               %と経過秒だけを十数分見せられると、進んでいるのか固まっているのかが
+               判断できない。友達は必ず強制終了する。
+          */}
+          <p className="muted">
+            {remain !== null ? (
+              <>
+                残り約 <strong>{formatDuration(remain)}</strong>
+                <span> ・ {formatDuration(elapsedSeconds)}経過</span>
+              </>
+            ) : (
+              <>{formatDuration(elapsedSeconds)}経過（残り時間を計算しています）</>
+            )}
+          </p>
+          <p className="muted">
+            電源につないだままにしてください。他のアプリを使っても構いませんが、動作が重くなります。
+          </p>
+          <div className="actions">
+            <button onClick={cancelAnalyze}>
+              {phase === 'exporting' ? '書き出しをやめる' : 'やめる'}
+            </button>
+          </div>
         </section>
       )}
 
@@ -1150,17 +1258,7 @@ export function App() {
             <button className="primary" onClick={() => window.app.revealFile(exported.out_path)}>
               フォルダを開く
             </button>
-            <button
-              onClick={() => {
-                setAnalysis(null);
-                setExported(null);
-                setCards([]);
-                setCuts([]);
-                setPhase('idle');
-              }}
-            >
-              別の動画を編集する
-            </button>
+            <button onClick={resetEditing}>別の動画を編集する</button>
           </div>
         </section>
       )}

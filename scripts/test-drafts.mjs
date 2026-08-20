@@ -145,6 +145,37 @@ check(
 );
 check('関係ないフォルダは古い置き場所でもない', drafts.isSharedWorkDir('D:/picture'), false);
 
+/*
+  🔴 削除の門番に `..` を通さないこと。
+     以前は部分一致だけだったので、次の文字列が「作業フォルダ」として通り、
+     rmSync の実際の削除先は D:\Users\touei\Documents になっていた。
+*/
+check(
+  '.. で外へ抜ける経路は認めない',
+  drafts.isWorkDir('D:/videos/.ai-video-editor/../../../Users/touei/Documents'),
+  false,
+);
+check(
+  '末尾の .. も認めない',
+  drafts.isWorkDir('D:/videos/.ai-video-editor/a-1234/..'),
+  false,
+);
+check(
+  '区切りが逆でも .. を認めない',
+  drafts.isWorkDir('D:\\videos\\.ai-video-editor\\..\\..\\Documents'),
+  false,
+);
+check(
+  '名前に .. を含むだけのフォルダは通す',
+  drafts.isWorkDir('D:/videos/.ai-video-editor/my..clip-1234'),
+  true,
+);
+check(
+  '孫より深い場所は作業フォルダではない',
+  drafts.isWorkDir('D:/videos/.ai-video-editor/a-1234/clips'),
+  false,
+);
+
 rmSync(sandbox, { recursive: true, force: true });
 rmSync(outDir, { recursive: true, force: true });
 

@@ -12,7 +12,7 @@
  * Electron に依存しない形にしてある（索引ファイルの場所は呼び出し側が決める）。
  * こうしておくと索引の挙動だけを単体で確かめられる。
  */
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 export interface DraftEntry {
@@ -100,8 +100,28 @@ export function listDrafts(indexPath: string): DraftListItem[] {
  */
 export function isWorkDir(workDir: string | undefined | null): boolean {
   if (!workDir) return false;
-  const p = workDir.replace(/\\/g, '/');
-  return p.includes('/.ai-video-editor/') || isSharedWorkDir(workDir);
+
+  /*
+    🔴 正規化してから見ること。部分一致だけでは `..` を通してしまう。
+
+    以前はこう書いていた:  p.includes('/.ai-video-editor/')
+    すると次の文字列が true になる:
+        D:/videos/.ai-video-editor/../../../Users/touei/Documents
+    そして rmSync が実際に消すのは D:\Users\touei\Documents。
+
+    正常系ではこの値はサイドカーが作るので届かないが、索引は userData 直下の素の JSON で、
+    レンダラから来た任意の文字列がそのまま削除対象になる設計になっている。
+    削除の門番は、来ないはずの入力を前提にしてはいけない。
+  */
+  if (/(^|[/\\])\.\.([/\\]|$)/.test(workDir)) return false;
+
+  const resolved = resolve(workDir).replace(/\\/g, '/').replace(/\/+$/, '');
+  const parent = dirname(resolved).replace(/\\/g, '/');
+
+  // 素材ごとの作業フォルダ（親が .ai-video-editor）
+  if (basename(parent) === '.ai-video-editor') return true;
+  // 素材ごとに分ける前の置き場所（それ自体が .ai-video-editor）
+  return basename(resolved) === '.ai-video-editor';
 }
 
 /**

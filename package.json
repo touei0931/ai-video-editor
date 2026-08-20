@@ -12,6 +12,8 @@
     "app": "npm run build && electron .",
     "guard": "node scripts/platform-guard.mjs",
     "test:drafts": "node scripts/test-drafts.mjs",
+    "test:graph": "python scripts/test_export_graph.py",
+    "test:clip": "python scripts/test_review_clip.py",
     "smoke": "electron . --smoke-test",
     "t1": "electron . --t1-wysiwyg",
     "t2": "electron . --t2-budoux",

@@ -21,6 +21,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
 from typing import Any, Callable
@@ -65,10 +67,27 @@ def run_in_subprocess(
     result: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
 
+    #: ワーカーの下で走っている ffmpeg の PID。
+    #: 🔴 ワーカーを terminate するだけでは ffmpeg は生き残る。
+    #:    書き出しを中断したのに ffmpeg が出力ファイルを書き続け、孤児として残る。
+    #:    「本当にキャンセルできる」という別プロセス化の利点を成立させるには、
+    #:    孫まで止める必要がある。
+    child_pid: int | None = None
+
+    def stop_all() -> None:
+        if child_pid is not None:
+            try:
+                # os.kill は Windows でも SIGTERM を TerminateProcess に対応付ける。
+                # プラットフォーム分岐を書かずに済む。
+                os.kill(child_pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        proc.terminate()
+
     try:
         for line in proc.stdout:
             if is_cancelled():
-                proc.terminate()
+                stop_all()
                 return {"cancelled": True}
 
             line = line.strip()
@@ -85,6 +104,8 @@ def run_in_subprocess(
             kind = msg.get("type")
             if kind == "progress":
                 on_progress(msg["value"], msg.get("message", ""))
+            elif kind == "ffmpeg_pid":
+                child_pid = int(msg["pid"])
             elif kind == "result":
                 result = msg["result"]
                 break
@@ -136,6 +157,11 @@ def worker_main() -> int:
 
     # 重いライブラリはここで初めて読み込む
     from .heavy import dispatch_heavy
+
+    # ffmpeg を起動したら PID を親へ知らせる。中断のときに孫まで止めるため。
+    from . import media
+
+    media.on_ffmpeg_pid = lambda pid: emit({"type": "ffmpeg_pid", "pid": pid})
 
     try:
         result = dispatch_heavy(

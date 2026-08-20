@@ -50,8 +50,21 @@ function writeArtifact(name: string, data: Record<string, unknown>): void {
  */
 let menuContext: MenuContext = { phase: 'idle' };
 
+/** 編集の途中か。窓を閉じるときに確認を出すかの判断に使う。 */
+let editingInProgress = false;
+
+const EDITING_PHASES = new Set([
+  'review',
+  'telops-building',
+  'telop',
+  'framing',
+  'fullpreview',
+  'exporting',
+]);
+
 ipcMain.on('app:context', (e, ctx: MenuContext) => {
   menuContext = ctx;
+  editingInProgress = EDITING_PHASES.has(ctx.phase);
   buildMenu(BrowserWindow.fromWebContents(e.sender), ctx);
 });
 
@@ -70,6 +83,39 @@ function createWindow(): void {
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) win.loadURL(devUrl);
   else win.loadFile(join(appRoot(), 'dist', 'index.html'));
+
+  /*
+    🔴 編集中に窓を閉じたら必ず確認する。
+       以前は window-all-closed で即 app.quit() していた。
+       テロップを100枚校正したあとに×を押せば、無警告で全部消える。
+       しかも自動保存も効いていなかったので、本人には理由が分からない消え方になる。
+  */
+  let closing = false;
+  win.on('close', (e) => {
+    if (closing || !editingInProgress) return;
+    e.preventDefault();
+    void dialog
+      .showMessageBox(win, {
+        type: 'question',
+        buttons: ['下書きを保存して閉じる', '保存せずに閉じる', 'キャンセル'],
+        defaultId: 0,
+        cancelId: 2,
+        message: '編集の途中です。閉じますか？',
+        detail:
+          '下書きを保存しておくと、次に同じ動画を開いたときに続きから始められます。\n' +
+          '解析はやり直さずに済みます。',
+      })
+      .then(async (result) => {
+        if (result.response === 2) return;
+        if (result.response === 0) {
+          // レンダラに保存させてから閉じる。何を保存すべきかは画面側が知っている。
+          win.webContents.send('app:menu', 'save');
+          await new Promise((r) => setTimeout(r, 900));
+        }
+        closing = true;
+        win.close();
+      });
+  });
 
   buildMenu(win, menuContext);
   if (isDev) win.webContents.openDevTools({ mode: 'detach' });
@@ -198,11 +244,16 @@ ipcMain.handle(
   },
 );
 
+/*
+  🔴 書き出しも必ず runCancellable を通すこと。
+     ここだけ sidecar.call を直接呼んでいたため runningRequestId が設定されず、
+     書き出しは**原理的に中断できなかった**。
+     M2 Air で20分素材なら数分〜十数分、その間ずっと 5% のまま止める手段が無い。
+*/
 ipcMain.handle('app:export', async (e, params: Record<string, unknown>) => {
   const win = BrowserWindow.fromWebContents(e.sender);
-  const off = forwardProgress(win);
   try {
-    return await sidecar.call('export', params);
+    return await runCancellable(win, 'export', params);
   } catch (error) {
     recordFailure('export', error, {
       ...params,
@@ -210,8 +261,6 @@ ipcMain.handle('app:export', async (e, params: Record<string, unknown>) => {
       telops: (params.telops as unknown[])?.slice(0, 3),
     });
     throw error;
-  } finally {
-    off();
   }
 });
 
@@ -299,6 +348,14 @@ ipcMain.handle('app:deleteDraft', async (e, workDir: string) => {
         '元の動画は消えません。もう一度編集するときは解析からやり直しになります。',
   });
   if (answer.response !== 0) return false;
+
+  // 🔴 消す直前にもう一度、そこが本当に作業フォルダかを確かめる。
+  //    下書きの本体が無い場所を「作業フォルダ」として消しにいくことはない。
+  if (!existsSync(join(workDir, 'project.json'))) {
+    recordFailure('deleteDraft', new Error('下書きの無い場所を削除しようとしました'), { workDir });
+    forgetDraft(draftsIndexPath(), workDir);
+    return false;
+  }
 
   try {
     rmSync(shared ? join(workDir, 'project.json') : workDir, { recursive: true, force: true });

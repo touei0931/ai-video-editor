@@ -45,6 +45,11 @@ jobs:
           python-version: '3.12'
       - name: 構文チェック
         run: python -m compileall -q sidecar
+      # 🔴 区間が数百本のときにフィルタがコマンドラインに載らないこと。
+      #    20分素材＋人物アップで上限を超えて書き出せなくなっていた。
+      #    ffmpeg を動かさないので、どのOSでも即座に終わる。
+      - name: 書き出しフィルタの長さ
+        run: python scripts/test_export_graph.py
       - name: stdio JSON-RPC の疎通（ping / env）
         shell: bash
         run: |
@@ -103,6 +108,11 @@ jobs:
         run: python scripts/make_test_media.py
       - name: 1080x1920 の書き出し
         run: python scripts/export_smoke.py
+      # 🔴 ①カットの中核。両OSで「実際に作れて、ブラウザが再生できる形か」を見る。
+      #    Mac では libopenh264 が無いために全滅していたが、
+      #    プラットフォーム分岐が無いので guard では捕まらなかった。
+      - name: レビュー用クリップ
+        run: python scripts/test_review_clip.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -137,6 +147,9 @@ jobs:
         run: python scripts/fetch_ffmpeg.py
       - run: python scripts/fetch_fonts.py
       - run: python scripts/make_test_media.py
+      # 🔴 Mac でも実際にレビュー用クリップが作れるかを、ここで初めて確かめる。
+      #    このジョブは macos-14 も回るので、Mac 実機の代わりになる。
+      - run: python scripts/test_review_clip.py
       - run: npm run build
       - run: npm run t1
       - name: T1 の結果を確認

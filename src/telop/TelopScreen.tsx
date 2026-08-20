@@ -90,6 +90,15 @@ export interface TelopScreenProps {
   /** 実測幅で折り返す関数（編集したテキストを折り返し直すのに使う） */
   rewrap: (text: string, style: TelopStyleName) => { lines: string[]; fontScale: number };
   onBack?: (edits: TelopEdits) => void;
+  /**
+   * 直すたびに呼ばれる。呼び出し側で保存する。
+   *
+   * 🔴 「戻る」「進む」のときだけ渡すのでは足りない。
+   *    それだと自動保存が走らず、メニューの「作業内容を保存」も
+   *    **この画面に入る前の状態**を書いてしまう。
+   *    100枚校正したあとに窓を閉じれば、押した記憶だけ残して全部消える。
+   */
+  onEditsChange?: (edits: TelopEdits) => void;
   /** 編集をやめて動画の選択に戻る */
   onQuit?: () => void;
   onExport: (cards: TelopCard[], styles: StyleMap, options: ExportOptions) => void;
@@ -110,6 +119,7 @@ export function TelopScreen({
   frame,
   rewrap,
   onBack,
+  onEditsChange,
   onQuit,
   onExport,
   exporting,
@@ -176,6 +186,11 @@ export function TelopScreen({
     (): TelopEdits => ({ cards, styles, options: exportOptions, removed }),
     [cards, styles, exportOptions, removed],
   );
+
+  // 直した内容を、変わるたびに呼び出し側へ渡す。保存はそちらの責任。
+  useEffect(() => {
+    onEditsChange?.({ cards, styles, options: exportOptions, removed });
+  }, [cards, styles, exportOptions, removed, onEditsChange]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);

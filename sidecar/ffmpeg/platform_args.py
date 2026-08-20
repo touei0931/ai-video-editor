@@ -89,6 +89,42 @@ def proxy_candidates() -> list[tuple[str, list[str]]]:
     ]
 
 
+# ── レビュー用クリップ ────────────────────────────────────────
+
+
+def review_clip_candidates() -> list[tuple[str, list[str]]]:
+    """レビュー画面で `<video>` に流す短尺クリップの候補を優先順に返す。
+
+    🔴 プロキシ用（proxy_candidates）を流用してはいけない。
+       あちらの Mac 第一候補は ProRes だが、**Chromium は ProRes を再生できない**。
+       MP4 コンテナにも正しく入らない。ここは H.264 に限る必要がある。
+
+    🔴 mpeg4（MPEG-4 Part 2）も入れない。Chromium が再生できないので、
+       最後の砦として置くと「ファイルはあるのに真っ黒」という分かりにくい壊れ方になる。
+       使えるものが無いなら、失敗として上へ返すほうがよい。
+
+    GOP を短くするのは、繋ぎ目まで巻き戻す操作（R キー）を待たせないため。
+    """
+    if _IS_MAC:
+        # Apple Silicon では VideoToolbox が必ず使える。
+        # 同梱の ffmpeg は外部ライブラリを一切リンクしないので libopenh264 は無い。
+        return [
+            ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-b:v", "2M", "-g", "15"]),
+        ]
+
+    return [
+        ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p1", "-b:v", "2M", "-g", "15"]),
+        ("h264_qsv", ["-c:v", "h264_qsv", "-b:v", "2M", "-g", "15"]),
+        ("h264_amf", ["-c:v", "h264_amf", "-b:v", "2M", "-g", "15"]),
+        ("libopenh264", ["-c:v", "libopenh264", "-b:v", "2M", "-g", "15"]),
+    ]
+
+
+def available_review_clip_args(ffmpeg: str) -> tuple[list[str], str]:
+    """レビュー用クリップに実際に使えるエンコーダを選ぶ。"""
+    return _first_available(ffmpeg, review_clip_candidates())
+
+
 # ── 実際に使えるものを選ぶ ────────────────────────────────────
 
 
@@ -137,3 +173,46 @@ def decode_args() -> list[str]:
     if _IS_MAC:
         return ["-hwaccel", "videotoolbox"]
     return ["-hwaccel", "cuda"]
+
+
+def available_decode_args(ffmpeg: str) -> list[str]:
+    """実際に使えるハードウェアデコード指定を返す。使えなければ空。
+
+    🔴 決め打ちで付けてはいけない。
+       Windows で -hwaccel cuda を無条件に付けると、NVIDIA の載っていない機械で
+       すべての ffmpeg 呼び出しが失敗する。「使えるなら使う」でなければならない。
+
+    🔴 逆に、付け忘れてもいけない。
+       ここが空のままだと、音声抽出・レビュー用クリップ・顔検出・書き出しの
+       全デコードが CPU に落ちる。ファンレスの MacBook Air で最も避けたい状態で、
+       実際にこの関数が誰からも呼ばれておらず、その状態で動いていた。
+    """
+    global _decode_cache
+    if _decode_cache is None:
+        args = decode_args()
+        _decode_cache = args if _probe_decode(ffmpeg, args) else []
+    return list(_decode_cache)
+
+
+_decode_cache: list[str] | None = None
+
+
+def _probe_decode(ffmpeg: str, args: list[str]) -> bool:
+    """短いダミー映像を実際にデコードしてみる。"""
+    try:
+        made = subprocess.run(
+            [ffmpeg, "-hide_banner", "-loglevel", "error",
+             "-f", "lavfi", "-i", "testsrc=s=320x240:d=0.2",
+             "-c:v", "mpeg4", "-f", "mpeg", "-"],
+            capture_output=True,
+        )
+        if made.returncode != 0 or not made.stdout:
+            return False
+        result = subprocess.run(
+            [ffmpeg, "-hide_banner", "-loglevel", "error", *args,
+             "-f", "mpeg", "-i", "pipe:0", "-f", "null", "-"],
+            input=made.stdout, capture_output=True,
+        )
+        return result.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False

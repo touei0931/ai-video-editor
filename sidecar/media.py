@@ -15,7 +15,22 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from .ffmpeg.platform_args import available_video_args
+from .ffmpeg.platform_args import (
+    available_decode_args,
+    available_review_clip_args,
+    available_video_args,
+)
+
+#: エンコーダの判定は ffmpeg を実際に走らせるので、一度だけにする。
+#: レビュー用クリップは候補の数だけ作るため、毎回調べると回数ぶん無駄が乗る。
+_clip_encoder_cache: tuple[list[str], str] | None = None
+
+
+def _clip_encoder(ffmpeg: str) -> tuple[list[str], str]:
+    global _clip_encoder_cache
+    if _clip_encoder_cache is None:
+        _clip_encoder_cache = available_review_clip_args(ffmpeg)
+    return _clip_encoder_cache
 
 ProgressFn = Callable[[float, str], None]
 
@@ -49,6 +64,75 @@ def _run(cmd: list[str]) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg が失敗しました:\n{(result.stderr or '')[-1500:]}")
     return result.stdout or ""
+
+
+#: 実行中の ffmpeg の PID を親へ知らせるための差し込み口。
+#: worker.py がここに関数を入れる。中断のときに ffmpeg まで確実に止めるために使う。
+on_ffmpeg_pid: Callable[[int], None] | None = None
+
+
+def _run_with_progress(
+    cmd: list[str],
+    total_seconds: float,
+    on_progress: ProgressFn | None,
+    base: float,
+    span: float,
+    message: str,
+) -> None:
+    """ffmpeg を進捗つきで走らせる。
+
+    🔴 -progress で進捗を出させること。
+       以前は subprocess.run で完了まで待っており、画面の進捗は 5% で固まったまま
+       数分〜十数分動かなかった。友達は「壊れた」と判断して強制終了する。
+
+    🔴 中断のためにも要る。
+       ワーカーのキャンセル判定は「子から次の行が届いたとき」にしか働かない。
+       出力が無い区間は、キャンセルを押しても効かない。
+       進捗行が流れていれば、その隙間が消える。
+
+    🔴 stderr は stdout にまとめる。
+       別のパイプにして読まないでいると、ffmpeg がエラー行を出し続けたときに
+       64KB のパイプが埋まって**書き込みでブロックし、永久に固まる**。
+       読まないパイプは作らない。
+    """
+    proc = subprocess.Popen(
+        [*cmd, "-progress", "pipe:1", "-nostats"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    )
+    if on_ffmpeg_pid:
+        on_ffmpeg_pid(proc.pid)
+
+    tail: list[str] = []
+    assert proc.stdout
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("out_time_ms="):
+            try:
+                done = int(line.split("=", 1)[1]) / 1_000_000
+            except ValueError:
+                continue
+            if on_progress and total_seconds > 0:
+                ratio = max(0.0, min(1.0, done / total_seconds))
+                on_progress(base + span * ratio, message)
+        elif not line.startswith(
+            ("frame=", "fps=", "bitrate=", "total_size=", "out_time=", "dup_frames=",
+             "drop_frames=", "speed=", "progress=", "stream_")
+        ):
+            # 進捗以外＝エラー出力。末尾だけ残す
+            tail.append(line)
+            if len(tail) > 40:
+                tail.pop(0)
+
+    code = proc.wait()
+    if code != 0:
+        raise RuntimeError("ffmpeg が失敗しました:\n" + "\n".join(tail)[-1500:])
 
 
 def probe_video_info(path: str) -> dict[str, Any]:
@@ -248,6 +332,7 @@ def export_cut_video(
     fps: float = 30.0,
     framing: list[dict[str, Any]] | None = None,
     on_progress: ProgressFn | None = None,
+    work_dir: str | None = None,
 ) -> dict[str, Any]:
     """残す区間だけを繋いで書き出す。テロップがあれば同じパスで焼き込む。
 
@@ -326,7 +411,8 @@ def export_cut_video(
         f"[acat]{loudnorm}[aout];"
     )
 
-    inputs = ["-i", video_path]
+    decode = available_decode_args(ffmpeg)
+    inputs = [*decode, "-i", video_path]
     if telop_track:
         inputs += ["-f", "concat", "-safe", "0", "-i", telop_track]
         filter_complex = (
@@ -340,20 +426,47 @@ def export_cut_video(
         filter_complex = "".join(parts) + joined + "[vcat]null[vout]"
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    _run([
-        ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-        *inputs,
-        "-filter_complex", filter_complex,
-        "-map", "[vout]", "-map", "[aout]",
-        *vargs,
-        "-c:a", "aac", "-b:a", "192k",
-        # 🔴 これが無いと、Web にそのまま上げたとき頭出しに時間がかかる。
-        #    メタデータがファイル末尾に置かれ、再生前に全体を読む必要が出るため。
-        "-movflags", "+faststart",
-        out_path,
-    ])
+
+    # 🔴 フィルタはファイルに書いて渡すこと。
+    #
+    #    以前はコマンドライン引数に直接載せていた。区間ごとに音声約120文字・映像約62文字を
+    #    連結するので、区間が増えると青天井に伸びる。実測:
+    #        10分・カット60箇所・寄りなし   → 区間 61 →  12,350 文字
+    #        20分・カット118箇所・寄りなし  → 区間119 →  23,922 文字
+    #        20分・カット118箇所・寄り80    → 区間199 →  33,445 文字  ← 超過
+    #        40分・カット250箇所・寄り170   → 区間421 →  71,269 文字  ← 超過
+    #    Windows の CreateProcess の上限は 32,767 文字。
+    #    つまり **20分素材に人物アップが付いた時点で書き出せなくなっていた**。
+    #    出るのは「パラメーターが間違っています」だけで、原因には辿り着けない。
+    #
+    #    検証（T5）は25秒のクリップなので、この経路は一度も踏まれていなかった。
+    #    ファイル渡しなら長さの上限が消えるうえ、失敗時にこのファイルを見れば再現できる。
+    graph_dir = Path(work_dir) if work_dir else Path(out_path).parent
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    graph_path = graph_dir / "filter_graph.txt"
+    graph_path.write_text(filter_complex, encoding="utf-8")
 
     kept = sum(e - s for s, e in keeps)
+    _run_with_progress(
+        [
+            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+            *inputs,
+            "-filter_complex_script", str(graph_path),
+            "-map", "[vout]", "-map", "[aout]",
+            *vargs,
+            "-c:a", "aac", "-b:a", "192k",
+            # 🔴 これが無いと、Web にそのまま上げたとき頭出しに時間がかかる。
+            #    メタデータがファイル末尾に置かれ、再生前に全体を読む必要が出るため。
+            "-movflags", "+faststart",
+            out_path,
+        ],
+        total_seconds=kept,
+        on_progress=on_progress,
+        base=0.05,
+        span=0.93,
+        message="動画を書き出しています",
+    )
+
     if on_progress:
         on_progress(1.0, "完了")
 
@@ -419,9 +532,10 @@ def make_review_clip(
     if not segments:
         raise ValueError("プレビューを作れる長さがありません")
 
+    decode = available_decode_args(ffmpeg)
     cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error"]
     for start, length in segments:
-        cmd += ["-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", video_path]
+        cmd += [*decode, "-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", video_path]
 
     filters: list[str] = []
     for i, (_, length) in enumerate(segments):
@@ -449,13 +563,22 @@ def make_review_clip(
     #    filter_complex の出力ラベルに対して -vf は使えず "Invalid argument" になる。
     filters.append(f"{vsrc}scale=-2:{height}[vout]")
 
+    # 🔴 エンコーダを決め打ちしてはいけない。
+    #    ここは以前 libopenh264 と直書きしていた。Mac に同梱する ffmpeg は
+    #    「外部ライブラリを一切リンクしない」方針（VideoToolbox のみ）でビルドしており、
+    #    libopenh264 が入っていない。その結果 Mac では**全候補のクリップ生成が失敗**し、
+    #    「切って繋いだ結果を聞いて判断する」というこのアプリの中核が丸ごと死んでいた。
+    #    しかも例外は1件ずつ握り潰されるので、解析は成功として返っていた。
+    #
+    #    プラットフォーム分岐が1文字も無いので npm run guard も素通りする。
+    #    「分岐が無い＝Mac で壊れない」は成り立たない。実際に使えるものを選ぶこと。
+    encoder, _name = _clip_encoder(ffmpeg)
+
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     _run(cmd + [
         "-filter_complex", ";".join(filters),
         "-map", "[vout]", "-map", "[aout]",
-        # GOP を短くするのは、繋ぎ目まで巻き戻す操作（R キー）を待たせないため。
-        # ループの先頭は必ずキーフレームなので、ループ自体には効かない。
-        "-c:v", "libopenh264", "-b:v", "2M", "-g", "15",
+        *encoder,
         "-c:a", "aac", "-b:a", "128k",
         "-pix_fmt", "yuv420p",
         out_path,
