@@ -74,6 +74,21 @@ export interface TelopCard {
   override?: TelopOverride;
   /** 人間が手で足したテロップか */
   manual?: boolean;
+  /**
+   * 人間が手を入れたか。
+   * カットを直してテロップを作り直したとき、どれを引き継ぐべきかの判断に使う。
+   */
+  edited?: boolean;
+  /**
+   * 作られた時点の文言と開始時刻。人が直しても変えない。
+   *
+   * 🔴 引き継ぎの照合はこちらで行う。
+   *    直したあとの文言で照合すると、直したものほど照合できない
+   *    （文言を変えたことが、そのまま「別物」の判定になってしまう）。
+   *    「作られ方が同じなら、その直しはまだ有効」という判断にしたい。
+   */
+  baseText?: string;
+  baseStart?: number;
 }
 
 export interface Frame {
@@ -176,6 +191,8 @@ export function splitIntoCards(
       srcStart: Number(srcStart.toFixed(3)),
       srcEnd: Number(srcEnd.toFixed(3)),
       text: chunk.trim(),
+      baseText: chunk.trim(),
+      baseStart: Number(srcStart.toFixed(3)),
       lines: fit.lines.map((l) => l.trim()).filter(Boolean),
       style: unit.style,
       reason: unit.reason,

@@ -65,6 +65,16 @@ export function AutoCutPreview({
   const labelRef = useRef<HTMLSpanElement>(null);
   /** 再生位置に近いカット。毎フレーム setState すると重いので変わった時だけ */
   const nearRef = useRef<string | null>(null);
+  /**
+   * 「次へ」の基準にする時刻。
+   *
+   * 🔴 再生位置をそのまま基準にしてはいけない。
+   *    次のカットへ飛ぶときは、その **手前** に着地する（そうしないと繋ぎが聞けない）。
+   *    すると再生位置はまだそのカットより前にあるので、
+   *    もう一度「次」を押しても同じカットが選ばれ、何度押しても進まない。
+   *    飛んだ先のカットそのものを基準として覚えておく。
+   */
+  const cursorRef = useRef(0);
 
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(true);
@@ -112,10 +122,11 @@ export function AutoCutPreview({
   const near = nearId ? items.find((i) => i.id === nearId) ?? null : null;
 
   /** 元素材の時刻へ飛んで再生する */
-  const playFrom = useCallback((srcTime: number) => {
+  const playFrom = useCallback((srcTime: number, cursor?: number) => {
     const video = videoRef.current;
     if (!video) return;
     video.currentTime = Math.max(0, srcTime);
+    cursorRef.current = cursor ?? Math.max(0, srcTime);
     void video.play().catch(() => undefined);
     setPlaying(true);
   }, []);
@@ -131,7 +142,8 @@ export function AutoCutPreview({
   const toggleAndReplay = useCallback(
     (item: AutoCutItem) => {
       onToggle(item.id);
-      playFrom(item.srcStart - REPLAY_LEAD);
+      // 基準はそのカット自身。押した直後に「次」を押せば、次のカットへ進む。
+      playFrom(item.srcStart - REPLAY_LEAD, item.srcStart);
     },
     [onToggle, playFrom],
   );
@@ -141,15 +153,16 @@ export function AutoCutPreview({
     (dir: 1 | -1) => {
       const video = videoRef.current;
       if (!video || ordered.length === 0) return;
-      const t = video.currentTime;
+      // 普通に再生して基準を追い越したら、そこからが基準になる
+      const base = Math.max(cursorRef.current, video.currentTime);
       const target =
         dir === 1
-          ? ordered.find((i) => i.srcStart > t + 0.05) ?? ordered[0]
-          : [...ordered].reverse().find((i) => i.srcStart < t - REPLAY_LEAD - 0.05) ??
+          ? ordered.find((i) => i.srcStart > base + 0.05) ?? ordered[0]
+          : [...ordered].reverse().find((i) => i.srcStart < base - 0.05) ??
             ordered[ordered.length - 1];
       setNearId(target.id);
       nearRef.current = target.id;
-      playFrom(target.srcStart - REPLAY_LEAD);
+      playFrom(target.srcStart - REPLAY_LEAD, target.srcStart);
     },
     [ordered, playFrom],
   );
@@ -223,6 +236,7 @@ export function AutoCutPreview({
     const video = videoRef.current;
     if (!video) return;
     video.currentTime = keeps[0]?.start ?? 0;
+    cursorRef.current = 0;
     video.playbackRate = speed;
     void video.play().catch(() => undefined);
     setPlaying(true);
@@ -273,11 +287,14 @@ export function AutoCutPreview({
         const length = k.end - k.start;
         if (want <= length) {
           video.currentTime = k.start + want;
+          // 手で飛んだらそこが「次へ」の基準になる
+          cursorRef.current = video.currentTime;
           return;
         }
         want -= length;
       }
       video.currentTime = keeps[keeps.length - 1]?.end ?? 0;
+      cursorRef.current = video.currentTime;
     },
     [keeps, keptTotal],
   );

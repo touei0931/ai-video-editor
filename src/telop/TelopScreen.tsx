@@ -62,14 +62,34 @@ function formatTime(sec: number): string {
   return `${m}:${s.toFixed(1).padStart(4, '0')}`;
 }
 
+/**
+ * 画面を離れるときに持ち出す状態。
+ *
+ * 🔴 カットに戻ってまた来たときに、直した内容が消えてはいけない。
+ *    文言・スタイル・位置を数十枚ぶん直したあとに一度戻っただけで
+ *    全部やり直しになるなら、実質「戻れない」のと同じ。
+ */
+export interface TelopEdits {
+  cards: TelopCard[];
+  styles: StyleMap;
+  options: ExportOptions;
+  /** 消したテロップ。作り直したときに復活させないために覚えておく */
+  removed: TelopCard[];
+}
+
 export interface TelopScreenProps {
   cards: TelopCard[];
+  /** 前回この画面で使っていた雛形。省略すると既定の雛形から始める */
+  initialStyles?: StyleMap;
+  initialOptions?: ExportOptions;
+  /** 前回この画面で消したテロップ */
+  initialRemoved?: TelopCard[];
   /** 元素材のパス。プレビューの背景に使う */
   videoPath: string;
   frame: Frame;
   /** 実測幅で折り返す関数（編集したテキストを折り返し直すのに使う） */
   rewrap: (text: string, style: TelopStyleName) => { lines: string[]; fontScale: number };
-  onBack?: () => void;
+  onBack?: (edits: TelopEdits) => void;
   /** 編集をやめて動画の選択に戻る */
   onQuit?: () => void;
   onExport: (cards: TelopCard[], styles: StyleMap, options: ExportOptions) => void;
@@ -83,6 +103,9 @@ export interface TelopScreenProps {
 
 export function TelopScreen({
   cards: initial,
+  initialStyles,
+  initialOptions,
+  initialRemoved,
   videoPath,
   frame,
   rewrap,
@@ -100,10 +123,16 @@ export function TelopScreen({
    * スタイルの雛形。ここを変えると、そのスタイルのテロップが全部変わる。
    * 「通常のテロップの色を変えたい」は1枚ずつ直す作業ではないので、雛形側で持つ。
    */
-  const [styles, setStyles] = useState<StyleMap>(() => structuredClone(DEFAULT_STYLES));
+  const [styles, setStyles] = useState<StyleMap>(
+    () => structuredClone(initialStyles ?? DEFAULT_STYLES),
+  );
   /** 雛形の編集パネルで今どのスタイルを触っているか */
   const [editingStyle, setEditingStyle] = useState<TelopStyleName>('normal');
-  const [exportOptions, setExportOptions] = useState<ExportOptions>({ burn: true, srt: true });
+  const [exportOptions, setExportOptions] = useState<ExportOptions>(
+    () => initialOptions ?? { burn: true, srt: true },
+  );
+  /** この画面で消したテロップ。作り直したときに復活させないために持ち出す */
+  const [removed, setRemoved] = useState<TelopCard[]>(() => initialRemoved ?? []);
   /**
    * 直前の状態。Del で消したものを戻せないと、誤爆が怖くて Del を押せなくなる。
    * テロップは数百枚あるので、履歴は直近だけで十分。
@@ -133,6 +162,7 @@ export function TelopScreen({
         ...c,
         srcStart: Number(Math.max(0, c.srcStart + delta).toFixed(3)),
         srcEnd: Number(Math.max(0.2, c.srcEnd + delta).toFixed(3)),
+        edited: true,
       })),
     );
   }, []);
@@ -140,6 +170,12 @@ export function TelopScreen({
   const patchStyle = useCallback((name: TelopStyleName, patch: Partial<TelopStyle>) => {
     setStyles((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
   }, []);
+
+  /** 画面を離れるときに、直した内容をまとめて渡す */
+  const goBack = useCallback(
+    (): TelopEdits => ({ cards, styles, options: exportOptions, removed }),
+    [cards, styles, exportOptions, removed],
+  );
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -161,7 +197,9 @@ export function TelopScreen({
 
   const update = useCallback(
     (patch: Partial<TelopCard>) => {
-      setCards((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch } : c)));
+      // 🔴 手を入れた印を必ず付ける。カットを直してテロップを作り直したとき、
+      //    どれを引き継ぐべきかがこれでしか分からない。
+      setCards((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch, edited: true } : c)));
     },
     [index],
   );
@@ -454,7 +492,11 @@ export function TelopScreen({
         case 'delete':
         case 'backspace':
           remember();
-          setCards((prev) => prev.filter((_, i) => i !== index));
+          setCards((prev) => {
+            const gone = prev[index];
+            if (gone) setRemoved((r) => [...r, gone]);
+            return prev.filter((_, i) => i !== index);
+          });
           setIndex((i) => Math.max(0, Math.min(cards.length - 2, i)));
           break;
         case 'z':
@@ -476,7 +518,7 @@ export function TelopScreen({
         <h1>テロップがありません</h1>
         <p className="muted">文字起こしから作れるテロップがありませんでした。</p>
         <div className="actions">
-          {onBack && <button onClick={onBack}>戻る</button>}
+          {onBack && <button onClick={() => onBack(goBack())}>戻る</button>}
           <button className="primary" onClick={() => onExport([], styles, exportOptions)}>
             テロップ無しで進む
           </button>
@@ -531,7 +573,7 @@ export function TelopScreen({
           />
           字幕(SRT)
         </label>
-        {onBack && <button onClick={onBack}>カットに戻る</button>}
+        {onBack && <button onClick={() => onBack(goBack())}>カットに戻る</button>}
         {onQuit && <button onClick={onQuit}>編集をやめる</button>}
         <button className="primary" disabled={exporting} onClick={() => onExport(cards, styles, exportOptions)}>
           {exporting ? '書き出し中…' : '通しで確認 →'}

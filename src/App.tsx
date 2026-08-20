@@ -17,7 +17,12 @@ import { PreviewScreen, type Shot } from './preview/PreviewScreen';
 import { ShortcutHelp } from './ShortcutHelp';
 import { ReviewScreen, type ReviewState } from './review/ReviewScreen';
 import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
-import { TelopScreen, type ExportOptions, type StyleMap } from './telop/TelopScreen';
+import {
+  TelopScreen,
+  type ExportOptions,
+  type StyleMap,
+  type TelopEdits,
+} from './telop/TelopScreen';
 import { loadTelopFonts } from './telop/fonts';
 import { renderBlank, renderTelopPngs } from './telop/rasterize';
 import {
@@ -28,7 +33,7 @@ import {
   type TelopCard,
   type TelopUnit,
 } from './telop/split';
-import type { TelopStyleName } from './telop/style';
+import { DEFAULT_STYLES, type TelopStyleName } from './telop/style';
 
 type Phase =
   | 'idle'
@@ -152,11 +157,98 @@ interface Draft {
   cuts?: { srcStart: number; srcEnd: number }[];
   cards?: TelopCard[];
   styles?: StyleMap;
+  options?: ExportOptions;
+  /** テロップ画面で消したもの。作り直したときに復活させないために持つ */
+  removed?: TelopCard[];
   shots?: Shot[];
 }
 
 /** SRT の1エントリ内の改行 */
 const NEWLINE = '\n';
+
+/** 同じテロップとみなす時刻のずれ */
+const SAME_TELOP_SECONDS = 0.4;
+
+/** カットの集合を1つの文字列にする。作り直しが要るかの判定に使う。 */
+function cutsKey(list: { srcStart: number; srcEnd: number }[]): string {
+  return list
+    .map((c) => `${c.srcStart.toFixed(3)}-${c.srcEnd.toFixed(3)}`)
+    .sort()
+    .join(',');
+}
+
+/**
+ * 作り直したテロップに、前回手で直した内容を引き継ぐ。
+ *
+ * カットを変えるとテロップは作り直さざるを得ない（切った箇所の言葉が消えるため）。
+ * だからといって直した内容を全部捨てると、カットを1箇所直すたびに
+ * テロップの校正がやり直しになる。
+ *
+ * 🔴 引き継ぐのは**中身が変わっていないもの**だけ。
+ *    文言が変わったテロップに古い直しを載せると、
+ *    切ったはずの言葉がテロップにだけ残る。それは直したことにならない。
+ *
+ * 対応付けは開始時刻。テロップの時刻は元素材の時刻なので、
+ * カットを変えても、その箇所に掛かっていない限り動かない。
+ */
+function mergeEdits(fresh: TelopCard[], previous: TelopCard[], removed: TelopCard[]): TelopCard[] {
+  if (previous.length === 0 && removed.length === 0) return fresh;
+
+  /**
+   * 作られ方が同じものを1つ選ぶ。
+   * 🔴 照合は baseText / baseStart（作られた時点の値）で行う。
+   *    直したあとの文言で照合すると、直したものほど見つからなくなる。
+   * 同じ文言が繰り返される素材があるので、一度使ったものは再利用しない。
+   */
+  const match = (list: TelopCard[], used: Set<number>, card: TelopCard): TelopCard | null => {
+    let best = -1;
+    let bestDist = Infinity;
+    list.forEach((p, i) => {
+      if (used.has(i)) return;
+      if ((p.baseText ?? p.text) !== card.text) return;
+      const dist = Math.abs((p.baseStart ?? p.srcStart) - card.srcStart);
+      if (dist <= SAME_TELOP_SECONDS && dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    });
+    if (best < 0) return null;
+    used.add(best);
+    return list[best];
+  };
+
+  const usedPrev = new Set<number>();
+  const usedRemoved = new Set<number>();
+
+  const carried = fresh
+    // 前回消したものは復活させない
+    .filter((c) => !match(removed, usedRemoved, c))
+    .map((c) => {
+      const prev = match(previous, usedPrev, c);
+      if (!prev?.edited) return c;
+      // 手を入れた内容だけを載せる。確信度や単語の対応は新しいほうが正しい
+      return {
+        ...c,
+        text: prev.text,
+        lines: prev.lines,
+        style: prev.style,
+        fontScale: prev.fontScale,
+        positionOverride: prev.positionOverride,
+        offsetX: prev.offsetX,
+        offsetY: prev.offsetY,
+        override: prev.override,
+        highlight: prev.highlight,
+        srcStart: prev.srcStart,
+        srcEnd: prev.srcEnd,
+        needsCheck: false,
+        edited: true,
+      };
+    });
+
+  // 手で足したテロップは作り直しても出てこない。必ず持ち越す。
+  const manual = previous.filter((p) => p.manual);
+  return [...carried, ...manual].sort((a, b) => a.srcStart - b.srcStart);
+}
 
 function formatDuration(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -193,8 +285,11 @@ export function App() {
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
   const [cuts, setCuts] = useState<CutCandidate[]>([]);
   const [cards, setCards] = useState<TelopCard[]>([]);
-  /** 通し確認・書き出しで使う、確認画面での最終状態 */
-  const [finalState, setFinalState] = useState<{ cards: TelopCard[]; styles: StyleMap; options: ExportOptions } | null>(null);
+  /**
+   * テロップ画面で直した内容。通し確認・書き出しで使うほか、
+   * カット画面へ行って戻ってきたときの復元にも使う。
+   */
+  const [finalState, setFinalState] = useState<TelopEdits | null>(null);
   /** 前回の続き。解析後に作業フォルダから読み込む */
   const [savedReview, setSavedReview] = useState<ReviewState | null>(null);
   const [resumed, setResumed] = useState(false);
@@ -208,6 +303,11 @@ export function App() {
   const [startedAt, setStartedAt] = useState(0);
   /** 保存済みの下書き。最初の画面から直接開けるようにするために持つ */
   const [drafts, setDrafts] = useState<DraftEntry[]>([]);
+  /**
+   * 前回テロップを作ったときのカット。
+   * これと同じなら作り直す必要がない（作り直すと手で直した内容が消える）。
+   */
+  const builtForRef = useRef<string | null>(null);
 
   /**
    * preload が読み込まれていないと window.app が無い。
@@ -286,6 +386,23 @@ export function App() {
       })),
     );
     reviewStateRef.current = draft.review ?? null;
+
+    // テロップ画面で直した内容も戻す。
+    // 🔴 これが無いと、下書きから再開しただけで文言もスタイルもやり直しになる。
+    if (draft.cards?.length) {
+      setFinalState({
+        cards: draft.cards,
+        styles: draft.styles ?? structuredClone(DEFAULT_STYLES),
+        options: draft.options ?? { burn: true, srt: true },
+        removed: draft.removed ?? [],
+      });
+      // 同じカットで作ったテロップが残っているので、作り直さない
+      builtForRef.current = cutsKey(draft.cuts ?? []);
+    } else {
+      setFinalState(null);
+      builtForRef.current = null;
+    }
+
     setResumed(true);
     // テロップ以降まで進んでいても、カットの確認からやり直せたほうが安全。
     // 判定は残っているので、そのまま Enter で先へ進める。
@@ -421,6 +538,21 @@ export function App() {
     async (approved: CutCandidate[]) => {
       if (!analysis || !measure) return;
       setCuts(approved);
+
+      /*
+        🔴 カットが変わっていなければ作り直さない。
+
+        以前は戻ってくるたびに作り直していたため、
+        テロップを何十枚も直したあとに一度カット画面へ戻るだけで全部消えた。
+        直した内容が消えるなら「戻れる」とは言えない。
+        作り直さなければ、待ち時間も無くなる。
+      */
+      const key = cutsKey(approved);
+      if (key === builtForRef.current && cards.length > 0) {
+        setPhase('telop');
+        return;
+      }
+
       setPhase('telops-building');
       setProgress({ value: 0, message: 'テロップを作っています' });
 
@@ -435,14 +567,16 @@ export function App() {
           cuts: approved.map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd })),
         })) as TelopResult;
 
-        setCards(buildCards(result.telops.map(toUnit), measure, frame));
+        const fresh = buildCards(result.telops.map(toUnit), measure, frame);
+        setCards(mergeEdits(fresh, cards, finalState?.removed ?? []));
+        builtForRef.current = key;
         setPhase('telop');
       } catch (e) {
         setError((e as Error).message);
         setPhase('review');
       }
     },
-    [analysis, measure, frame],
+    [analysis, measure, frame, cards, finalState],
   );
 
   /**
@@ -464,6 +598,8 @@ export function App() {
       cuts: cuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
       cards: finalState?.cards ?? (cards.length ? cards : undefined),
       styles: finalState?.styles,
+      options: finalState?.options,
+      removed: finalState?.removed,
       shots,
     };
     await window.app.saveProject({
@@ -485,6 +621,15 @@ export function App() {
   const saveReview = useCallback(
     (state: ReviewState) => {
       reviewStateRef.current = state;
+      /*
+        🔴 画面に渡す初期状態も更新する。
+
+        カット画面はテロップへ進むと閉じられる。戻ってくると作り直しになるので、
+        ここを更新しておかないと**開いた時点の状態**で作り直され、
+        その間に下した判定・自動判定の直しが全部消える。
+        （テロップ画面が同じ理由で消えていたのと同じ話）
+      */
+      setSavedReview(state);
       if (!analysis) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => void saveDraft(), 800);
@@ -577,7 +722,13 @@ export function App() {
   const goFullPreview = useCallback(
     async (finalCards: TelopCard[], styles: StyleMap, options: ExportOptions) => {
       if (!analysis) return;
-      setFinalState({ cards: finalCards, styles, options });
+      // 消したテロップの記録は持ち越す。ここでは渡されない
+      setFinalState((prev) => ({
+        cards: finalCards,
+        styles,
+        options,
+        removed: prev?.removed ?? [],
+      }));
       setCards(finalCards);
       setPhase('framing');
       setProgress({ value: 0, message: '画角を決めています' });
@@ -756,13 +907,22 @@ export function App() {
       <>
         {help}
         <TelopScreen
-        cards={cards}
-        videoPath={analysis.video_path}
-        frame={frame}
-        rewrap={rewrap}
-        onBack={() => setPhase('review')}
-        onExport={goFullPreview}
-        exporting={false}
+          cards={cards}
+          initialStyles={finalState?.styles}
+          initialOptions={finalState?.options}
+          initialRemoved={finalState?.removed}
+          videoPath={analysis.video_path}
+          frame={frame}
+          rewrap={rewrap}
+          onBack={(edits) => {
+            // 🔴 戻る前に直した内容を受け取っておく。
+            //    受け取らないと、この画面が消えた時点で全部消える。
+            setCards(edits.cards);
+            setFinalState(edits);
+            setPhase('review');
+          }}
+          onExport={goFullPreview}
+          exporting={false}
           error={error}
         />
       </>

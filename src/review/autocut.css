@@ -96,61 +96,99 @@
 .autocut .controls .bar {
   position: relative;
   flex: 1;
-  height: 26px;
+  height: 34px;
   border-radius: 4px;
   background: #26262e;
   overflow: hidden;
   cursor: pointer;
 }
 
+/*
+  🔴 押せる範囲と見た目を分ける。
+     切った箇所は「線」で示すのが正しい（そこに映像が無いので幅を持たない）が、
+     3px の線をそのまま押させるのは無理。
+     ボタン自体は透明で幅 16px、中の ::before だけを細く描く。
+*/
 .autocut .controls .mk {
   position: absolute;
   padding: 0;
   border: 0;
-  border-radius: 2px;
+  background: transparent;
   cursor: pointer;
   z-index: 4;
+}
+
+.autocut .controls .mk::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 2px;
   transition: transform 0.08s ease-out;
 }
 
+/* 上段=無音・言い直し / 下段=フィラー。押せる高さは段いっぱい取る */
 .autocut .controls .mk.main {
-  top: 2px;
-  height: 14px;
+  top: 0;
+  height: 21px;
+}
+.autocut .controls .mk.main::before {
+  top: 3px;
+  bottom: 4px;
 }
 
 .autocut .controls .mk.sub {
-  top: 18px;
-  height: 6px;
+  top: 21px;
+  height: 13px;
+}
+.autocut .controls .mk.sub::before {
+  top: 2px;
+  bottom: 3px;
 }
 
 /* 切ってある = そこに映像が無い。位置だけを示す線 */
 .autocut .controls .mk.cut {
-  width: 3px;
-  margin-left: -1.5px;
+  width: 16px;
+  margin-left: -8px;
+}
+.autocut .controls .mk.cut::before {
+  left: 6px;
+  right: 6px;
   background: #ff5a5a;
 }
 
 /* 残してある = その長さぶん再生される。帯で長さを示す */
 .autocut .controls .mk.kept {
-  min-width: 3px;
+  min-width: 10px;
+}
+.autocut .controls .mk.kept::before {
   background: #4a5a72;
 }
 
 /* 自動判定から人が変えたもの */
-.autocut .controls .mk.changed {
+.autocut .controls .mk.changed::before {
   outline: 1px solid var(--accent);
-  outline-offset: 0;
 }
 
 /* 今その辺りを再生している */
 .autocut .controls .mk.near {
-  transform: scaleY(1.25);
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.7);
   z-index: 6;
 }
+.autocut .controls .mk.near::before {
+  transform: scaleX(1.6);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+}
+.autocut .controls .mk.kept.near::before {
+  transform: none;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+}
 
-.autocut .controls .mk:hover {
-  filter: brightness(1.4);
+.autocut .controls .mk:hover::before {
+  filter: brightness(1.5);
+  transform: scaleX(1.6);
+}
+.autocut .controls .mk.kept:hover::before {
+  transform: none;
 }
 
 .autocut .controls .played {
