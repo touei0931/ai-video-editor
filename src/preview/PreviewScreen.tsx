@@ -183,9 +183,16 @@ export function PreviewScreen({
         e.preventDefault();
       }
     };
+    const onMenu = (e: Event) => {
+      if ((e as CustomEvent<string>).detail === 'export') onExport();
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [toggle]);
+    window.addEventListener('app:menu-action', onMenu);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('app:menu-action', onMenu);
+    };
+  }, [toggle, onExport]);
 
   const start = useCallback(() => {
     const video = videoRef.current;

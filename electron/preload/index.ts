@@ -38,6 +38,14 @@ contextBridge.exposeInMainWorld('app', {
     ipcRenderer.invoke('app:saveProject', payload),
   loadProject: (workDir: string) => ipcRenderer.invoke('app:loadProject', workDir),
   revealFile: (filePath: string) => ipcRenderer.invoke('app:revealFile', filePath),
+  /** 画面の段階を知らせる。メニューの有効/無効はこれで決まる */
+  setContext: (ctx: { phase: string; workDir?: string | null; outPath?: string | null }) =>
+    ipcRenderer.send('app:context', ctx),
+  onMenu: (cb: (action: string) => void) => {
+    const listener = (_e: unknown, action: string) => cb(action);
+    ipcRenderer.on('app:menu', listener);
+    return () => ipcRenderer.off('app:menu', listener);
+  },
   onProgress: (cb: (p: { value: number; message: string }) => void) => {
     const listener = (_e: unknown, p: { value: number; message: string }) => cb(p);
     ipcRenderer.on('app:progress', listener);

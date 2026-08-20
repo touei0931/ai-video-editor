@@ -8,6 +8,7 @@ import { runT1 } from './t1.js';
 import { runT2 } from './t2.js';
 import { runT4 } from './t4.js';
 import { runTelopE2E } from './telop-e2e.js';
+import { buildMenu, type MenuContext } from './menu.js';
 
 // バンドル後は import.meta.url が当てにならないので、基準は必ず app.getAppPath() を使う
 // （パッケージ後は app.asar のルートを指すので、配布時も同じ相対関係で解決できる）
@@ -27,6 +28,17 @@ function writeArtifact(name: string, data: Record<string, unknown>): void {
   }
 }
 
+/**
+ * 画面の段階に応じてメニューを組み直す。
+ * 今の画面で意味を持たない項目を有効にしておくと、押しても何も起きず混乱する。
+ */
+let menuContext: MenuContext = { phase: 'idle' };
+
+ipcMain.on('app:context', (e, ctx: MenuContext) => {
+  menuContext = ctx;
+  buildMenu(BrowserWindow.fromWebContents(e.sender), ctx);
+});
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1280,
@@ -43,6 +55,7 @@ function createWindow(): void {
   if (devUrl) win.loadURL(devUrl);
   else win.loadFile(join(appRoot(), 'dist', 'index.html'));
 
+  buildMenu(win, menuContext);
   if (isDev) win.webContents.openDevTools({ mode: 'detach' });
 }
 

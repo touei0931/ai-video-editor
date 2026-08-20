@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PreviewScreen } from './preview/PreviewScreen';
+import { ShortcutHelp } from './ShortcutHelp';
 import { ReviewScreen, type ReviewState } from './review/ReviewScreen';
 import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
 import { TelopScreen, type ExportOptions, type StyleMap } from './telop/TelopScreen';
@@ -153,6 +154,7 @@ export function App() {
   /** 前回の続き。解析後に作業フォルダから読み込む */
   const [savedReview, setSavedReview] = useState<ReviewState | null>(null);
   const [resumed, setResumed] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [exported, setExported] = useState<ExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(0);
@@ -168,6 +170,30 @@ export function App() {
     if (!hasBridge) return;
     return window.app.onProgress(setProgress);
   }, [hasBridge]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F1') {
+        setShowShortcuts((v) => !v);
+        e.preventDefault();
+      } else if (e.key === 'Escape' && showShortcuts) {
+        setShowShortcuts(false);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showShortcuts]);
+
+  /** 今の段階をメニューへ伝える。項目の有効/無効がこれで決まる */
+  useEffect(() => {
+    if (!hasBridge) return;
+    window.app.setContext({
+      phase,
+      workDir: analysis?.work_dir ?? null,
+      outPath: exported?.out_path ?? null,
+    });
+  }, [hasBridge, phase, analysis, exported]);
 
   const measure = useMemo(() => (hasBridge ? makeMeasure() : null), [hasBridge]);
   const frame: Frame = useMemo(
@@ -226,6 +252,44 @@ export function App() {
       setPhase('idle');
     }
   }, []);
+
+  /**
+   * メニューからの指示を受ける。
+   *
+   * 🔴 キー操作に対応する項目は、**そのキーを押したことにする**だけにする。
+   *    メニュー用に処理をもう一本書くと、片方だけ直して食い違う。
+   */
+  useEffect(() => {
+    if (!hasBridge) return;
+    return window.app.onMenu((action) => {
+      if (action.startsWith('key:')) {
+        const spec = action.slice(4);
+        const shift = spec.startsWith('Shift+');
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: shift ? spec.slice(6) : spec,
+            shiftKey: shift,
+            bubbles: true,
+          }),
+        );
+        return;
+      }
+      if (action === 'undo') {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+        return;
+      }
+      if (action === 'shortcuts') setShowShortcuts(true);
+      if (action === 'open') void pickAndAnalyze();
+      if (action === 'cancel') void cancelAnalyze();
+      if (action === 'addTelop') {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true }));
+      }
+      if (action === 'fullpreview' || action === 'export' || action === 'save') {
+        // 画面側のボタンと同じ処理を呼びたいので、専用のイベントで知らせる
+        window.dispatchEvent(new CustomEvent('app:menu-action', { detail: action }));
+      }
+    });
+  }, [hasBridge, pickAndAnalyze, cancelAnalyze]);
 
   /** カットのレビューが終わったら、その結果を踏まえてテロップを作る */
   const buildTelops = useCallback(
@@ -384,9 +448,12 @@ export function App() {
     );
   }
 
+  const help = showShortcuts ? <ShortcutHelp onClose={() => setShowShortcuts(false)} /> : null;
+
   if (phase === 'review' && analysis) {
     return (
       <>
+        {help}
         {resumed && (
           <p className="resumed">前回の続きから再開しました（判定済みの内容を復元しています）</p>
         )}
@@ -405,7 +472,9 @@ export function App() {
 
   if (phase === 'telop' && analysis) {
     return (
-      <TelopScreen
+      <>
+        {help}
+        <TelopScreen
         cards={cards}
         videoPath={analysis.video_path}
         frame={frame}
@@ -413,14 +482,17 @@ export function App() {
         onBack={() => setPhase('review')}
         onExport={goFullPreview}
         exporting={false}
-        error={error}
-      />
+          error={error}
+        />
+      </>
     );
   }
 
   if (phase === 'fullpreview' && analysis && finalState) {
     return (
-      <PreviewScreen
+      <>
+        {help}
+        <PreviewScreen
         videoPath={analysis.video_path}
         frame={frame}
         duration={analysis.duration}
@@ -428,8 +500,9 @@ export function App() {
         cards={finalState.cards}
         styles={finalState.styles}
         onBack={() => setPhase('telop')}
-        onExport={() => void runExport(finalState.cards, finalState.styles, finalState.options)}
-      />
+          onExport={() => void runExport(finalState.cards, finalState.styles, finalState.options)}
+        />
+      </>
     );
   }
 
@@ -439,6 +512,7 @@ export function App() {
 
   return (
     <main>
+      {help}
       <h1>AI動画編集</h1>
       <p className="phase">
         無音・フィラー・言い直しを自動でカットし、テロップを自動で入れます

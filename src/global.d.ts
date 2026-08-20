@@ -32,6 +32,8 @@ declare global {
       saveProject: (payload: { workDir: string; data: unknown }) => Promise<string>;
       loadProject: (workDir: string) => Promise<unknown | null>;
       revealFile: (filePath: string) => Promise<void>;
+      setContext: (ctx: { phase: string; workDir?: string | null; outPath?: string | null }) => void;
+      onMenu: (cb: (action: string) => void) => () => void;
       onProgress: (cb: (p: { value: number; message: string }) => void) => () => void;
     };
   }

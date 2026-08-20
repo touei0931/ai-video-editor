@@ -370,6 +370,28 @@ export function TelopScreen({
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
+  // メニューからの「通しで確認」「テロップを追加」
+  useEffect(() => {
+    const onMenu = (e: Event) => {
+      const action = (e as CustomEvent<string>).detail;
+      if (action === 'fullpreview' || action === 'export') onExport(cards, styles, exportOptions);
+    };
+    window.addEventListener('app:menu-action', onMenu);
+    return () => window.removeEventListener('app:menu-action', onMenu);
+  }, [cards, styles, exportOptions, onExport]);
+
+  // Ctrl+T でテロップ追加
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
+        addTelop();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [addTelop]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (editing) {
