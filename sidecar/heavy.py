@@ -92,6 +92,110 @@ def _transcribe(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, An
     }
 
 
+def _make_review_clips(
+    video_path: str,
+    work_dir: Path,
+    analysis: dict[str, Any],
+    on_progress: ProgressFn,
+    base: float,
+    span: float,
+) -> int:
+    """人間が1件ずつ見る候補ぶんだけ、レビュー用クリップを作る。
+
+    「切って繋いだ結果」を即座に再生できることがレビュー速度を決める（§3.3.3）。
+
+    作るのは**人間が実際に見る候補だけ**。自動で決まる分まで作ると、
+    候補118件のうち25件しか使わないクリップを118件ぶん作ることになる。
+
+    🔴 失敗した件数を返すこと。
+       以前は1件ずつ握り潰して解析は成功として返していた。
+       Mac ではエンコーダの選び方が原因で**全滅**していたのに、
+       画面には「クリップがありません」と出るだけで理由が分からなかった。
+    """
+    from .cut import needs_review
+    from .media import make_review_clip
+
+    clips_dir = work_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    targets = [c for c in analysis["candidates"] if needs_review(c, analysis.get("review_band"))]
+    total = len(targets)
+    failed = 0
+
+    for i, c in enumerate(targets):
+        if c.get("clip_path"):
+            continue
+        try:
+            clip = make_review_clip(
+                video_path,
+                str(clips_dir / f"{c['id']}.mp4"),
+                c["src_start"],
+                c["src_end"],
+            )
+            c["clip_path"] = clip["path"]
+            c["clip_join_at"] = clip["join_at"]
+            c["clip_duration"] = clip["duration"]
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            print(f"レビュー用クリップの生成に失敗: {c['id']}: {e}", file=sys.stderr, flush=True)
+            c["clip_path"] = None
+        if total:
+            on_progress(base + span * ((i + 1) / total), f"プレビューを準備しています {i + 1}/{total}")
+
+    return failed
+
+
+def _redetect(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
+    """文字起こしをやり直さずに、カット候補だけ作り直す。
+
+    🔴 「間の詰め具合」を変える手段がこれしか無い。
+
+       以前は詰め方を変えるには analyze をやり直すしかなく、
+       音声抽出と文字起こし（20分素材で12〜18分）から全部走り直していた。
+       実質「一度決めた詰め方は変えられない」のと同じで、
+       ショート向けの設定に至っては UI からも IPC からも到達できなかった。
+
+       detect_candidates は transcript.json だけあれば動く。
+       候補の組み直しは数百ミリ秒で終わる。
+    """
+    from .clean import clean_transcript
+    from .cut import detect_candidates
+    from .media import write_json
+
+    transcript_path = params.get("transcript_path")
+    video_path = params.get("video_path")
+    if not transcript_path or not video_path:
+        raise ValueError("transcript_path と video_path が必要です")
+
+    on_progress(0.05, "カット候補を作り直しています")
+    transcript = json.loads(Path(transcript_path).read_text(encoding="utf-8"))
+    clean_transcript(transcript)
+
+    analysis = detect_candidates(transcript, params.get("options"))
+    analysis["video_path"] = video_path
+
+    work_dir = Path(params.get("work_dir") or default_work_dir(video_path))
+    failed = _make_review_clips(video_path, work_dir, analysis, on_progress, 0.1, 0.85)
+    analysis["clip_failures"] = failed
+
+    write_json(str(work_dir / "analysis.json"), analysis)
+    on_progress(1.0, "完了")
+
+    kinds: dict[str, int] = {}
+    for c in analysis["candidates"]:
+        kinds[c["kind"]] = kinds.get(c["kind"], 0) + 1
+
+    return {
+        "cancelled": False,
+        "candidates": analysis["candidates"],
+        "candidate_count": len(analysis["candidates"]),
+        "kinds": kinds,
+        "review_band": analysis["review_band"],
+        "duration": analysis["duration"],
+        "options": analysis.get("options", {}),
+        "clip_failures": failed,
+    }
+
+
 def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     """動画を解析してカット候補を作る（①カットの中核）。
 
@@ -149,30 +253,8 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     #
     # 作るのは**人間が実際に見る候補だけ**。自動承認・自動却下される分まで作ると、
     # 候補118件のうち約25件しか使わないクリップを118件ぶん作ることになる。
-    from .cut import needs_review
-    from .media import make_review_clip
-
-    clips_dir = work_dir / "clips"
-    clips_dir.mkdir(parents=True, exist_ok=True)
-    targets = [c for c in analysis["candidates"] if needs_review(c, analysis.get("review_band"))]
-    total = len(targets)
-    for i, c in enumerate(targets):
-        try:
-            clip = make_review_clip(
-                video_path,
-                str(clips_dir / f"{c['id']}.mp4"),
-                c["src_start"],
-                c["src_end"],
-            )
-            c["clip_path"] = clip["path"]
-            c["clip_join_at"] = clip["join_at"]
-            c["clip_duration"] = clip["duration"]
-        except Exception as e:  # noqa: BLE001
-            # 1件失敗しても全体は止めない。その候補だけ再生できないだけ。
-            print(f"レビュー用クリップの生成に失敗: {c['id']}: {e}", file=sys.stderr, flush=True)
-            c["clip_path"] = None
-        if total:
-            on_progress(0.86 + 0.13 * ((i + 1) / total), f"プレビューを準備しています {i + 1}/{total}")
+    failed = _make_review_clips(video_path, work_dir, analysis, on_progress, 0.86, 0.13)
+    analysis["clip_failures"] = failed
     analysis["video_path"] = video_path
     analysis["transcript"] = {
         "backend": transcript.get("backend"),
@@ -405,6 +487,7 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
 HEAVY_HANDLERS: dict[str, Callable[..., Any]] = {
     "transcribe": _transcribe,
     "analyze": _analyze,
+    "redetect": _redetect,
     "build_telops": _build_telops,
     "plan_framing": _plan_framing,
     "export": _export,

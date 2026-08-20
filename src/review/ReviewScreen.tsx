@@ -108,7 +108,30 @@ export interface ReviewScreenProps {
   onNeedClip?: (
     c: CutCandidate,
   ) => Promise<{ path: string; joinAt: number; duration: number } | null>;
+  /**
+   * 間の詰め具合を変えて候補を作り直す。
+   *
+   * 🔴 これが無いと、詰め方は解析をやり直さないと変えられない。
+   *    20分素材なら文字起こしから12〜18分やり直しになるので、
+   *    実質「一度決めた詰め方は変えられない」のと同じだった。
+   */
+  onChangePace?: (preset: PacePreset) => void;
+  pace?: PacePreset;
+  /** 作り直しの最中か */
+  repacing?: boolean;
 }
+
+/** 間の詰め具合。左ほど間を残し、右ほど詰まる（sidecar/cut.py の PRESETS と対応） */
+export type PacePreset = 'loose' | 'talk' | 'short' | 'tight';
+
+const PACE_LABEL: Record<PacePreset, string> = {
+  loose: 'ゆったり',
+  talk: 'ふつう',
+  short: 'テンポよく',
+  tight: 'とにかく詰める',
+};
+
+const PACE_ORDER: PacePreset[] = ['loose', 'talk', 'short', 'tight'];
 
 /**
  * 作業状態。保存して再開できるようにするため、判定はここに集める。
@@ -177,6 +200,9 @@ export function ReviewScreen({
   initialState,
   onStateChange,
   onNeedClip,
+  onChangePace,
+  pace = 'talk',
+  repacing,
 }: ReviewScreenProps = {}) {
   const all = useMemo(() => candidates ?? generateMockCandidates(118), [candidates]);
   const { low: LOW, high: HIGH } = band;
@@ -221,7 +247,6 @@ export function ReviewScreen({
   const [autoOverride, setAutoOverride] = useState<Record<string, AutoOverride>>(
     () => initialState?.autoOverride ?? {},
   );
-  const [startedAt] = useState(() => Date.now());
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const liveRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -515,8 +540,10 @@ export function ReviewScreen({
     };
   }, [decisions]);
 
-  const elapsed = ((finishedAt ?? Date.now()) - startedAt) / 1000;
-  const perItem = history.length > 0 ? elapsed / history.length : 0;
+  /*
+    所要時間は画面に出さない。
+    下書きから再開すると必ず嘘の値になるうえ、開発の目標値は使う人には意味がない。
+  */
 
   /** フィラーは語ごとにまとめて扱う。1件ずつ見るには件数が多すぎる。 */
   const fillerGroups = useMemo(() => {
@@ -953,7 +980,29 @@ export function ReviewScreen({
         <span className="stats">
           ✅ {counts.approved} ❌ {counts.rejected} ⏸ {counts.held}
         </span>
-        <div className="pace">{history.length > 0 && <>1件 {perItem.toFixed(2)} 秒</>}</div>
+        {/*
+          🔴 間の詰め具合をここで変えられること。
+             これが無いと、詰め方を変えるには文字起こしからやり直すしかない。
+             候補の組み直しは数百ミリ秒で済む（sidecar の redetect）。
+        */}
+        {onChangePace && (
+          <div className="pacepick" title="どのくらい間を詰めるか。候補を作り直します">
+            <span className="label">間の詰め具合</span>
+            {PACE_ORDER.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={p === pace ? 'on' : ''}
+                disabled={repacing}
+                onClick={() => onChangePace(p)}
+              >
+                {PACE_LABEL[p]}
+              </button>
+            ))}
+            {repacing && <span className="label">作り直しています…</span>}
+          </div>
+        )}
+        <div className="grow" />
         {onQuit && (
           <button className="quit" onClick={onQuit} title="動画の選択に戻ります">
             編集をやめる

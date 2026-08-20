@@ -46,22 +46,43 @@ DEFAULTS = {
 #:    ショート向けの詰めた設定を長尺に当てると、
 #:    話の切れ目に**意図して置いた間まで全部消える**。
 #:    間は編集で作るものであって、機械的に消すものではない。
+#: 🔴 confident_silence は「息継ぎとして自然な間の上限」。
+#:    ここまでは詰めてよいものとして扱い、超えたら人間に見せる方向へ寄せる
+#:    （_silence_confidence 参照）。以前は「これを超えたら自動カット」という
+#:    逆の意味で使っていた。
 PRESETS: dict[str, dict[str, Any]] = {
-    # 10〜20分の解説・実況。間を残す
+    # ゆったり：間を大きく残す。落ち着いた解説向け
+    "loose": {
+        "min_silence": 0.55,
+        "keep_padding": 0.3,
+        "confident_silence": 1.0,
+        "min_gain": 0.45,
+    },
+    # 10〜20分の解説・実況。既定
     "talk": {
         "min_silence": 0.45,
         "keep_padding": 0.22,
-        "confident_silence": 1.5,
+        "confident_silence": 1.4,
         "min_gain": 0.35,
     },
     # ショート動画。テンポ優先で詰める
     "short": {
         "min_silence": 0.3,
         "keep_padding": 0.08,
-        "confident_silence": 0.8,
+        "confident_silence": 1.8,
         "min_gain": 0.2,
     },
+    # とにかく詰める。間はほとんど残らない
+    "tight": {
+        "min_silence": 0.22,
+        "keep_padding": 0.05,
+        "confident_silence": 2.4,
+        "min_gain": 0.12,
+    },
 }
+
+#: 画面に出す並び。左ほど間を残し、右ほど詰まる。
+PRESET_ORDER = ["loose", "talk", "short", "tight"]
 
 # 確信度による3分割の境目（§3.3.1）。
 # これ以上は自動承認、これ未満は自動却下、その間だけ人間が1件ずつ見る。
@@ -82,6 +103,62 @@ def needs_review(candidate: dict[str, Any], band: dict[str, float] | None = None
     if candidate["kind"] == "filler" and conf >= b["low"]:
         return False
     return b["low"] <= conf < b["high"]
+
+
+#: 文の終わりを示す記号。ここでの間は「意図して置いた間」であることが多い。
+_SENTENCE_END = "。！？!?"
+
+
+def _silence_confidence(gap: float, before: str, opts: dict[str, Any]) -> float:
+    """無音カットの確信度。
+
+    🔴 「間が長いほど自動でカット」にしてはいけない。
+
+       以前は gap の単調増加で、confident_silence（既定1.5秒）を超えると
+       自動カット（0.9）になっていた。しかしトークで1.5秒以上の間は、
+       オチの後・話題転換前・強調前など**意図して置いた間**であることが多い。
+       逆に 0.8〜1.2秒は息継ぎで、機械的に詰めて構わない。
+       つまり「安全に切れるもの」を人間に見せ、
+       「切ってはいけないもの」を黙って切っていた。
+
+       しかも確信度が gap の関数でしかないので、
+       画面の「確信度 0.82」は隣の「⟨1.32秒⟩」と同じことを言い換えているだけで、
+       新しい情報を1ビットも運んでいなかった。
+
+    そこで:
+      - breath_max（息継ぎとして自然な上限）までは、そのまま詰めてよいものとして高くする
+      - それを超えたら下げていく。長いほど「意図して置いた」可能性が上がる
+      - 文末（。！？）の直後の間は、さらに下げる。話の区切りの可能性が高い
+
+    🔴 下限を 0.6 未満まで届かせること。
+       以前は式の下限が 0.6 だったため、**自動却下の層が構造上ずっと空**だった。
+       3分割のうち1本が最初から死んでいて、完了画面の
+       「自動で見送り（確信度0.60未満）」は永遠に 0 件と表示されていた。
+
+    実測（talk プリセット / breath_max 1.4）:
+        間      文中    → 行き先        文末直後 → 行き先
+        0.8秒   0.92     自動でカット    0.77      人が確認
+        1.2秒   0.95     自動でカット    0.80      人が確認
+        2.0秒   0.83     人が確認        0.68      人が確認
+        3.0秒   0.61     人が確認        0.46      自動で見送り
+        4.0秒   0.39     自動で見送り    0.24      自動で見送り
+    """
+    peak = float(opts["confident_silence"])
+    lo = float(opts["min_silence"])
+
+    if gap <= peak:
+        # 息継ぎの範囲。詰めても話の意味は変わらない
+        span = max(0.01, peak - lo)
+        conf = 0.92 + 0.04 * min(1.0, (gap - lo) / span)
+    else:
+        # 長い間は「意図して置いた」可能性が上がるので下げていく
+        conf = 0.96 - min(0.6, (gap - peak) * 0.22)
+
+    # 文末の直後は話の区切り。切ると流れが変わるので人間に見せたい
+    if before and before[-1] in _SENTENCE_END:
+        conf -= 0.15
+
+    return max(0.2, min(0.97, conf))
 
 
 def _normalize(text: str) -> str:
@@ -146,16 +223,13 @@ def detect_candidates(transcript: dict[str, Any], options: dict[str, Any] | None
             if end - start < opts["min_gain"]:
                 prev_end = max(prev_end, w["src_end"])
                 continue
-            # 長い無音ほど「切ってよい」と言い切れる。
-            # confident_silence に達したところでちょうど自動承認（0.9）になる。
-            span = max(0.01, opts["confident_silence"] - opts["min_silence"])
-            confidence = 0.6 + 0.3 * min(1.0, (gap - opts["min_silence"]) / span)
+            before_text = "".join(x["text"] for x in words[max(0, i - 6):i]).strip()
             add(
                 "silence",
                 start,
                 end,
-                confidence,
-                before="".join(x["text"] for x in words[max(0, i - 6):i]).strip(),
+                _silence_confidence(gap, before_text, opts),
+                before=before_text,
                 after="".join(x["text"] for x in words[i:i + 6]).strip(),
                 gap=round(gap, 3),
             )

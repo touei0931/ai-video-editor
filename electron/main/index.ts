@@ -189,6 +189,10 @@ ipcMain.handle('app:analyze', async (e, params: Record<string, unknown>) =>
   runCancellable(BrowserWindow.fromWebContents(e.sender), 'analyze', params),
 );
 
+ipcMain.handle('app:redetect', async (e, params: Record<string, unknown>) =>
+  runCancellable(BrowserWindow.fromWebContents(e.sender), 'redetect', params),
+);
+
 ipcMain.handle('app:planFraming', async (e, params: Record<string, unknown>) =>
   runCancellable(BrowserWindow.fromWebContents(e.sender), 'plan_framing', params),
 );

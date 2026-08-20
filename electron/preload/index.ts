@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('app', {
   cancel: () => ipcRenderer.invoke('app:cancel'),
   buildTelops: (params: Record<string, unknown>) => ipcRenderer.invoke('app:buildTelops', params),
   planFraming: (params: Record<string, unknown>) => ipcRenderer.invoke('app:planFraming', params),
+  redetect: (params: Record<string, unknown>) => ipcRenderer.invoke('app:redetect', params),
   saveTelopFrames: (payload: { dir: string; frames: { name: string; base64: string }[] }) =>
     ipcRenderer.invoke('app:saveTelopFrames', payload),
   exportVideo: (params: Record<string, unknown>) => ipcRenderer.invoke('app:export', params),

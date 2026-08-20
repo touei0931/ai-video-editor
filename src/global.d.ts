@@ -39,6 +39,7 @@ declare global {
       cancel: () => Promise<boolean>;
       buildTelops: (params: Record<string, unknown>) => Promise<unknown>;
       planFraming: (params: Record<string, unknown>) => Promise<unknown>;
+      redetect: (params: Record<string, unknown>) => Promise<unknown>;
       saveTelopFrames: (payload: {
         dir: string;
         frames: { name: string; base64: string }[];

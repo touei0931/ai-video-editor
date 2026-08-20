@@ -50,6 +50,9 @@ jobs:
       #    ffmpeg を動かさないので、どのOSでも即座に終わる。
       - name: 書き出しフィルタの長さ
         run: python scripts/test_export_graph.py
+      # 🔴 確信度の3分割。「自動で見送り」が構造上ずっと空だったので数字で縛る
+      - name: カット候補の確信度
+        run: python scripts/test_cut_confidence.py
       - name: stdio JSON-RPC の疎通（ping / env）
         shell: bash
         run: |

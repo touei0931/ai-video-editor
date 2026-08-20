@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DraftEntry } from './global';
 import { PreviewScreen, type Shot } from './preview/PreviewScreen';
 import { ShortcutHelp } from './ShortcutHelp';
-import { ReviewScreen, type ReviewState } from './review/ReviewScreen';
+import { ReviewScreen, type PacePreset, type ReviewState } from './review/ReviewScreen';
 import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
 import {
   TelopScreen,
@@ -160,6 +160,8 @@ interface Draft {
   options?: ExportOptions;
   /** テロップ画面で消したもの。作り直したときに復活させないために持つ */
   removed?: TelopCard[];
+  /** 間の詰め具合 */
+  pace?: PacePreset;
   shots?: Shot[];
 }
 
@@ -403,6 +405,7 @@ export function App() {
     setSavedReview(draft.review ?? null);
     setShots(draft.shots ?? []);
     setCards(draft.cards ?? []);
+    setPace(draft.pace ?? 'talk');
     setCuts(
       (draft.cuts ?? []).map((c) => ({
         id: '',
@@ -562,6 +565,55 @@ export function App() {
     [analysis],
   );
 
+  /**
+   * 間の詰め具合を変えて、カット候補を作り直す。
+   *
+   * 🔴 文字起こしはやり直さない。transcript.json があれば候補は数百ミリ秒で組み直せる。
+   *    以前は解析ごとやり直すしかなく、20分素材なら12〜18分かかっていた。
+   *
+   * 🔴 判定はすべて捨てる。候補の id も区間も変わるので、
+   *    前の判定を引き継ぐと「別の場所に別の判断が付く」ことになる。
+   *    そのことは押す前に伝える。
+   */
+  const [pace, setPace] = useState<PacePreset>('talk');
+  const [repacing, setRepacing] = useState(false);
+
+  const changePace = useCallback(
+    async (next: PacePreset) => {
+      if (!analysis || next === pace) return;
+      const decided = Object.keys(reviewStateRef.current?.decisions ?? {}).length;
+      if (decided > 0) {
+        const ok = window.confirm(
+          `間の詰め具合を変えると、カット候補を作り直します。\n` +
+            `これまでの判定 ${decided} 件は失われます。よろしいですか？`,
+        );
+        if (!ok) return;
+      }
+
+      setRepacing(true);
+      setError(null);
+      try {
+        const result = (await window.app.redetect({
+          transcript_path: analysis.transcript_path,
+          video_path: analysis.video_path,
+          work_dir: analysis.work_dir,
+          options: { preset: next },
+        })) as Pick<AnalyzeResult, 'candidates' | 'candidate_count' | 'kinds' | 'review_band'>;
+
+        setAnalysis((prev) => (prev ? { ...prev, ...result } : prev));
+        setPace(next);
+        setSavedReview(null);
+        reviewStateRef.current = null;
+        builtForRef.current = null;
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setRepacing(false);
+      }
+    },
+    [analysis, pace],
+  );
+
   /** カットのレビューが終わったら、その結果を踏まえてテロップを作る */
   const buildTelops = useCallback(
     async (approved: CutCandidate[]) => {
@@ -630,6 +682,7 @@ export function App() {
       styles: finalState?.styles,
       options: finalState?.options,
       removed: finalState?.removed,
+      pace,
       shots,
     };
     await window.app.saveProject({
@@ -978,6 +1031,9 @@ export function App() {
           initialState={savedReview}
           onStateChange={saveReview}
           onNeedClip={requestClip}
+          onChangePace={(p) => void changePace(p)}
+          pace={pace}
+          repacing={repacing}
           onQuit={() => void quitEditing()}
           onExport={buildTelops}
           exporting={false}

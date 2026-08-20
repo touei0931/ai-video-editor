@@ -13,8 +13,38 @@
   margin-bottom: 10px;
 }
 
-.review header .pace {
-  margin-left: auto;
+.review header .grow {
+  flex: 1;
+}
+
+/* 間の詰め具合の切り替え */
+.pacepick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pacepick .label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pacepick button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 400;
+  border-radius: 6px;
+  background: #26262e;
+  color: #d0d0d8;
+}
+
+.pacepick button.on {
+  background: var(--accent);
+  color: #0b0b0f;
+  font-weight: 700;
 }
 
 .review header .quit {

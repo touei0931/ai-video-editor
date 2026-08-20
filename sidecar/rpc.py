@@ -110,6 +110,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "transcribe": _transcribe,
     "make_clip": _make_clip,
     "analyze": _heavy("analyze"),
+    "redetect": _heavy("redetect"),
     "build_telops": _heavy("build_telops"),
     "plan_framing": _heavy("plan_framing"),
     "export": _heavy("export"),
