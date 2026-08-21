@@ -58,6 +58,12 @@ exports/
 # 🔴 実素材（友達が映っているもの）を置く場所。絶対に commit しない。
 fixtures-local/
 
+# 🔴 設計レポート。手元には残すが、公開リポジトリには入れない。
+#    収益化の方針まで書いてあるので、履歴からも除いてある（git filter-repo）。
+#    戻したくなったら、この行を消す前に中身を読み直すこと。
+docs/design-report.md
+docs/design-report-v1.md
+
 # --- Phase 0 の検証結果に付随する生成物 ---
 phase0-artifacts/
 
