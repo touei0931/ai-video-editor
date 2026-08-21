@@ -42,7 +42,8 @@ def video_candidates(quality: str = "standard") -> list[tuple[str, list[str]]]:
 
     if _IS_MAC:
         return [
-            ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-b:v", bitrate, *common]),
+            ("h264_videotoolbox",
+             ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", bitrate, *common]),
             ("libopenh264", ["-c:v", "libopenh264", "-b:v", bitrate, *common]),
             (_LAST_RESORT, ["-c:v", _LAST_RESORT, "-b:v", bitrate, *common]),
         ]
@@ -76,7 +77,8 @@ def proxy_candidates() -> list[tuple[str, list[str]]]:
     if _IS_MAC:
         return [
             ("prores_videotoolbox", ["-c:v", "prores_videotoolbox", "-profile:v", "0"]),
-            ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-g", "1", "-b:v", "6M"]),
+            ("h264_videotoolbox",
+             ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-g", "1", "-b:v", "6M"]),
             (_LAST_RESORT, ["-c:v", _LAST_RESORT, "-g", "1", "-b:v", "6M"]),
         ]
 
@@ -106,10 +108,29 @@ def review_clip_candidates() -> list[tuple[str, list[str]]]:
     GOP を短くするのは、繋ぎ目まで巻き戻す操作（R キー）を待たせないため。
     """
     if _IS_MAC:
-        # Apple Silicon では VideoToolbox が必ず使える。
-        # 同梱の ffmpeg は外部ライブラリを一切リンクしないので libopenh264 は無い。
+        """
+        🔴 -allow_sw 1 を必ず付けること。
+
+        同梱の ffmpeg は外部ライブラリを一切リンクしないので、Mac の H.264 は
+        VideoToolbox しか無い。そこでハードウェア encoder が使えないと、
+        **使える encoder が1つも無い**という状態になって書き出しごと止まる。
+
+        「Apple Silicon なら必ず使える」と思って付けていなかったが、実際には
+        使えない場面がある（ffmpeg 自身が理由を出す）:
+            Cannot create compression session: -12903
+            Try -allow_sw 1. The hardware encoder may be busy, or not supported.
+        仮想環境（GitHub の macOS ランナー）で実際に落ちた。
+        **他のアプリが encoder を掴んでいるときも同じ**なので、
+        友達の実機でも起こりうる。
+
+        -allow_sw 1 は「ハードウェアが駄目ならソフトウェアでよい」という指定。
+        使えるときはハードウェアのままなので、速度は落ちない。
+        ソフトウェア側も VideoToolbox の一部で、足すライブラリは無い
+        （ライセンスの条件も変わらない）。
+        """
         return [
-            ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-b:v", "2M", "-g", "15"]),
+            ("h264_videotoolbox",
+             ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "2M", "-g", "15"]),
         ]
 
     return [
