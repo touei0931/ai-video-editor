@@ -36,6 +36,13 @@
   font-weight: 700;
   color: #0b0b0f;
   white-space: nowrap;
+  /*
+    🔴 背景の既定をここに置くこと。
+       利用者が足した枠の id は slot-… なので、名前ごとの色は用意できない。
+       ここが空だと、足した枠のチップだけ背景を持たず、
+       黒に近い文字色だけが残って**一覧で読めなくなる**。
+  */
+  background: #b9b0d8;
 }
 .chip.normal {
   background: #cfd6e0;
@@ -409,6 +416,24 @@
 
 .telop .panel .row.defaults .grow {
   flex: 1;
+}
+
+/* 枠の名前・保存する見た目の名前 */
+.telop .panel input[type='text'].slotname {
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: #14141a;
+  color: #fff;
+  min-width: 140px;
+}
+
+.telop .panel .row.naming {
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #14141a;
 }
 
 /* 取り消せない操作の確認。見落とされないよう色を変える */

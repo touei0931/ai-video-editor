@@ -9,8 +9,27 @@
  *   マイグレーションが必要になるので、器だけ先に作っておく。
  */
 
-/** 発言内容と感情から自動判定されるスタイル種別（②）。 */
-export type TelopStyleName = 'normal' | 'note' | 'emphasis';
+/**
+ * スタイル（雛形）の識別子。
+ *
+ * `normal` / `note` / `emphasis` の3つは**必ず存在する**。
+ * sidecar/telop.py が発言内容と感情からこの3つのどれかを割り当ててくるので、
+ * 消せるようにすると、割り当て先の無いテロップができてしまう。
+ *
+ * 利用者が足した枠は任意の文字列（`slot-…`）。自動では割り当てられず、
+ * 画面で数字キーを押したときだけ付く。
+ */
+export type TelopStyleName = 'normal' | 'note' | 'emphasis' | (string & {});
+
+/** 消せない3つ。sidecar が割り当ててくる先 */
+export const BUILTIN_STYLES = ['normal', 'note', 'emphasis'] as const;
+
+export function isBuiltinStyle(name: string): boolean {
+  return (BUILTIN_STYLES as readonly string[]).includes(name);
+}
+
+/** 利用者が足す枠の上限。数字キー（1〜9）で押せる範囲に合わせる */
+export const MAX_STYLES = 9;
 
 /** 画面内の縦位置。顔にかぶるときに人間が動かせるよう3段階（§1.3）。 */
 export type TelopPosition = 'top' | 'middle' | 'bottom';
@@ -31,6 +50,11 @@ export interface TelopStroke {
 }
 
 export interface TelopStyle {
+  /**
+   * 画面に出す名前。「通常」「補足」「強調」や、利用者が付けた「オノマトペ」など。
+   * 見た目の一部ではないが、雛形と一緒に持ち運ぶものなのでここに置く。
+   */
+  label: string;
   /**
    * 既定の表示位置。
    *
@@ -77,8 +101,9 @@ export interface TelopStyle {
  * 既定のスタイル一式。
  * 通常は友達の実際のテロップ（白の太ゴシック + 黒の太い縁取り、画面上部中央）に合わせてある。
  */
-export const DEFAULT_STYLES: Record<TelopStyleName, TelopStyle> = {
+export const DEFAULT_STYLES: StyleMap = {
   normal: {
+    label: '通常',
     position: 'top',
     fontFamily: 'ZenKakuGothicNew',
     // 太字＝ Black のファイル。これまでの見た目をそのまま既定にしてある
@@ -91,6 +116,7 @@ export const DEFAULT_STYLES: Record<TelopStyleName, TelopStyle> = {
     highlightScale: 1.15,
   },
   note: {
+    label: '補足',
     position: 'bottom',
     fontFamily: 'ZenOldMincho',
     // 太字＝ Bold のファイル。これまでの見た目をそのまま既定にしてある
@@ -103,6 +129,7 @@ export const DEFAULT_STYLES: Record<TelopStyleName, TelopStyle> = {
     highlightScale: 1.1,
   },
   emphasis: {
+    label: '強調',
     position: 'middle',
     fontFamily: 'DelaGothicOne',
     fontSizeRatio: 0.1,
@@ -114,10 +141,13 @@ export const DEFAULT_STYLES: Record<TelopStyleName, TelopStyle> = {
   },
 };
 
-/** 雛形一式。3種類そろっていることが前提 */
+/**
+ * 雛形一式。
+ * `normal` / `note` / `emphasis` は必ず入っている。利用者が足した枠はその後ろに続く。
+ * 並び順は**入っている順**（数字キーの割り当てもこの順）。
+ */
 export type StyleMap = Record<TelopStyleName, TelopStyle>;
 
-const STYLE_NAMES: TelopStyleName[] = ['normal', 'note', 'emphasis'];
 const POSITIONS: TelopPosition[] = ['top', 'middle', 'bottom'];
 
 function isColor(value: unknown): value is string {
@@ -143,13 +173,28 @@ function inRange(value: unknown, lo: number, hi: number): value is number {
 export function sanitizeStyles(raw: unknown, known?: readonly string[]): StyleMap {
   const out = structuredClone(DEFAULT_STYLES);
   if (!raw || typeof raw !== 'object') return out;
+  const src = raw as Record<string, unknown>;
 
-  for (const name of STYLE_NAMES) {
-    const src = (raw as Record<string, unknown>)[name];
-    if (!src || typeof src !== 'object') continue;
-    const s = src as Record<string, unknown>;
+  /*
+    利用者が足した枠も受け取る。
+    🔴 消せない3つ（normal / note / emphasis）は、保存内容に何が入っていても必ず残す。
+       sidecar はこの3つのどれかを割り当ててくるので、消えると割り当て先が無くなる。
+  */
+  const extra = Object.keys(src).filter(
+    (k) => !isBuiltinStyle(k) && src[k] && typeof src[k] === 'object',
+  );
+  for (const name of extra.slice(0, Math.max(0, MAX_STYLES - BUILTIN_STYLES.length))) {
+    // 足した枠は「通常」を土台にする。土台が無いと色も大きさも未定義になる
+    out[name] = { ...structuredClone(DEFAULT_STYLES.normal), label: name };
+  }
+
+  for (const name of Object.keys(out)) {
+    const one = src[name];
+    if (!one || typeof one !== 'object') continue;
+    const s = one as Record<string, unknown>;
     const target = out[name];
 
+    if (typeof s.label === 'string' && s.label.trim()) target.label = s.label.trim().slice(0, 12);
     if (typeof s.fontFamily === 'string' && (!known || known.includes(s.fontFamily))) {
       target.fontFamily = s.fontFamily;
     }
@@ -168,12 +213,71 @@ export function sanitizeStyles(raw: unknown, known?: readonly string[]): StyleMa
         color: stroke.color,
         widthRatio: inRange(stroke.widthRatio, 0, 0.5)
           ? stroke.widthRatio
-          : (DEFAULT_STYLES[name].stroke?.widthRatio ?? 0.16),
+          : (DEFAULT_STYLES[name]?.stroke?.widthRatio ?? 0.16),
       };
     }
   }
 
   return out;
+}
+
+/**
+ * 名前を付けて保存した見た目のひと組。
+ *
+ * 🔴 1組を上書きするだけにしないこと。
+ *    Vrew の「保存済み書式」、Premiere Pro の Local styles、
+ *    Final Cut Pro の 2D Styles と、どの編集ソフトも
+ *    「名前を付けて何組でも持ち、一覧から選び直す」形になっている。
+ *    動画のジャンルごとに使い分ける、案を2つ作って見比べる、が
+ *    1組だけだとできない。
+ */
+export interface StylePreset {
+  name: string;
+  styles: StyleMap;
+}
+
+/** 保存ファイルの中身 */
+export interface StyleLibrary {
+  presets: StylePreset[];
+  /** 新しい動画を始めるときに使う組の名前。無ければアプリ最初の見た目 */
+  current: string | null;
+}
+
+/** 保存する組数の上限。一覧から選べる範囲に収める */
+export const MAX_PRESETS = 12;
+
+/**
+ * 保存ファイルを読み込める形に直す。
+ *
+ * 🔴 名前を付けて保存できるようにする前の形（雛形ひと組がそのまま入っている）も
+ *    読めること。読めないと、それまで覚えさせた見た目が黙って消える。
+ */
+export function sanitizeLibrary(raw: unknown, known?: readonly string[]): StyleLibrary {
+  const empty: StyleLibrary = { presets: [], current: null };
+  if (!raw || typeof raw !== 'object') return empty;
+  const src = raw as Record<string, unknown>;
+
+  // 古い形（雛形ひと組がそのまま）。ひと組の保存として引き継ぐ
+  if (!Array.isArray(src.presets)) {
+    if (!isBuiltinStyle('normal') || !src.normal) return empty;
+    const name = '前に保存した見た目';
+    return { presets: [{ name, styles: sanitizeStyles(src, known) }], current: name };
+  }
+
+  const presets: StylePreset[] = [];
+  for (const item of src.presets.slice(0, MAX_PRESETS)) {
+    if (!item || typeof item !== 'object') continue;
+    const one = item as Record<string, unknown>;
+    const name = typeof one.name === 'string' ? one.name.trim().slice(0, 20) : '';
+    if (!name || presets.some((p) => p.name === name)) continue;
+    presets.push({ name, styles: sanitizeStyles(one.styles, known) });
+  }
+
+  const current =
+    typeof src.current === 'string' && presets.some((p) => p.name === src.current)
+      ? src.current
+      : (presets[0]?.name ?? null);
+  return { presets, current };
 }
 
 /**
@@ -229,7 +333,16 @@ export function resolveStyle(
   override?: TelopOverride,
   fontScale = 1,
 ): TelopStyle {
-  const base = styles[name];
+  /*
+    🔴 知らない名前でも必ず何かを返すこと。
+
+    枠を消したあとに、その枠を指したままのテロップが残ることがある
+    （消す前に付けた1枚、古い下書き、手で書き換えられた保存ファイル）。
+    undefined を返すと、色も大きさも未定義のまま Canvas に渡り、
+    **そのテロップだけ1枚も描かれない**。しかも例外にならないので、
+    書き出した動画を見るまで気づけない。
+  */
+  const base = styles[name] ?? styles.normal ?? DEFAULT_STYLES.normal;
   const size = base.fontSizeRatio * fontScale * (override?.sizeScale ?? 1);
   return {
     ...base,

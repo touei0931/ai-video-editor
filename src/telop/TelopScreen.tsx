@@ -16,9 +16,15 @@ import { hasRealBold, TELOP_FAMILIES } from './fonts';
 import { buildLines, drawTelop } from './render';
 import { phraseBoundaries } from './wrap';
 import {
+  BUILTIN_STYLES,
   DEFAULT_STYLES,
+  isBuiltinStyle,
+  MAX_STYLES,
   resolveStyle,
   SAFE_AREA_RATIO,
+  type StyleLibrary,
+  type StylePreset,
+  MAX_PRESETS,
   type StyleMap,
   type TelopStyle,
   type TelopPosition,
@@ -42,13 +48,16 @@ export interface ExportOptions {
   fcpxml: boolean;
 }
 
-const STYLE_LABEL: Record<TelopStyleName, string> = {
-  normal: '通常',
-  note: '補足',
-  emphasis: '強調',
-};
-
-const STYLE_ORDER: TelopStyleName[] = ['normal', 'note', 'emphasis'];
+/**
+ * 雛形の並び。入っている順そのまま。
+ *
+ * 🔴 固定の3つを並べた配列を持たないこと。
+ *    枠を足せるようにした以上、そこに書いた3つしか画面に出ないと、
+ *    足した枠が「保存はされるが押せない」状態になる。
+ */
+function styleOrder(styles: StyleMap): TelopStyleName[] {
+  return Object.keys(styles);
+}
 
 /**
  * 再生する範囲。テロップの表示区間の前後にこれだけ足す。
@@ -112,11 +121,10 @@ export interface TelopScreenProps {
    * 読み込めなかった書体を選べると、フォールバックの見た目で書き出される。
    */
   fontFamilies?: string[];
-  /**
-   * 今の見た目を「次からの既定」として保存する。
-   * 保存できたら true。
-   */
-  onSaveDefaults?: (styles: StyleMap) => Promise<boolean>;
+  /** 名前を付けて保存してある見た目の一覧と、次の動画で使う組 */
+  library?: StyleLibrary;
+  /** 一覧を保存し直す。保存できたら true */
+  onLibraryChange?: (library: StyleLibrary) => Promise<boolean>;
   /** 元素材のパス。プレビューの背景に使う */
   videoPath: string;
   frame: Frame;
@@ -154,7 +162,8 @@ export function TelopScreen({
   initialOptions,
   initialRemoved,
   fontFamilies,
-  onSaveDefaults,
+  library,
+  onLibraryChange,
   videoPath,
   frame,
   rewrap,
@@ -183,6 +192,9 @@ export function TelopScreen({
   const [savedNote, setSavedNote] = useState('');
   /** 「最初の見た目に戻す」の確認中か */
   const [confirmReset, setConfirmReset] = useState(false);
+  /** 名前を付けて保存する入力中か */
+  const [naming, setNaming] = useState(false);
+  const [presetName, setPresetName] = useState('');
   const [exportOptions, setExportOptions] = useState<ExportOptions>(
     () => initialOptions ?? { burn: true, srt: true, fcpxml: false },
   );
@@ -299,6 +311,53 @@ export function TelopScreen({
     [rewrap],
   );
 
+  /** 雛形の並び（数字キーの割り当てもこの順） */
+  const order = useMemo(() => styleOrder(styles), [styles]);
+
+  /** 雛形の枠を1つ足す。土台は「通常」 */
+  const addStyle = useCallback(() => {
+    setSavedNote('');
+    setStyles((prev) => {
+      if (Object.keys(prev).length >= MAX_STYLES) return prev;
+      const id = `slot-${Date.now().toString(36)}`;
+      const n = Object.keys(prev).length - BUILTIN_STYLES.length + 1;
+      setEditingStyle(id);
+      return { ...prev, [id]: { ...structuredClone(prev.normal), label: `枠${n}` } };
+    });
+  }, []);
+
+  /**
+   * 足した枠を消す。
+   *
+   * 🔴 その枠を使っているテロップを「通常」へ戻すこと。
+   *    指し先の無いテロップが残ると、色も大きさも決まらないまま描かれる。
+   *    折り返しも通常の書体で測り直す。
+   */
+  const removeStyle = useCallback(
+    (name: TelopStyleName) => {
+      if (isBuiltinStyle(name)) return;
+      setSavedNote('');
+      setStyles((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+      setEditingStyle('normal');
+      setCards((cs) =>
+        cs.map((c) => {
+          if (c.style !== name) return c;
+          const fit = rewrap(c.text, 'normal', styles, {
+            sizeScale: c.override?.sizeScale,
+            breaks: c.breaks,
+            highlight: c.highlight,
+          });
+          return { ...c, style: 'normal', lines: fit.lines, fontScale: fit.fontScale };
+        }),
+      );
+    },
+    [rewrap, styles],
+  );
+
   /** 選べる書体。読み込めなかったものは出さない（選べても見た目が変わらないため） */
   const families = useMemo(
     () => TELOP_FAMILIES.filter((f) => !fontFamilies || fontFamilies.includes(f.family)),
@@ -306,30 +365,109 @@ export function TelopScreen({
   );
 
   /** 今の見た目を、次の動画からの既定として覚えさせる */
-  const saveDefaults = useCallback(async () => {
-    if (!onSaveDefaults) return;
-    setSaving(true);
-    let ok = false;
-    try {
-      ok = await onSaveDefaults(styles);
-    } catch {
-      ok = false;
-    }
-    setSaving(false);
-    setSavedNote(
-      ok ? '覚えました。次の動画からこの見た目で始まります' : '保存できませんでした',
-    );
-  }, [onSaveDefaults, styles]);
+  const presets = library?.presets ?? [];
+  const currentPreset = library?.current ?? null;
 
-  /** アプリ最初の見た目に戻す。今の動画にも、次からの既定にも効かせる */
+  /** 一覧を書き換えて保存する */
+  const putLibrary = useCallback(
+    async (next: StyleLibrary, note: string) => {
+      if (!onLibraryChange) return;
+      setSaving(true);
+      let ok = false;
+      try {
+        ok = await onLibraryChange(next);
+      } catch {
+        ok = false;
+      }
+      setSaving(false);
+      setSavedNote(ok ? note : '保存できませんでした');
+    },
+    [onLibraryChange],
+  );
+
+  /**
+   * 雛形一式を差し替えて、全テロップを折り返し直す。
+   * 書体も大きさも変わるので、折り返しを据え置くと画面からはみ出す。
+   */
+  const applyStyles = useCallback(
+    (next: StyleMap) => {
+      setStyles(next);
+      setEditingStyle((cur) => (next[cur] ? cur : 'normal'));
+      setCards((cs) =>
+        cs.map((c) => {
+          // 差し替え先に無い枠を指していたら「通常」へ寄せる
+          const style = next[c.style] ? c.style : 'normal';
+          const fit = rewrap(c.text, style, next, {
+            sizeScale: c.override?.sizeScale,
+            breaks: c.breaks,
+            highlight: c.highlight,
+          });
+          return { ...c, style, lines: fit.lines, fontScale: fit.fontScale };
+        }),
+      );
+    },
+    [rewrap],
+  );
+
+  /** 名前を付けて保存する。同じ名前なら上書き */
+  const savePreset = useCallback(
+    (name: string) => {
+      const trimmed = name.trim().slice(0, 20);
+      if (!trimmed) return;
+      const kept = presets.filter((p) => p.name !== trimmed);
+      if (kept.length >= MAX_PRESETS) {
+        setSavedNote(`保存できるのは ${MAX_PRESETS} 組までです`);
+        return;
+      }
+      const next: StyleLibrary = {
+        presets: [...kept, { name: trimmed, styles: structuredClone(styles) }],
+        current: trimmed,
+      };
+      void putLibrary(next, `「${trimmed}」として覚えました。次の動画はこの見た目で始まります`);
+    },
+    [presets, styles, putLibrary],
+  );
+
+  /** 保存してある見た目を今の動画に当てる */
+  const usePreset = useCallback(
+    (preset: StylePreset) => {
+      applyStyles(structuredClone(preset.styles));
+      void putLibrary(
+        { presets, current: preset.name },
+        `「${preset.name}」を当てました。次の動画もこの見た目で始まります`,
+      );
+    },
+    [applyStyles, presets, putLibrary],
+  );
+
+  const deletePreset = useCallback(
+    (name: string) => {
+      const kept = presets.filter((p) => p.name !== name);
+      void putLibrary(
+        { presets: kept, current: kept[0]?.name ?? null },
+        `「${name}」を消しました（今の動画の見た目は変わりません）`,
+      );
+    },
+    [presets, putLibrary],
+  );
+
+  /**
+   * アプリ最初の見た目に戻す。
+   *
+   * 🔴 保存してある見た目は消さないこと。
+   *    以前はここで「覚えている既定」ごと上書きしていたので、
+   *    押し間違い1回で、詰めた見た目が取り消しも無く消えていた。
+   *    名前を付けて何組でも持てるようにした今は、
+   *    「今の動画を最初の見た目に戻し、次の動画も最初から始める」だけでよい。
+   */
   const restoreFactory = useCallback(() => {
-    for (const name of STYLE_ORDER) patchStyle(name, DEFAULT_STYLES[name]);
-    if (!onSaveDefaults) return;
-    void onSaveDefaults(structuredClone(DEFAULT_STYLES)).then(
-      (ok) => setSavedNote(ok ? '最初の見た目に戻しました' : '保存できませんでした'),
-      () => setSavedNote('保存できませんでした'),
+    applyStyles(structuredClone(DEFAULT_STYLES));
+    void putLibrary(
+      { presets, current: null },
+      '最初の見た目に戻しました（保存した見た目は残っています）',
     );
-  }, [patchStyle, onSaveDefaults]);
+  }, [applyStyles, presets, putLibrary]);
+
 
   /** 画面を離れるときに、直した内容をまとめて渡す */
   const goBack = useCallback(
@@ -757,15 +895,21 @@ export function TelopScreen({
           setDraft(current.text);
           setEditing(true);
           break;
+        // 数字キーは雛形の並び順。枠を足したら 4 / 5 … がそのまま増える
         case '1':
-          cycleStyle('normal');
-          break;
         case '2':
-          cycleStyle('note');
-          break;
         case '3':
-          cycleStyle('emphasis');
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9': {
+          const target = order[Number(e.key) - 1];
+          if (!target) return;
+          cycleStyle(target);
           break;
+        }
         case 'p': {
           if (!current) return;
           const now = current.positionOverride ?? styles[current.style].position;
@@ -803,7 +947,7 @@ export function TelopScreen({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editing, commitEdit, move, nextCheck, cycleStyle, update, restart, remember, undo, styles, current, index, cards.length]);
+  }, [editing, commitEdit, move, nextCheck, cycleStyle, update, restart, remember, undo, styles, order, current, index, cards.length]);
 
   if (!current) {
     return (
@@ -827,9 +971,9 @@ export function TelopScreen({
           テロップ <strong>{cards.length}</strong> 枚
         </span>
         <span className="stats">
-          {STYLE_ORDER.map((s) => (
+          {order.map((s) => (
             <span key={s} className={`chip ${s}`}>
-              {STYLE_LABEL[s]} {styleCounts[s] ?? 0}
+              {styles[s].label} {styleCounts[s] ?? 0}
             </span>
           ))}
         </span>
@@ -920,7 +1064,9 @@ export function TelopScreen({
                 }}
               >
                 <span className="t">{formatTime(c.srcStart)}</span>
-                <span className={`chip ${c.style}`}>{STYLE_LABEL[c.style]}</span>
+                <span className={`chip ${c.style}`}>
+                  {styles[c.style]?.label ?? c.style}
+                </span>
                 <span className="text">{c.text}</span>
                 {c.needsCheck && <span className="flag" title="認識が怪しい箇所です">要確認</span>}
               </button>
@@ -1173,17 +1319,52 @@ export function TelopScreen({
             <div className="panel">
               <div className="row">
                 <label>雛形を編集</label>
-                {STYLE_ORDER.map((s) => (
+                {order.map((s, i) => (
                   <button
                     key={s}
                     type="button"
                     className={editingStyle === s ? 'on' : ''}
                     onClick={() => setEditingStyle(s)}
+                    title={`${styles[s].label}（${i + 1} キーでこのテロップに割り当て）`}
                   >
-                    {STYLE_LABEL[s]}
+                    {styles[s].label}
                   </button>
                 ))}
-                <span className="hint">このスタイルのテロップすべてに効きます</span>
+                {order.length < MAX_STYLES && (
+                  <button type="button" className="minor" onClick={addStyle} title="雛形を1つ足す">
+                    ＋ 枠を足す
+                  </button>
+                )}
+                <span className="hint">
+                  この雛形のテロップすべてに効きます（今 {styleCounts[editingStyle] ?? 0} 枚）
+                </span>
+              </div>
+
+              {/*
+                足した枠は名前を変えたり消したりできる。
+                🔴 消せない3つ（通常・補足・強調）は、文字起こしの結果を
+                   割り当てる先なので、名前だけ変えられるようにしてある。
+              */}
+              <div className="row">
+                <label className="sub">枠の名前</label>
+                <input
+                  type="text"
+                  className="slotname"
+                  value={styles[editingStyle].label}
+                  maxLength={12}
+                  onChange={(e) => patchStyle(editingStyle, { label: e.target.value })}
+                  aria-label="この枠の名前"
+                />
+                {!isBuiltinStyle(editingStyle) && (
+                  <button type="button" className="minor" onClick={() => removeStyle(editingStyle)}>
+                    この枠を消す
+                  </button>
+                )}
+                <span className="hint">
+                  {isBuiltinStyle(editingStyle)
+                    ? '文字起こしから自動で割り当てられる枠です。消せません'
+                    : `${order.indexOf(editingStyle) + 1} キーでこのテロップに割り当てます`}
+                </span>
               </div>
 
               {/*
@@ -1301,49 +1482,119 @@ export function TelopScreen({
               </div>
 
               {/*
-                ── 次の動画からもこの見た目で始める ──
+                ── 見た目を名前を付けて覚えておく ──
                 毎回3つの雛形を設定し直すのは、テロップを直す作業そのものより長くなる。
                 「自分のテロップはいつもこれ」は素材ではなく人に紐づく設定なので、
                 作業フォルダではなくアプリ側に覚えさせる。
+
+                🔴 ひと組だけ上書きする形にしないこと。
+                   他の編集ソフト（Vrew の保存済み書式、Premiere Pro の Local styles、
+                   Final Cut Pro の 2D Styles）はどれも「名前を付けて何組でも持ち、
+                   一覧から選び直す」形になっている。動画のジャンルで使い分ける、
+                   案を2つ作って見比べる、がひと組だけだとできない。
               */}
-              {onSaveDefaults && (
+              {onLibraryChange && (
                 <>
                 <div className="row defaults">
-                  <label className="sub">次の動画から</label>
+                  <label className="sub">保存した見た目</label>
+                  {presets.length === 0 && <span className="hint">まだありません</span>}
+                  {presets.map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      className={preset.name === currentPreset ? 'on' : ''}
+                      onClick={() => usePreset(preset)}
+                      title={`「${preset.name}」を今の動画に当てます`}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
                   <button
                     type="button"
-                    onClick={saveDefaults}
+                    className="minor"
                     disabled={saving}
-                    title="今の3つの雛形を覚えます。次に別の動画を編集するとき、この見た目で始まります"
+                    onClick={() => {
+                      setPresetName(currentPreset ?? '');
+                      setNaming(true);
+                    }}
+                    title="今の見た目に名前を付けて覚えます"
                   >
-                    {saving ? '保存中…' : '今の見た目を既定にする'}
+                    ＋ 今の見た目を保存
                   </button>
-                  <span className="hint">
-                    {savedNote || '3つの雛形をまとめて覚えます。今の動画の見た目は変わりません'}
-                  </span>
+                  {currentPreset && (
+                    <button
+                      type="button"
+                      className="minor"
+                      onClick={() => deletePreset(currentPreset)}
+                      title={`「${currentPreset}」を一覧から消します`}
+                    >
+                      「{currentPreset}」を消す
+                    </button>
+                  )}
                   <span className="grow" />
-                  {/*
-                    🔴 確認を挟むこと。
-                       このボタンは「今の動画の雛形」と「覚えている既定」の両方を
-                       まとめて捨てる。押し間違い1回で、詰めた見た目が消える。
-                       すぐ左のヒントは「今の動画の見た目は変わりません」と
-                       **逆のことを言っている**ので、なおさら誤解しやすい。
-                  */}
                   <button
                     type="button"
                     className="minor"
                     onClick={() => setConfirmReset(true)}
-                    title="今の動画の雛形と、覚えている既定の両方を、アプリ最初の見た目に戻します"
+                    title="今の動画の雛形をアプリ最初の見た目に戻します。保存した見た目は消えません"
                   >
                     最初の見た目に戻す
                   </button>
                 </div>
 
+                <div className="row">
+                  <label className="sub" />
+                  <span className="hint">
+                    {savedNote ||
+                      '押すとその見た目を今の動画に当て、次の動画もそこから始まります'}
+                  </span>
+                </div>
+
+                {naming && (
+                  <div className="row naming">
+                    <label className="sub">名前を付けて</label>
+                    <input
+                      type="text"
+                      className="slotname"
+                      value={presetName}
+                      maxLength={20}
+                      autoFocus
+                      placeholder="例: 普段用 / 商品紹介用"
+                      onChange={(e) => setPresetName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          savePreset(presetName);
+                          setNaming(false);
+                        } else if (e.key === 'Escape') {
+                          setNaming(false);
+                        }
+                      }}
+                      aria-label="保存する見た目の名前"
+                    />
+                    <button
+                      type="button"
+                      disabled={!presetName.trim() || saving}
+                      onClick={() => {
+                        savePreset(presetName);
+                        setNaming(false);
+                      }}
+                    >
+                      保存する
+                    </button>
+                    <button type="button" className="minor" onClick={() => setNaming(false)}>
+                      やめる
+                    </button>
+                    <span className="hint">同じ名前で保存すると上書きします</span>
+                  </div>
+                )}
+
                 {confirmReset && (
                   <div className="row confirm-reset" role="alertdialog" aria-live="assertive">
                     <span>
-                      <strong>今の動画の雛形</strong>と<strong>覚えている既定</strong>の
-                      両方が、アプリ最初の見た目に戻ります。取り消せません。
+                      <strong>今の動画の雛形</strong>がアプリ最初の見た目に戻ります。
+                      次の動画も最初の見た目で始まります。
+                      <br />
+                      保存した見た目（{presets.length}組）は消えません。
                     </span>
                     <button
                       type="button"
@@ -1373,7 +1624,7 @@ export function TelopScreen({
         <span className="sep" />
         <kbd>Space</kbd> 一時停止 <kbd>R</kbd> 頭から再生
         <span className="sep" />
-        <kbd>1</kbd> 通常 <kbd>2</kbd> 補足 <kbd>3</kbd> 強調 <kbd>P</kbd> 位置 <kbd>Del</kbd> 削除{' '}
+        <kbd>1</kbd>〜<kbd>9</kbd> 雛形を変える <kbd>P</kbd> 位置 <kbd>Del</kbd> 削除{' '}
         <kbd>Ctrl</kbd>+<kbd>Z</kbd> 取消
         <span className="sep" />
         プレビューをドラッグで位置調整 / 「改行位置」の <kbd>·</kbd> で改行する場所を決められます

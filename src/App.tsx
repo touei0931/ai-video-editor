@@ -34,7 +34,13 @@ import {
   type TelopCard,
   type TelopUnit,
 } from './telop/split';
-import { DEFAULT_STYLES, sanitizeStyles, type TelopStyleName } from './telop/style';
+import {
+  DEFAULT_STYLES,
+  sanitizeLibrary,
+  sanitizeStyles,
+  type StyleLibrary,
+  type TelopStyleName,
+} from './telop/style';
 
 type Phase =
   | 'idle'
@@ -300,10 +306,11 @@ export function App() {
   const [finalState, setFinalState] = useState<TelopEdits | null>(null);
   /** 前回の続き。解析後に作業フォルダから読み込む */
   const [savedReview, setSavedReview] = useState<ReviewState | null>(null);
-  /** 本人が既定として覚えさせたテロップの見た目。新しい動画はここから始まる */
-  const [defaultStyles, setDefaultStyles] = useState<StyleMap>(() =>
-    structuredClone(DEFAULT_STYLES),
-  );
+  /**
+   * 名前を付けて覚えさせたテロップの見た目の一覧。
+   * 新しい動画は「今使う組」から始まる。無ければアプリ最初の見た目。
+   */
+  const [library, setLibrary] = useState<StyleLibrary>({ presets: [], current: null });
   /** 実際に読み込めた書体。選択肢をこれに絞る */
   const [fontFamilies, setFontFamilies] = useState<string[] | undefined>(undefined);
   const [resumed, setResumed] = useState(false);
@@ -393,19 +400,27 @@ export function App() {
       if (fonts.missing.length > 0) {
         console.error('読み込めなかったフォント:', fonts.missing);
       }
-      if (raw) setDefaultStyles(sanitizeStyles(raw, fonts.families));
+      if (raw) setLibrary(sanitizeLibrary(raw, fonts.families));
     })();
     return () => {
       alive = false;
     };
   }, [hasBridge]);
 
-  const saveDefaultStyles = useCallback(async (styles: StyleMap) => {
-    const ok = await window.app.saveTelopStyles(styles);
+  const saveLibrary = useCallback(async (next: StyleLibrary) => {
+    const ok = await window.app.saveTelopStyles(next);
     // 覚えた内容は、この場でも次の動画の出発点として持っておく
-    if (ok) setDefaultStyles(structuredClone(styles));
+    if (ok) setLibrary(structuredClone(next));
     return ok;
   }, []);
+
+  /** 新しい動画を始めるときの見た目。保存した組が無ければアプリ最初の見た目 */
+  const defaultStyles = useMemo(
+    () =>
+      library.presets.find((p) => p.name === library.current)?.styles ??
+      structuredClone(DEFAULT_STYLES),
+    [library],
+  );
 
   const measure = useMemo(() => (hasBridge ? makeMeasure() : null), [hasBridge]);
   const frame: Frame = useMemo(
@@ -1157,7 +1172,8 @@ export function App() {
           initialOptions={finalState?.options}
           initialRemoved={finalState?.removed}
           fontFamilies={fontFamilies}
-          onSaveDefaults={saveDefaultStyles}
+          library={library}
+          onLibraryChange={saveLibrary}
           videoPath={analysis.video_path}
           frame={frame}
           rewrap={rewrap}

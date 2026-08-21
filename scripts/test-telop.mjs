@@ -348,6 +348,101 @@ const at = (px) => (text, scale) => measure(text, px * scale);
   );
 }
 
+// ── 雛形の枠と、名前を付けて保存した見た目 ──────────────────
+
+{
+  const D = style.DEFAULT_STYLES;
+  const clean = (raw, known) => style.sanitizeStyles(raw, known);
+
+  check('消せない3つには名前が付いている', D.normal.label === '通常' && D.emphasis.label === '強調');
+
+  // 利用者が足した枠を受け取る
+  const withSlot = clean({
+    'slot-abc': { label: 'オノマトペ', fontFamily: 'DelaGothicOne', color: '#ff0000' },
+  });
+  check('足した枠を受け取る', withSlot['slot-abc']?.label === 'オノマトペ', JSON.stringify(Object.keys(withSlot)));
+  check(
+    '足した枠にも土台の値が入る（未定義のまま描かない）',
+    typeof withSlot['slot-abc'].fontSizeRatio === 'number' &&
+      typeof withSlot['slot-abc'].lineHeightRatio === 'number',
+    JSON.stringify(withSlot['slot-abc']),
+  );
+  check(
+    '消せない3つは必ず残る',
+    ['normal', 'note', 'emphasis'].every((n) => withSlot[n]),
+    JSON.stringify(Object.keys(withSlot)),
+  );
+  check('並び順は消せない3つが先', Object.keys(withSlot)[0] === 'normal');
+
+  // 上限
+  const many = {};
+  for (let i = 0; i < 30; i++) many[`slot-${i}`] = { label: `枠${i}` };
+  check(
+    `枠は ${style.MAX_STYLES} 個まで`,
+    Object.keys(clean(many)).length === style.MAX_STYLES,
+    String(Object.keys(clean(many)).length),
+  );
+
+  // 知らない枠を指しても描ける
+  const resolved = style.resolveStyle(D, 'slot-消えた枠');
+  check(
+    '消えた枠を指していても描ける（通常に寄せる）',
+    resolved.color === D.normal.color && typeof resolved.fontSizeRatio === 'number',
+    JSON.stringify({ color: resolved.color }),
+  );
+}
+
+{
+  const lib = (raw, known) => style.sanitizeLibrary(raw, known);
+
+  check('何も無ければ空', lib(null).presets.length === 0 && lib(null).current === null);
+
+  /*
+    🔴 名前を付けて保存できるようにする前の形（雛形ひと組がそのまま入っている）も
+       読めること。読めないと、それまで覚えさせた見た目が黙って消える。
+  */
+  const old = { normal: { fontFamily: 'ZenOldMincho', italic: true }, note: {}, emphasis: {} };
+  const migrated = lib(old, ['ZenKakuGothicNew', 'ZenOldMincho']);
+  check('古い形はひと組として引き継ぐ', migrated.presets.length === 1, JSON.stringify(migrated.presets.map((p) => p.name)));
+  check(
+    '引き継いだ中身も残る',
+    migrated.presets[0]?.styles.normal.fontFamily === 'ZenOldMincho' &&
+      migrated.presets[0]?.styles.normal.italic === true,
+  );
+  check('引き継いだ組がそのまま使われる', migrated.current === migrated.presets[0]?.name);
+
+  const two = lib({
+    presets: [
+      { name: '普段用', styles: { normal: { color: '#ffffff' } } },
+      { name: '商品紹介用', styles: { normal: { color: '#ffe14d' } } },
+    ],
+    current: '商品紹介用',
+  });
+  check('複数組を持てる', two.presets.length === 2, JSON.stringify(two.presets.map((p) => p.name)));
+  check('今使う組を覚えている', two.current === '商品紹介用');
+
+  check(
+    '名前の無い組は捨てる',
+    lib({ presets: [{ styles: {} }, { name: '  ', styles: {} }] }).presets.length === 0,
+  );
+  check(
+    '同じ名前は1つだけ',
+    lib({ presets: [{ name: 'A', styles: {} }, { name: 'A', styles: {} }] }).presets.length === 1,
+  );
+  check(
+    '知らない名前を指していたら先頭に寄せる',
+    lib({ presets: [{ name: 'A', styles: {} }], current: '無い名前' }).current === 'A',
+  );
+  const overflow = {
+    presets: Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, styles: {} })),
+  };
+  check(
+    `保存は ${style.MAX_PRESETS} 組まで`,
+    lib(overflow).presets.length === style.MAX_PRESETS,
+    String(lib(overflow).presets.length),
+  );
+}
+
 // ── 表示時刻の重なり ────────────────────────────────────────
 
 const card = (id, srcStart, srcEnd) => ({
