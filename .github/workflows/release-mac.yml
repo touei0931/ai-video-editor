@@ -103,6 +103,30 @@ jobs:
         #    ここで欲しいのは成果物（artifact）だけで、公開はしない。
         run: npm run dist:mac -- --publish never
 
+      # 🔴 署名が入らないまま .dmg を配ると、受け取った側で
+      #    「"PAC" は壊れているため開けません。ゴミ箱に入れる必要があります。」になる。
+      #    Apple Silicon は未署名の実行ファイルを起動できないため。
+      #    一度これで友達を止めてしまったので、ここで必ず検める。
+      - name: 署名が入っているか
+        run: |
+          APP="release/mac-arm64/PAC.app"
+          [ -d "$APP" ] || APP=$(find release -name '*.app' -maxdepth 3 | head -1)
+
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | tee /tmp/sign.txt
+          grep -q "Signature=adhoc" /tmp/sign.txt || {
+            echo "NG アドホック署名になっていない"; exit 1; }
+
+          # アプリから起動する実行ファイルも、それぞれ署名が要る。
+          for b in sidecar/sidecar ffmpeg/ffmpeg ffmpeg/ffprobe; do
+            codesign --verify --strict "$APP/Contents/Resources/$b" \
+              && echo "  ✓ $b" \
+              || { echo "  NG $b に署名が無い"; exit 1; }
+          done
+
+          # 未署名の状態がどう見えるかの記録も残す（spctl は公証が無いので落ちて当然）。
+          spctl -a -vv "$APP" 2>&1 | head -5 || true
+
       # 何が同梱されたかを残す。実機で「動かない」と言われたとき、
       # まずここを見れば同梱漏れかどうかが分かる。
       - name: 同梱物の一覧
