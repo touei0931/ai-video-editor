@@ -69,7 +69,14 @@ jobs:
       #    **サイドカーの入っていない .dmg** が黙って出来上がる。
       #    （実際にここで「No such file or directory」で止まった）
       - name: サイドカーを固める
-        run: pyinstaller packaging/sidecar.spec --noconfirm --distpath dist-sidecar --workpath build-sidecar
+        # 🔴 packaging/ の中で実行すること（build-sidecar-mac.yml と同じ）。
+        #    spec の pathex=[".."] は**実行時のカレントからの相対**なので、
+        #    リポジトリ直下で走らせるとリポジトリの外を指す。
+        #    その結果 sidecar パッケージが同梱されず、固めたバイナリが
+        #    ModuleNotFoundError: No module named 'sidecar' で落ちる。
+        working-directory: packaging
+        run: |
+          python -m PyInstaller sidecar.spec --noconfirm             --distpath ../dist-sidecar --workpath ../build-sidecar
 
       - name: 固めたものが想定の場所にあるか
         run: |

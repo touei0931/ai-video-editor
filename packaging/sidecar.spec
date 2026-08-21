@@ -6,7 +6,19 @@ onedir にする理由:
   推論ライブラリのような巨大な依存があると起動が数秒〜十数秒遅くなる。
   サイドカーはアプリ起動時に立ち上げっぱなしにするので、onedir が適切。
 
-    $ pyinstaller packaging/sidecar.spec --noconfirm
+🔴 **このフォルダの中で実行すること。**
+
+    $ cd packaging
+    $ pyinstaller sidecar.spec --noconfirm --distpath ../dist-sidecar --workpath ../build-sidecar
+
+    下の pathex=[".."] は**実行時のカレントからの相対**なので、
+    リポジトリ直下で走らせるとリポジトリの外を指す。すると sidecar パッケージが
+    同梱されず、固めたバイナリが起動時に
+    ModuleNotFoundError: No module named 'sidecar' で落ちる。
+    固める作業自体は成功してしまうので、**動かして初めて分かる**。
+
+    --distpath も必ず付ける。既定の dist/ は Vite の出力先なので、
+    そのあとの vite build に消される。
 """
 
 from PyInstaller.utils.hooks import collect_all
