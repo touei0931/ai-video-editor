@@ -139,6 +139,63 @@ export function drawTelop(ctx: Ctx2D, spec: TelopSpec, frame: Frame): void {
   ctx.restore();
 }
 
+/** 0〜1 の3つ組にする。#rrggbb 以外は白 */
+function toRgb(hex: string | undefined): [number, number, number] {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex ?? '');
+  if (!m) return [1, 1, 1];
+  return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255];
+}
+
+/** Final Cut Pro へ渡す見た目ひとつぶん */
+export interface FcpLook {
+  font: string;
+  font_face: string;
+  font_size: number;
+  color: [number, number, number];
+  italic: boolean;
+  stroke_color: [number, number, number] | null;
+  stroke_width: number;
+  position: [number, number];
+}
+
+/**
+ * 描くときのスタイルを、Final Cut Pro のタイトルの見た目に写す。
+ *
+ * 🔴 完全には一致しない。
+ *    こちらは Canvas に自前で描いていて、向こうは Basic Title という別の部品。
+ *    行送り・縁取りの角の丸め・字間の扱いが違うので、**近い見た目**までしか行かない。
+ *    それでも「文字と時間だけ」よりはるかにマシで、向こうで直す量が減る。
+ *
+ * 位置は、こちらの「基準線の高さ」から中心座標に直したもの。
+ * Final Cut の座標は画面中央が原点で、上が正。
+ */
+export function fcpLook(
+  style: TelopSpec['style'],
+  position: TelopSpec['position'],
+  frame: Frame,
+  macFont: { font: string; face: string },
+  offsetX = 0,
+  offsetY = 0,
+): FcpLook {
+  const fontSize = telopFontSize(style, frame);
+  const ratio = POSITION_RATIO[position] + offsetY;
+  return {
+    font: macFont.font,
+    font_face: macFont.face,
+    font_size: fontSize,
+    color: toRgb(style.color),
+    italic: Boolean(style.italic),
+    stroke_color: style.stroke ? toRgb(style.stroke.color) : null,
+    // Canvas 側は lineWidth を2倍にして「見た目の太さ」を fontSize*widthRatio に合わせている。
+    // Final Cut の strokeWidth はその見た目の太さそのものなので、同じ値を渡す。
+    stroke_width: style.stroke ? Math.round(fontSize * style.stroke.widthRatio * 100) / 100 : 0,
+    position: [
+      Math.round(frame.width * offsetX * 10) / 10,
+      Math.round(frame.height * (0.5 - ratio) * 10) / 10,
+    ],
+  };
+}
+
 /** 区切りの列から素のテキストを取り出す。 */
 export function lineText(line: TelopLine): string {
   return typeof line === 'string' ? line : line.map((s) => s.text).join('');

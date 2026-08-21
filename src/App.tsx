@@ -23,7 +23,8 @@ import {
   type StyleMap,
   type TelopEdits,
 } from './telop/TelopScreen';
-import { loadTelopFonts } from './telop/fonts';
+import { loadTelopFonts, macFontOf } from './telop/fonts';
+import { fcpLook, type FcpLook } from './telop/render';
 import { renderBlank, renderTelopPngs } from './telop/rasterize';
 import {
   buildCards,
@@ -36,6 +37,7 @@ import {
 } from './telop/split';
 import {
   DEFAULT_STYLES,
+  resolveStyle,
   sanitizeLibrary,
   sanitizeStyles,
   type StyleLibrary,
@@ -112,6 +114,8 @@ interface ExportResult {
   telop_count: number;
   srt_path: string | null;
   fcpxml_path: string | null;
+  /** Final Cut 用のタイムラインの隣に置いた書体のフォルダ */
+  font_dir?: string | null;
   encoder_fallback: boolean;
   segments: number;
   size_mb: number;
@@ -1048,8 +1052,31 @@ export function App() {
       }
 
       try {
-        let telops: { src_start: number; src_end: number; text: string; png: string }[] = [];
+        let telops: {
+          src_start: number;
+          src_end: number;
+          text: string;
+          png: string;
+          look?: FcpLook;
+        }[] = [];
         let blankPng = '';
+
+        /*
+          Final Cut Pro へ渡すときの見た目。
+          🔴 書体は macOS の書体名で書くこと。ctx.font 用の名前をそのまま書くと、
+             Final Cut はその書体を知らないので**警告も出さずに別の書体で開く**。
+        */
+        const lookOf = (c: TelopCard) => {
+          const resolved = resolveStyle(styles, c.style, c.override, c.fontScale);
+          return fcpLook(
+            resolved,
+            c.positionOverride ?? resolved.position,
+            frame,
+            macFontOf(resolved.fontFamily, resolved.bold),
+            c.offsetX,
+            c.offsetY,
+          );
+        };
 
         if (finalCards.length > 0 && options.burn) {
           const dir = `${analysis.work_dir}/telops`;
@@ -1071,6 +1098,7 @@ export function App() {
             src_end: c.srcEnd,
             text: c.lines.join(NEWLINE),
             png: saved[rendered[i].name],
+            look: lookOf(c),
           }));
         } else if (finalCards.length > 0) {
           // 焼き込まない場合でも、字幕ファイルを出すために時刻と文言は渡す
@@ -1079,6 +1107,7 @@ export function App() {
             src_end: c.srcEnd,
             text: c.lines.join(NEWLINE),
             png: '',
+            look: lookOf(c),
           }));
         }
 
@@ -1097,6 +1126,26 @@ export function App() {
           write_srt: options.srt,
           write_fcpxml: options.fcpxml,
         })) as ExportResult;
+        /*
+          Final Cut 用のタイムラインを出したなら、使った書体も隣に置く。
+          🔴 置かないと、その Mac に同梱書体が入っていない限り
+             Final Cut は**警告も出さずに別の書体で開く**。
+             書き出したあとに本人が気づく手段が無い。
+        */
+        if (options.fcpxml && result.fcpxml_path && finalCards.length > 0) {
+          const used = [
+            ...new Set(
+              finalCards.map((c) => {
+                const resolved = resolveStyle(styles, c.style, c.override, c.fontScale);
+                return macFontOf(resolved.fontFamily, resolved.bold).file;
+              }),
+            ),
+          ];
+          const dir = await window.app
+            .exportFonts({ nextTo: result.fcpxml_path, files: used })
+            .catch(() => null);
+          if (dir) result.font_dir = dir;
+        }
         setExported(result);
         setPhase('done');
       } catch (e) {
@@ -1425,8 +1474,30 @@ export function App() {
                   <br />
                   <span className="muted">
                     Final Cut Pro のファイル →「読み込む」→「XML…」から開くと、
-                    カットした状態のタイムラインになります。
+                    カットした状態のタイムラインになります。テロップの書体・色・
+                    大きさ・位置もそのまま入ります。
                   </span>
+                  {/*
+                    🔴 同梱書体はアプリの中にしか無い。入れてもらわないと、
+                       Final Cut は警告も出さずに別の書体で開く。
+                       ここで言わないと、書き出したあとに気づく手段が無い。
+                  */}
+                  {exported.font_dir && (
+                    <>
+                      <br />
+                      <strong className="fontnote">
+                        先に、隣の「_フォント」フォルダの中の書体を入れてください。
+                      </strong>
+                      <br />
+                      <span className="muted">
+                        入れないとテロップの書体だけ別のものになります（色・大きさ・位置は合います）。
+                        入れるのは最初の1回だけです。
+                      </span>{' '}
+                      <button className="link" onClick={() => window.app.revealFile(exported.font_dir!)}>
+                        フォルダを開く
+                      </button>
+                    </>
+                  )}
                 </dd>
               </>
             )}

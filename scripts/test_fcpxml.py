@@ -143,6 +143,74 @@ def main() -> int:
             f"テロップ {got:.3f}秒 / クリップ {c_start:.3f}〜{c_end:.3f}秒",
         )
 
+        # ── 見た目（書体・太さ・色・縁・位置）────────────
+        #
+        # 🔴 同梱書体は macOS の書体名で書くこと。
+        #    ctx.font 用の名前（ZenKakuGothicNew）を書くと、Final Cut は
+        #    その書体を知らないので**警告も出さずに別の書体で開く**。
+        look_a = {
+            "font": "Zen Kaku Gothic New",
+            "font_face": "Black",
+            "font_size": 163,
+            "color": [1.0, 1.0, 1.0],
+            "stroke_color": [0.0, 0.0, 0.0],
+            "stroke_width": 6.0,
+            "position": [0.0, 384.0],
+        }
+        look_b = {**look_a, "font": "Zen Old Mincho", "font_face": "Bold", "italic": True}
+
+        out3 = str(Path(tmp) / "look.fcpxml")
+        write_fcpxml(out3, str(video), keeps, fps=30, width=1080, height=1920,
+                     duration=duration, telops=[
+                         {"src_start": 2.0, "src_end": 4.0, "text": "あ", "look": look_a},
+                         {"src_start": 8.0, "src_end": 10.0, "text": "い", "look": look_a},
+                         {"src_start": 12.0, "src_end": 14.0, "text": "う", "look": look_b},
+                     ])
+        root3 = ET.parse(out3).getroot()
+        defs = root3.findall(".//text-style-def")
+        check("同じ見た目はまとめて1つの定義", len(defs) == 2, f"{len(defs)} 個")
+
+        st = defs[0].find("text-style")
+        check("書体は macOS の名前", st.get("font") == "Zen Kaku Gothic New", str(st.get("font")))
+        check("太さは fontFace で指定", st.get("fontFace") == "Black", str(st.get("fontFace")))
+        check(
+            "太字フラグは立てない（実物の太字をさらに太らせない）",
+            st.get("bold") is None,
+            str(st.get("bold")),
+        )
+        check("大きさが入る", st.get("fontSize") == "163", str(st.get("fontSize")))
+        check("色は 0〜1 の4つ組", st.get("fontColor").startswith("1.0000 1.0000 1.0000"), str(st.get("fontColor")))
+        check("縁の色と太さが入る", st.get("strokeColor") is not None and st.get("strokeWidth") == "6.00",
+              f"{st.get('strokeColor')} / {st.get('strokeWidth')}")
+
+        st2 = defs[1].find("text-style")
+        check("斜体は italic で指定（日本語に実物が無いため）", st2.get("italic") == "1", str(st2.get("italic")))
+        check("別の書体は別の定義になる", st2.get("font") == "Zen Old Mincho", str(st2.get("font")))
+
+        titles = root3.findall(".//title")
+        refs = [t.find("text/text-style").get("ref") for t in titles]
+        check("同じ見た目のテロップは同じ定義を指す", refs[0] == refs[1] and refs[0] != refs[2], str(refs))
+
+        params = titles[0].findall("param")
+        check(
+            "位置のパラメータが入る",
+            any(x.get("name") == "Position" and x.get("value") == "0.0 384.0" for x in params),
+            str([(x.get("name"), x.get("value")) for x in params]),
+        )
+
+        # 見た目を渡さなくても壊れないこと（古い呼び出し方）
+        out4 = str(Path(tmp) / "nolook.fcpxml")
+        write_fcpxml(out4, str(video), keeps, fps=30, width=1080, height=1920,
+                     duration=duration, telops=[{"src_start": 2.0, "src_end": 4.0, "text": "あ"}])
+        root4 = ET.parse(out4).getroot()
+        st4 = root4.find(".//text-style-def/text-style")
+        check("見た目を渡さなくても定義は出る", st4 is not None and st4.get("fontSize") is not None,
+              ET.tostring(st4).decode() if st4 is not None else "なし")
+        check(
+            "見た目を渡さなければ位置も入れない",
+            root4.find(".//title/param") is None,
+        )
+
         # ── テロップ無し ──────────────────────────────
         out2 = str(Path(tmp) / "notelop.fcpxml")
         write_fcpxml(out2, str(video), keeps, fps=30, width=1920, height=1080,

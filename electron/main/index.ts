@@ -1,10 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
-import { dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import {
   createReadStream,
   existsSync,
   mkdirSync,
   readFileSync,
+  rmdirSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -485,6 +486,78 @@ ipcMain.handle('app:saveTelopStyles', (_e, styles: unknown) => {
 ipcMain.handle('app:revealFile', (_e, filePath: string) => {
   shell.showItemInFolder(filePath);
 });
+
+/**
+ * Final Cut Pro 用のタイムラインの隣に、使った書体のファイルを置く。
+ *
+ * 🔴 同梱書体は**アプリの中にしか無い**。
+ *    タイムラインに font="Zen Kaku Gothic New" と書いても、
+ *    その Mac に入っていなければ Final Cut は警告も出さずに別の書体で開く
+ *    （たいていヒラギノ）。書き出したあと本人が気づく手段が無い。
+ *    一緒に置いて、一度だけ Font Book に入れてもらう。
+ *
+ * 🔴 実際に使った書体だけを置くこと。4書体7ファイルで 24MB あり、
+ *    毎回全部置くと書き出し先が重くなるうえ、入れる手間も増える。
+ */
+ipcMain.handle(
+  'app:exportFonts',
+  (_e, payload: { nextTo: string; files: string[] }) => {
+    const target = join(dirname(payload.nextTo), `${basename(payload.nextTo, extname(payload.nextTo))}_フォント`);
+    // 🔴 元からあったフォルダかを覚えておく。
+    //    無いときだけ後片付けしてよい（下の rmdirSync の理由）。
+    const existed = existsSync(target);
+    try {
+      mkdirSync(target, { recursive: true });
+      const copied: string[] = [];
+      for (const name of [...new Set(payload.files)]) {
+        // 渡された名前をそのままパスに使わない。フォルダを抜けられてしまう
+        const safe = basename(name);
+        const from = join(appRoot(), 'dist', 'fonts', safe);
+        if (!existsSync(from)) continue;
+        // asar の中から読むので、copyFile ではなく読み書きで確実に取り出す
+        writeFileSync(join(target, safe), readFileSync(from));
+        copied.push(safe);
+      }
+      if (copied.length === 0) {
+        /*
+          🔴 中身ごと消す（recursive）ことは絶対にしない。
+
+          前回の書き出しで置いた書体が入っていても、まとめて消えてしまう。
+          「2本目の書き出しで1つ書体が見つからなかった」だけで、
+          1本目のぶんまで消える。しかも本人は気づかない。
+          このとき作ったばかりの空フォルダだけを、空のときに限って片付ける。
+        */
+        if (!existed) {
+          try {
+            rmdirSync(target);
+          } catch {
+            // 空でなければ残す。消してよいものか判断できない
+          }
+        }
+        return null;
+      }
+
+      const notice =
+        'このフォルダのフォントについて\n' +
+        '\n' +
+        '同じ場所にある .fcpxml を Final Cut Pro で開く前に、\n' +
+        'ここにある .ttf ファイルを **すべて選んでダブルクリック** し、\n' +
+        '出てきた窓の「インストール」を押してください（Font Book が開きます）。\n' +
+        '\n' +
+        '入れないと、テロップの書体だけ別のもの（ヒラギノなど）に置き換わります。\n' +
+        '色・大きさ・位置は入れなくても合います。\n' +
+        '\n' +
+        '入れるのは最初の1回だけです。次からは同じ書体が使えます。\n' +
+        '\n' +
+        'これらのフォントは SIL Open Font License 1.1 で配布されているものです。\n';
+      writeFileSync(join(target, 'お読みください.txt'), notice, 'utf8');
+      return target;
+    } catch (e) {
+      recordFailure('exportFonts', e, { nextTo: payload.nextTo });
+      return null;
+    }
+  },
+);
 
 /**
  * SMOKE_TEST=1 で起動すると、ウィンドウを出さずに

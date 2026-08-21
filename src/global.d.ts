@@ -64,6 +64,8 @@ declare global {
       }) => Promise<'resume' | 'fresh' | 'cancel'>;
       revealFile: (filePath: string) => Promise<void>;
       uiInfo: () => Promise<{ isMac: boolean }>;
+      /** Final Cut 用のタイムラインの隣に書体を置く。置いたフォルダを返す */
+      exportFonts: (payload: { nextTo: string; files: string[] }) => Promise<string | null>;
       /** 保存してある既定。形は信用できないので sanitizeStyles を通すこと */
       loadTelopStyles: () => Promise<unknown | null>;
       saveTelopStyles: (styles: unknown) => Promise<boolean>;

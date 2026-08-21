@@ -29,8 +29,17 @@ export interface TelopFamily {
   family: string;
   /** 画面に出す名前 */
   label: string;
-  /** 太さごとのファイル */
-  faces: { weight: number; url: string }[];
+  /**
+   * macOS の書体名。Final Cut Pro へ渡すタイムラインにはこちらを書く。
+   *
+   * 🔴 ctx.font 用の名前（空白なし）をそのまま書かないこと。
+   *    Final Cut は「ZenKakuGothicNew」という書体を知らないので、
+   *    **警告も出さずに別の書体で開く**（たいていヒラギノ）。
+   *    OS が持つ書体名は空白入りの「Zen Kaku Gothic New」。
+   */
+  macFamily: string;
+  /** 太さごとのファイル。face は macOS 側のスタイル名（Final Cut の fontFace） */
+  faces: { weight: number; url: string; face: string }[];
 }
 
 /**
@@ -44,25 +53,28 @@ export const TELOP_FAMILIES: TelopFamily[] = [
   {
     family: 'ZenKakuGothicNew',
     label: 'ゴシック体',
+    macFamily: 'Zen Kaku Gothic New',
     faces: [
-      { weight: NORMAL_WEIGHT, url: './fonts/ZenKakuGothicNew-Regular.ttf' },
-      { weight: BOLD_WEIGHT, url: './fonts/ZenKakuGothicNew-Black.ttf' },
+      { weight: NORMAL_WEIGHT, url: './fonts/ZenKakuGothicNew-Regular.ttf', face: 'Regular' },
+      { weight: BOLD_WEIGHT, url: './fonts/ZenKakuGothicNew-Black.ttf', face: 'Black' },
     ],
   },
   {
     family: 'ZenMaruGothic',
     label: '丸ゴシック体',
+    macFamily: 'Zen Maru Gothic',
     faces: [
-      { weight: NORMAL_WEIGHT, url: './fonts/ZenMaruGothic-Regular.ttf' },
-      { weight: BOLD_WEIGHT, url: './fonts/ZenMaruGothic-Black.ttf' },
+      { weight: NORMAL_WEIGHT, url: './fonts/ZenMaruGothic-Regular.ttf', face: 'Regular' },
+      { weight: BOLD_WEIGHT, url: './fonts/ZenMaruGothic-Black.ttf', face: 'Black' },
     ],
   },
   {
     family: 'ZenOldMincho',
     label: '明朝体',
+    macFamily: 'Zen Old Mincho',
     faces: [
-      { weight: NORMAL_WEIGHT, url: './fonts/ZenOldMincho-Regular.ttf' },
-      { weight: BOLD_WEIGHT, url: './fonts/ZenOldMincho-Bold.ttf' },
+      { weight: NORMAL_WEIGHT, url: './fonts/ZenOldMincho-Regular.ttf', face: 'Regular' },
+      { weight: BOLD_WEIGHT, url: './fonts/ZenOldMincho-Bold.ttf', face: 'Bold' },
     ],
   },
   {
@@ -70,7 +82,8 @@ export const TELOP_FAMILIES: TelopFamily[] = [
     // 太字を選ぶと輪郭を太らせた偽の太字になるので、画面でその旨を出す。
     family: 'DelaGothicOne',
     label: 'インパクト',
-    faces: [{ weight: NORMAL_WEIGHT, url: './fonts/DelaGothicOne-Regular.ttf' }],
+    macFamily: 'Dela Gothic One',
+    faces: [{ weight: NORMAL_WEIGHT, url: './fonts/DelaGothicOne-Regular.ttf', face: 'Regular' }],
   },
 ];
 
@@ -132,4 +145,23 @@ export function loadTelopFonts(): Promise<LoadedFonts> {
   })();
 
   return loaded;
+}
+
+/**
+ * Final Cut Pro へ渡すときの書体の指定。
+ *
+ * 🔴 同梱書体は**アプリの中にしか無い**。友達の Mac に入っていなければ、
+ *    Final Cut は警告も出さずに別の書体で開く。
+ *    書き出しのときにフォントファイルも一緒に置いて、
+ *    一度だけ入れてもらう（docs/はじめての使い方.md）。
+ */
+export function macFontOf(
+  family: string,
+  bold?: boolean,
+): { font: string; face: string; file: string } {
+  const found = TELOP_FAMILIES.find((f) => f.family === family) ?? TELOP_FAMILIES[0];
+  const want = bold ? BOLD_WEIGHT : NORMAL_WEIGHT;
+  // 太字の実物が無い書体では、普通の太さのファイルを指す（画面と同じ扱い）
+  const face = found.faces.find((f) => f.weight === want) ?? found.faces[0];
+  return { font: found.macFamily, face: face.face, file: face.url.replace('./fonts/', '') };
 }

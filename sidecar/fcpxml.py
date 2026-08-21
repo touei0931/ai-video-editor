@@ -69,6 +69,59 @@ def _dur(seconds: float, num: int, den: int) -> str:
     return f"{frames * den}/{num}s"
 
 
+def _rgba(color: Any, fallback: str = "1 1 1 1") -> str:
+    """[r, g, b](0〜1) を FCPXML の色表記にする。"""
+    if not isinstance(color, (list, tuple)) or len(color) < 3:
+        return fallback
+    try:
+        r, g, b = (max(0.0, min(1.0, float(c))) for c in color[:3])
+    except (TypeError, ValueError):
+        return fallback
+    return f"{r:.4f} {g:.4f} {b:.4f} 1"
+
+
+def _style_key(look: dict[str, Any]) -> tuple[Any, ...]:
+    """同じ見た目をまとめるための鍵。"""
+    return (
+        look.get("font"),
+        look.get("font_face"),
+        int(round(float(look.get("font_size") or 72))),
+        _rgba(look.get("color")),
+        bool(look.get("italic")),
+        _rgba(look.get("stroke_color"), ""),
+        round(float(look.get("stroke_width") or 0), 2),
+    )
+
+
+def _text_style_def(sid: str, look: dict[str, Any]) -> str:
+    """見た目ひとつぶんの定義。
+
+    🔴 太字は bold="1" ではなく fontFace で指定すること。
+       同梱書体は太さの実物を別ファイルで持っている（Black / Bold）。
+       そこへ bold="1" を足すと、Final Cut が**太い字をさらに太らせる**ので、
+       画面で見ていたものより明らかに重い字になる。
+       斜体だけは実物が無いので italic="1"（傾けて作る）で合っている。
+    """
+    attrs = [
+        f'font="{html.escape(str(look.get("font") or "Hiragino Sans"))}"',
+        f'fontSize="{int(round(float(look.get("font_size") or 72)))}"',
+        f'fontColor="{_rgba(look.get("color"))}"',
+        'alignment="center"',
+    ]
+    face = look.get("font_face")
+    if face:
+        attrs.insert(1, f'fontFace="{html.escape(str(face))}"')
+    if look.get("italic"):
+        attrs.append('italic="1"')
+    stroke = _rgba(look.get("stroke_color"), "")
+    width = float(look.get("stroke_width") or 0)
+    if stroke and width > 0:
+        # Final Cut の strokeWidth は外向きが正
+        attrs.append(f'strokeColor="{stroke}"')
+        attrs.append(f'strokeWidth="{width:.2f}"')
+    return f'          <text-style-def id="{sid}"><text-style {" ".join(attrs)}/></text-style-def>'
+
+
 def write_fcpxml(
     out_path: str,
     video_path: str,
@@ -83,9 +136,12 @@ def write_fcpxml(
     """残す区間を並べたタイムラインを FCPXML で書き出す。
 
     telops を渡すと、字幕トラックとしてタイトルを乗せる。
-    位置やフォントまでは再現しない——
-    再現できないものを中途半端に持ち込むと、編集ソフト側で直す手間が増える。
-    文言と時刻だけを渡し、見た目は向こうで作ってもらう。
+    書体・大きさ・色・縁取り・位置まで写す。
+
+    🔴 同梱書体は**アプリの中にしか無い**。友達の Mac に入っていなければ、
+       Final Cut は警告も出さずに別の書体で開く。
+       書き出しのときにフォントファイルも一緒に置いて、一度だけ入れてもらう
+       （electron/main の app:exportFonts と docs/はじめての使い方.md）。
     """
     num, den = _rate(fps)
     src = Path(video_path).resolve()
@@ -149,21 +205,46 @@ def write_fcpxml(
                 return base + int(round((t - s) * num / den))
         return frame
 
+    # 見た目は同じものが何度も出てくる（雛形は数種類しかない）。
+    # 定義をまとめて、タイトルからは id で参照する。
+    style_defs: list[str] = []
+    style_ids: dict[tuple[Any, ...], str] = {}
+
     for i, tel in enumerate(telops or []):
         start = to_frame(float(tel["src_start"]))
         end = to_frame(float(tel["src_end"]))
         if end - start < 1:
             continue
-        text = html.escape(str(tel.get("text", "")).replace("\n", " "))
+        text = html.escape(str(tel.get("text", "")).replace(chr(10), " "))
         if not text:
             continue
+
+        look = tel.get("look") or {}
+        key = _style_key(look)
+        sid = style_ids.get(key)
+        if sid is None:
+            sid = f"ts{len(style_ids) + 1}"
+            style_ids[key] = sid
+            style_defs.append(_text_style_def(sid, look))
+
         lines.append(
             f'            <title name="telop{i + 1}" lane="1"'
             f' offset="{start * den}/{num}s"'
             f' duration="{(end - start) * den}/{num}s"'
             ' ref="r2" role="titles">'
         )
-        lines.append(f'              <text><text-style ref="ts1">{text}</text-style></text>')
+        # 位置。Final Cut の座標は画面中央が原点で、上が正。
+        # 🔴 key は Basic Title の Position パラメータのもの。
+        #    知らないパラメータは読み飛ばされるので、合わなくても
+        #    読み込みそのものは失敗しない（中央に出るだけ）。
+        pos = look.get("position")
+        if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+            lines.append(
+                '              <param name="Position"'
+                ' key="9999/999166631/999166633/1/100/101"'
+                f' value="{float(pos[0]):.1f} {float(pos[1]):.1f}"/>'
+            )
+        lines.append(f'              <text><text-style ref="{sid}">{text}</text-style></text>')
         lines.append("            </title>")
 
     lines += [
@@ -176,7 +257,7 @@ def write_fcpxml(
     ]
 
     # タイトルを使うなら、その定義（effect）が resources に要る
-    if telops:
+    if style_defs:
         effect = (
             '    <effect id="r2" name="Basic Title"'
             ' uid=".../Titles.localized/Bumper:Opener.localized/'
@@ -184,12 +265,9 @@ def write_fcpxml(
         )
         at = lines.index("  </resources>")
         lines.insert(at, effect)
-        style = (
-            '          <text-style-def id="ts1">'
-            '<text-style font="Hiragino Sans" fontSize="72" fontColor="1 1 1 1"'
-            ' bold="1" alignment="center"/></text-style-def>'
-        )
-        lines.insert(lines.index("          <spine>"), style)
+        at = lines.index("          <spine>")
+        for offset, definition in enumerate(style_defs):
+            lines.insert(at + offset, definition)
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     Path(out_path).write_text("\n".join(lines) + "\n", encoding="utf-8")

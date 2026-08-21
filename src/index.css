@@ -216,3 +216,8 @@ button:disabled {
   font-size: 12px;
   text-align: center;
 }
+
+/* 書き出し後の注意書き。読み飛ばされると Final Cut で書体が変わる */
+.fontnote {
+  color: #ffd479;
+}

@@ -48,7 +48,10 @@ contextBridge.exposeInMainWorld('app', {
     ipcRenderer.invoke('app:confirmResume', info),
   revealFile: (filePath: string) => ipcRenderer.invoke('app:revealFile', filePath),
   uiInfo: () => ipcRenderer.invoke('app:uiInfo'),
-  /** テロップの見た目の既定（書体・太さ・色・位置）。素材ではなく人に紐づく設定 */
+  /** Final Cut 用のタイムラインの隣に、使った書体のファイルを置く */
+  exportFonts: (payload: { nextTo: string; files: string[] }) =>
+    ipcRenderer.invoke('app:exportFonts', payload),
+  /** テロップの見た目（書体・太さ・色・位置）。素材ではなく人に紐づく設定 */
   loadTelopStyles: () => ipcRenderer.invoke('app:loadTelopStyles'),
   saveTelopStyles: (styles: unknown) => ipcRenderer.invoke('app:saveTelopStyles', styles),
   /** 画面の段階を知らせる。メニューの有効/無効はこれで決まる */
