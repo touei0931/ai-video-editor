@@ -48,6 +48,13 @@ jobs:
       - name: フォントを取得
         run: python scripts/fetch_fonts.py
 
+      # 同梱 ffmpeg が何を持っているか。落ちたときの切り分けはここを見る
+      - name: 同梱 ffmpeg の H.264 エンコーダ
+        run: |
+          ./vendor/ffmpeg/ffmpeg -hide_banner -encoders | grep -i 264 || echo "(H.264 エンコーダなし)"
+          echo "--- videotoolbox を実際に叩いてみる ---"
+          ./vendor/ffmpeg/ffmpeg -hide_banner -loglevel error             -f lavfi -i color=c=black:s=320x240:d=0.2             -c:v h264_videotoolbox -b:v 2M -g 15 -f null -             && echo "videotoolbox: 使える" || echo "videotoolbox: 使えない"
+
       # 🔴 渡す前に、Mac で実際に動くところまで確かめる。
       #    レビュー用クリップは Mac だけ全滅していたことがあるので、必ず通す。
       - name: レビュー用クリップが作れるか

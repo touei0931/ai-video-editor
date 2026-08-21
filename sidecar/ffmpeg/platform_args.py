@@ -128,11 +128,15 @@ def available_review_clip_args(ffmpeg: str) -> tuple[list[str], str]:
 # ── 実際に使えるものを選ぶ ────────────────────────────────────
 
 
-def _probe(ffmpeg: str, args: list[str]) -> bool:
+def _probe(ffmpeg: str, args: list[str]) -> tuple[bool, str]:
     """短いダミー映像を実際にエンコードしてみて、通るかどうかを確かめる。
 
     プローブ解像度を小さくしすぎないこと。NVENC には最小サイズの制約があり、
     64x64 だと「使えない」と誤判定してハードウェアエンコーダを取りこぼす。
+
+    戻り値は (使えたか, 使えなかった理由)。
+    🔴 理由を捨てないこと。同梱 ffmpeg にエンコーダが無いのか、
+       有るけれどこの機械では動かないのかで、対処がまったく違う。
     """
     result = subprocess.run(
         [ffmpeg, "-hide_banner", "-loglevel", "error",
@@ -140,18 +144,25 @@ def _probe(ffmpeg: str, args: list[str]) -> bool:
          *args, "-f", "null", "-"],
         capture_output=True, text=True,
     )
-    return result.returncode == 0
+    if result.returncode == 0:
+        return True, ""
+    # ffmpeg のエラーは複数行になる。最後の中身のある行がいちばん具体的
+    lines = [ln.strip() for ln in (result.stderr or "").splitlines() if ln.strip()]
+    return False, lines[-1] if lines else f"終了コード {result.returncode}"
 
 
 def _first_available(
     ffmpeg: str, candidates: list[tuple[str, list[str]]]
 ) -> tuple[list[str], str]:
+    reasons: list[str] = []
     for name, args in candidates:
-        if _probe(ffmpeg, args):
+        ok, why = _probe(ffmpeg, args)
+        if ok:
             return args, name
+        reasons.append(f"{name}: {why}")
     raise RuntimeError(
         "使えるエンコーダがありません。同梱の ffmpeg の構成を確認してください "
-        "（python scripts/verify_ffmpeg.py）"
+        "（python scripts/verify_ffmpeg.py）\n  " + "\n  ".join(reasons)
     )
 
 
