@@ -48,6 +48,30 @@ export interface ExportOptions {
   fcpxml: boolean;
 }
 
+/**
+ * 画面の好み（音を消す・自動再生しない）を覚えておく。
+ *
+ * 🔴 素材ではなく人に紐づく好みなので、下書きには入れない。
+ *    毎回押し直させると、400枚を触る画面では地味に効く。
+ *    localStorage が使えない環境でも、既定で動けばよい（落とさない）。
+ */
+function loadPref(key: string, fallback: boolean): boolean {
+  try {
+    const saved = window.localStorage.getItem(key);
+    return saved === null ? fallback : saved === '1';
+  } catch {
+    return fallback;
+  }
+}
+
+function savePref(key: string, value: boolean): void {
+  try {
+    window.localStorage.setItem(key, value ? '1' : '0');
+  } catch {
+    // 覚えられなくても編集そのものには影響しない
+  }
+}
+
 /** 一覧の絞り込み。並び順がそのまま画面のボタンの並びになる */
 const FILTERS: { id: string; label: string; hint: string }[] = [
   { id: 'all', label: 'すべて', hint: '全部のテロップを出す' },
@@ -206,6 +230,17 @@ export function TelopScreen({
   /** 一覧の絞り込みと本文の検索 */
   const [filter, setFilter] = useState<string>('all');
   const [query, setQuery] = useState('');
+  /**
+   * プレビューの音と自動再生。
+   *
+   * 🔴 止める手段が要る。
+   *    テロップを1枚選ぶたびに 2.5 秒前から繰り返し再生していたので、
+   *    400枚を流し読みする間ずっと音が鳴り続けていた。
+   *    実際に音を聞きたいのは「要確認」の数十枚だけで、
+   *    残りは文字を見るだけで済む。
+   */
+  const [muted, setMuted] = useState(() => loadPref('telop.muted', false));
+  const [autoPlay, setAutoPlay] = useState(() => loadPref('telop.autoPlay', true));
   const [exportOptions, setExportOptions] = useState<ExportOptions>(
     () => initialOptions ?? { burn: true, srt: true, fcpxml: false },
   );
@@ -814,6 +849,7 @@ export function TelopScreen({
   // 元素材の該当箇所を、前後の会話込みでループ再生し、その上に Canvas で描く。
   const windowStart = Math.max(0, (current?.srcStart ?? 0) - LEAD_IN);
   const windowEnd = (current?.srcEnd ?? 0) + TAIL;
+  /** 頭出しして再生する。R キーとボタンから呼ぶ（自動再生の設定に関わらず鳴る） */
   const restart = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -822,9 +858,23 @@ export function TelopScreen({
     void video.play().catch(() => undefined);
   }, [windowStart]);
 
+  /** テロップを選び直したときの頭出し。自動再生を切っていれば止めたまま */
+  const cue = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = windowStart;
+    if (autoPlay) void video.play().catch(() => undefined);
+    else video.pause();
+  }, [windowStart, autoPlay]);
+
   useEffect(() => {
-    if (current) restart();
-  }, [current?.id, restart]);
+    if (current) cue();
+  }, [current?.id, cue]);
+
+  // 音を消す設定は video 要素へそのまま渡す（属性だけでは切り替わらない）
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = muted;
+  }, [muted]);
 
   /**
    * 再生位置に応じて、テロップの表示/非表示と再生バーを更新する。
@@ -1230,7 +1280,8 @@ export function TelopScreen({
               src={`media://local/${encodeURIComponent(videoPath.replace(/\\/g, '/'))}`}
               playsInline
               preload="auto"
-              onLoadedMetadata={restart}
+              muted={muted}
+              onLoadedMetadata={cue}
             />
             {/*
               テロップは表示区間の間だけ出す。
@@ -1247,6 +1298,48 @@ export function TelopScreen({
               <span className="band top" style={{ height: `${SAFE_AREA_RATIO.top * 100}%` }} />
               <span className="band bottom" style={{ height: `${SAFE_AREA_RATIO.bottom * 100}%` }} />
             </div>
+          </div>
+
+          {/*
+            プレビューの鳴らし方。
+            🔴 400枚を流し読みする間ずっと音が鳴るのは、実務では使えない。
+               音を聞きたいのは「要確認」の数十枚だけ。
+          */}
+          <div className="playctl">
+            <button
+              type="button"
+              className={muted ? 'on' : ''}
+              onClick={() => {
+                setMuted((v) => {
+                  savePref('telop.muted', !v);
+                  return !v;
+                });
+              }}
+              title="プレビューの音を消します（次からも覚えています）"
+            >
+              {muted ? '🔇 音を消している' : '🔈 音あり'}
+            </button>
+            <button
+              type="button"
+              className={autoPlay ? '' : 'on'}
+              onClick={() => {
+                setAutoPlay((v) => {
+                  savePref('telop.autoPlay', !v);
+                  return !v;
+                });
+              }}
+              title="テロップを選んだときに自動で再生するかどうか（次からも覚えています）"
+            >
+              {autoPlay ? '▶ 選ぶと再生' : '⏸ 自動では再生しない'}
+            </button>
+            <button type="button" className="minor" onClick={restart} title="頭から再生し直す">
+              頭から再生（R）
+            </button>
+            <span className="hint">
+              {autoPlay
+                ? 'テロップを選ぶたびに、2.5秒前から繰り返し再生します'
+                : '選んでも止まったままです。聞きたいときは Space か「頭から再生」'}
+            </span>
           </div>
 
           {/* 再生位置と、テロップが出ている区間 */}

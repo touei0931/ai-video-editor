@@ -356,6 +356,36 @@
   color: #ffe14d;
 }
 
+/* プレビューの鳴らし方 */
+.telop .playctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.telop .playctl button {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  min-height: 28px;
+  white-space: nowrap;
+}
+
+/* 既定と違う状態のときだけ目立たせる（音を消している／自動再生を切っている） */
+.telop .playctl button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.telop .playctl .hint {
+  color: #6a6a76;
+  font-size: 11px;
+}
+
 /* 再生位置と、テロップが出ている区間 */
 .telop .playbar {
   position: relative;
