@@ -11,7 +11,7 @@
  *   - プレビューは**実際の映像の上に**出す。文字だけ見ても顔にかぶるか分からない。
  */
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { shouldIgnoreKey } from '../keys';
+import { isTyping, shouldIgnoreKey } from '../keys';
 import { hasRealBold, TELOP_FAMILIES } from './fonts';
 import { buildLines, drawTelop } from './render';
 import { phraseBoundaries } from './wrap';
@@ -664,6 +664,27 @@ export function TelopScreen({
         return;
       }
 
+      /*
+        🔴 取り消しは門番より前で拾うこと。
+
+        shouldIgnoreKey は「修飾キー付きはブラウザ/OS の操作なので奪わない」として
+        Ctrl / Cmd の付いたキーを全部そこで弾く（src/keys.ts）。
+        そのため下の switch にある取り消しには**一度も到達していなかった**。
+
+        画面のフッターには「Ctrl+Z 取消」と書いてあり、Del に確認を出していない
+        根拠も「取り消せるから」だった。実際には取り消せないので、
+        400枚を流し読み中に Del を1回誤爆したら、そのテロップは戻ってこない。
+        （実測: Del で 14→13 枚、Ctrl+Z / Cmd+Z / メニューのどれでも 13 のまま）
+
+        文字を打っている最中だけは、その入力欄の取り消しに任せる。
+      */
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (isTyping(e.target)) return;
+        undo();
+        e.preventDefault();
+        return;
+      }
+
       // 🔴 文字を打っている場所のキーは奪わない（src/keys.ts の冒頭参照）。
       //    editing だけを見ていたため、「強調する語」の入力欄で Backspace を押すと
       //    テロップそのものが消えていた。
@@ -724,10 +745,7 @@ export function TelopScreen({
           });
           setIndex((i) => Math.max(0, Math.min(cards.length - 2, i)));
           break;
-        case 'z':
-          if (e.ctrlKey || e.metaKey) undo();
-          else return;
-          break;
+        // 取り消し（Ctrl/Cmd + Z）は、上の門番より前で拾っている
         default:
           return;
       }
