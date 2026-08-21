@@ -1159,7 +1159,7 @@ export function App() {
   if (!hasBridge) {
     return (
       <main>
-        <h1>AI動画編集</h1>
+        <h1>PAC</h1>
         <section>
           <h2>アプリとして起動してください</h2>
           <p className="error">
@@ -1295,7 +1295,7 @@ export function App() {
   return (
     <main>
       {help}
-      <h1>AI動画編集</h1>
+      <h1>PAC</h1>
       <p className="phase">
         無音・フィラー・言い直しを自動でカットし、テロップを自動で入れます
       </p>

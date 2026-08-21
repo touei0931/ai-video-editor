@@ -107,7 +107,7 @@ jobs:
       # まずここを見れば同梱漏れかどうかが分かる。
       - name: 同梱物の一覧
         run: |
-          APP="release/mac-arm64/AI動画編集.app"
+          APP="release/mac-arm64/PAC.app"
           [ -d "$APP" ] || APP=$(find release -name '*.app' -maxdepth 3 | head -1)
           echo "app: $APP"
           find "$APP/Contents/Resources" -maxdepth 2 | head -50 | tee release/contents.txt

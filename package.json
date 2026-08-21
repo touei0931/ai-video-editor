@@ -1,8 +1,9 @@
 {
   "name": "ai-video-editor",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "ショート動画向けAI動画編集アプリ（カット/テロップ/ズームの自動提案 → 人間が承認して書き出し）",
+  "description": "PAC（Prep Auto Cut）— 喋り主体の動画の下ごしらえを自動化し、Final Cut Pro に渡すアプリ（カット/テロップ/ズームの自動提案 → 人間が承認して書き出し）",
+  "author": "touei",
   "main": "dist-electron/main/index.js",
   "type": "module",
   "scripts": {
@@ -46,8 +47,8 @@
     "react-dom": "^19.2.8"
   },
   "build": {
-    "appId": "jp.touei.ai-video-editor",
-    "productName": "AI動画編集",
+    "appId": "jp.touei.pac",
+    "productName": "PAC",
     "copyright": "",
     "directories": {
       "output": "release",
@@ -99,7 +100,7 @@
       }
     },
     "dmg": {
-      "title": "AI動画編集",
+      "title": "PAC",
       "contents": [
         {
           "x": 140,
