@@ -62,8 +62,26 @@ jobs:
           python scripts/make_test_media.py
           python scripts/test_review_clip.py
 
+      # 🔴 --distpath を必ず付けること。
+      #    付けないと PyInstaller は dist/ に出す。そこは **Vite の出力先**なので、
+      #    このあとの `npm run dist:mac`（内部で vite build）が中身ごと消す。
+      #    しかも electron-builder は dist-sidecar/sidecar を同梱しようとするので、
+      #    **サイドカーの入っていない .dmg** が黙って出来上がる。
+      #    （実際にここで「No such file or directory」で止まった）
       - name: サイドカーを固める
-        run: pyinstaller packaging/sidecar.spec --noconfirm
+        run: pyinstaller packaging/sidecar.spec --noconfirm --distpath dist-sidecar --workpath build-sidecar
+
+      - name: 固めたものが想定の場所にあるか
+        run: |
+          test -x dist-sidecar/sidecar/sidecar || {
+            echo "::error::dist-sidecar/sidecar/sidecar がありません。--distpath を確認してください"
+            find . -maxdepth 3 -name sidecar -type f | head
+            exit 1
+          }
+          file dist-sidecar/sidecar/sidecar | grep -q 'arm64' || {
+            echo "::error::arm64 のバイナリではありません"; exit 1
+          }
+          du -sh dist-sidecar/sidecar
 
       - name: 固めたサイドカーが起動するか
         run: |
