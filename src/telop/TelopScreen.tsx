@@ -1225,10 +1225,10 @@ export function TelopScreen({
               {onSaveDefaults && (
                 <div className="row defaults">
                   <label className="sub">次の動画から</label>
-                  <button type="button" className="save" onClick={saveDefaults} disabled={saving}>
+                  <button type="button" onClick={saveDefaults} disabled={saving}>
                     {saving ? '保存中…' : '今の見た目を既定にする'}
                   </button>
-                  <button type="button" onClick={restoreFactory}>
+                  <button type="button" className="minor" onClick={restoreFactory}>
                     最初の見た目に戻す
                   </button>
                   <span className="hint">

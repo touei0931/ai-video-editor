@@ -390,9 +390,20 @@
   margin-top: 2px;
 }
 
-.telop .panel .row.defaults button.save {
-  border-color: var(--accent);
-  color: var(--accent);
+/*
+  🔴 ここで文字色に var(--accent) を指定してはいけない。
+
+  このアプリは **すべての button が accent 色で塗られている**（src/index.css）。
+  そこへ文字色まで accent にすると、青地に青文字になって**文字が完全に消える**。
+  実際にそうなっていて、「次の動画から」の右に何も書いていない青い箱が出ていた。
+  押せば動くので、動作を試しても気づけない種類の壊れ方。
+
+  目立たせたい側は塗ったまま（＝既定のボタン）、
+  めったに使わない側だけ落とす、という向きにする。
+*/
+.telop .panel .row.defaults button.minor {
+  background: transparent;
+  color: var(--muted);
 }
 
 /*

@@ -76,6 +76,12 @@ code {
   overflow-wrap: anywhere;
 }
 
+/*
+  🔴 ボタンは既定で accent 色に塗られる。
+     個別に文字色を足すときに var(--accent) を指定すると、
+     青地に青文字で**文字が消える**（押せば動くので試しても気づけない）。
+     落ち着かせたいボタンは、塗りを外して文字色を var(--muted) にすること。
+*/
 button {
   background: var(--accent);
   color: #0b0b0f;
