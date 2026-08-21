@@ -97,7 +97,11 @@ jobs:
           grep -q '"platform"' /tmp/env.jsonl
 
       - name: アプリを作る
-        run: npm run dist:mac
+        # 🔴 --publish never を付けること。
+        #    electron-builder は CI を検出すると GitHub Release へ公開しようとして、
+        #    トークンが無いと **.dmg を作り終えたあとに**失敗する。
+        #    ここで欲しいのは成果物（artifact）だけで、公開はしない。
+        run: npm run dist:mac -- --publish never
 
       # 何が同梱されたかを残す。実機で「動かない」と言われたとき、
       # まずここを見れば同梱漏れかどうかが分かる。
