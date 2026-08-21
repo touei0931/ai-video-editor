@@ -246,6 +246,44 @@ const at = (px) => (text, scale) => measure(text, px * scale);
   );
 }
 
+// ── 強調する語のぶんまで測る ────────────────────────────────
+
+{
+  /*
+    🔴 強調する語は**他より大きく描かれる**（既定 1.15 倍）。
+       等倍で測って大きく描けば、その差だけ行が伸びて画面からはみ出す。
+       プレビューと書き出しは同じ計算を通るので、見比べても気づけない。
+
+    幅 907px / 通常 92px。全角9文字（828px）はちょうど1行に収まるが、
+    先頭4文字を 1.15 倍にすると 866px…に収まるので、8文字を強調して超えさせる。
+  */
+  const frame = { width: 1080, height: 1920 };
+  const m = (t, fontPx) => measure(t, fontPx);
+  const text = 'なるほど、たしかに';
+
+  const plain = split.rewrapCard(text, 'normal', m, frame, {}, undefined, {});
+  const marked = split.rewrapCard(text, 'normal', m, frame, {}, undefined, {
+    highlight: 'なるほど、たし',
+  });
+
+  check('強調なしでは1行', plain.lines.length === 1, plain.lines.join(' / '));
+  check(
+    '強調する語のぶんも測る（収まらなくなったら折り返す or 縮める）',
+    marked.lines.length > plain.lines.length || marked.fontScale < plain.fontScale,
+    `強調なし ${plain.lines.length}行/${plain.fontScale} → 強調あり ${marked.lines.length}行/${marked.fontScale}`,
+  );
+
+  // 本文に無い語を指定しても、何も変わらないこと
+  const absent = split.rewrapCard(text, 'normal', m, frame, {}, undefined, {
+    highlight: 'そんな語は無い',
+  });
+  check(
+    '本文に無い強調語は幅を変えない',
+    absent.lines.length === plain.lines.length && absent.fontScale === plain.fontScale,
+    `${absent.lines.length}行/${absent.fontScale}`,
+  );
+}
+
 // ── 保存してある既定の読み込み ──────────────────────────────
 
 {

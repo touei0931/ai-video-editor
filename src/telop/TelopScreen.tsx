@@ -125,7 +125,7 @@ export interface TelopScreenProps {
     text: string,
     style: TelopStyleName,
     styles?: StyleMap,
-    card?: { sizeScale?: number; breaks?: number[] },
+    card?: { sizeScale?: number; breaks?: number[]; highlight?: string | null },
   ) => { lines: string[]; fontScale: number };
   onBack?: (edits: TelopEdits) => void;
   /**
@@ -181,6 +181,8 @@ export function TelopScreen({
   /** 既定として保存しているところ / 保存した結果の知らせ */
   const [saving, setSaving] = useState(false);
   const [savedNote, setSavedNote] = useState('');
+  /** 「最初の見た目に戻す」の確認中か */
+  const [confirmReset, setConfirmReset] = useState(false);
   const [exportOptions, setExportOptions] = useState<ExportOptions>(
     () => initialOptions ?? { burn: true, srt: true, fcpxml: false },
   );
@@ -190,18 +192,28 @@ export function TelopScreen({
    * 直前の状態。Del で消したものを戻せないと、誤爆が怖くて Del を押せなくなる。
    * テロップは数百枚あるので、履歴は直近だけで十分。
    */
-  const undoStack = useRef<TelopCard[][]>([]);
+  const undoStack = useRef<{ cards: TelopCard[]; removed: TelopCard[] }[]>([]);
 
   const remember = useCallback(() => {
-    undoStack.current.push(cards);
+    undoStack.current.push({ cards, removed });
     if (undoStack.current.length > 30) undoStack.current.shift();
-  }, [cards]);
+  }, [cards, removed]);
 
+  /**
+   * 直前の状態に戻す。
+   *
+   * 🔴 「消したもの」の控えも一緒に戻すこと。
+   *    テロップ一覧だけ戻して控えを残すと、画面上はいったん戻ってくるのに、
+   *    カットを直してテロップを作り直した瞬間に**また消える**
+   *    （mergeEdits が控えと照合して復活を止めるため）。
+   *    戻したはずのものが後から消えるので、原因を辿るのが難しい。
+   */
   const undo = useCallback(() => {
     const prev = undoStack.current.pop();
     if (!prev) return;
-    setCards(prev);
-    setIndex((i) => Math.min(i, prev.length - 1));
+    setCards(prev.cards);
+    setRemoved(prev.removed);
+    setIndex((i) => Math.min(i, prev.cards.length - 1));
   }, []);
 
   /**
@@ -223,8 +235,29 @@ export function TelopScreen({
     );
   }, []);
 
+  /**
+   * 今選んでいるテロップの id。
+   * patchStyle を作り直さずに参照したいので ref で持つ（スライダーの項を参照）。
+   */
+  const currentIdRef = useRef<string | null>(null);
+
   const patchStyle = useCallback(
-    (name: TelopStyleName, patch: Partial<TelopStyle>) => {
+    (
+      name: TelopStyleName,
+      patch: Partial<TelopStyle>,
+      /**
+       * 折り返しを計算し直す範囲。
+       *
+       * 🔴 スライダーを掴んで動かしている間は 'current' にすること。
+       *    大きさを1目盛り動かすたびに、その雛形のテロップ**全部**（20分素材で
+       *    200〜300枚）を折り返し直していた。実測で measureText だけでも
+       *    25,000回=43ms かかる規模で、そこに一覧の再描画が乗る。
+       *    ファンの無い MacBook Air では、掴んでいる間ずっと引っかかる。
+       *    見ているのは選択中の1枚なので、動かしている間はそれだけ直せば足りる。
+       *    離したときに 'all' で残りを揃える。
+       */
+      scope: 'all' | 'current' = 'all',
+    ) => {
       // 見た目を触ったら「覚えました」の表示は消す。
       // 出したままだと、そのあと直した内容まで覚えたように読める。
       setSavedNote('');
@@ -250,9 +283,11 @@ export function TelopScreen({
           setCards((cs) =>
             cs.map((c) => {
               if (c.style !== name) return c;
+              if (scope === 'current' && c.id !== currentIdRef.current) return c;
               const fit = rewrap(c.text, name, next, {
                 sizeScale: c.override?.sizeScale,
                 breaks: c.breaks,
+                highlight: c.highlight,
               });
               return { ...c, lines: fit.lines, fontScale: fit.fontScale };
             }),
@@ -333,6 +368,7 @@ export function TelopScreen({
   const barRef = useRef<HTMLSpanElement>(null);
 
   const current = cards[index];
+  currentIdRef.current = current?.id ?? null;
   /** 実際に使われる位置。1枚の上書きが無ければ雛形に従う */
   const currentPosition = current
     ? (current.positionOverride ?? styles[current.style].position)
@@ -368,7 +404,14 @@ export function TelopScreen({
       const style = patch.style ?? card.style;
       const override = 'override' in patch ? patch.override : card.override;
       const breaks = 'breaks' in patch ? patch.breaks : card.breaks;
-      const fit = rewrap(text, style, styles, { sizeScale: override?.sizeScale, breaks });
+      // 🔴 強調する語も渡す。強調語は 1.15 倍で描かれるので、
+      //    等倍で測ったままだと、指定した瞬間にその行だけ画面からはみ出す。
+      const highlight = 'highlight' in patch ? patch.highlight : card.highlight;
+      const fit = rewrap(text, style, styles, {
+        sizeScale: override?.sizeScale,
+        breaks,
+        highlight,
+      });
       return { ...patch, lines: fit.lines, fontScale: fit.fontScale };
     },
     [rewrap, styles],
@@ -404,7 +447,14 @@ export function TelopScreen({
       if (!current) return;
       // スタイルが変わるとフォントも大きさも変わるので、折り返しを計算し直す
       update(refit(current, { style: name, reason: '手動で変更' }));
-      setEditingStyle(name);
+      /*
+        🔴 ここで雛形パネルの編集対象（setEditingStyle）まで動かさないこと。
+
+        「この1枚を強調にした」つもりで 3 を押すと、その下の
+        「雛形を編集」の対象まで強調に変わっていた。
+        そのまま文字色を触ると、**強調のテロップ全部**が変わる。
+        1枚のつもりの操作が全体に効くので、気づくのは書き出したあとになる。
+      */
     },
     [current, refit, update],
   );
@@ -1065,7 +1115,9 @@ export function TelopScreen({
                   className="hl"
                   value={current.highlight ?? ''}
                   placeholder="例: めちゃくちゃ"
-                  onChange={(e) => update({ highlight: e.target.value || null })}
+                  onChange={(e) =>
+                    update(refit(current, { highlight: e.target.value || null }))
+                  }
                 />
                 <span className="hint">この語だけ色と大きさが変わります</span>
               </div>
@@ -1200,6 +1252,10 @@ export function TelopScreen({
                   }
                 />
                 <label className="sub">大きさ</label>
+                {/*
+                  掴んでいる間は選択中の1枚だけ折り返し直し、離したときに残りを揃える。
+                  理由は patchStyle の scope の説明を参照。
+                */}
                 <input
                   type="range"
                   min={0.04}
@@ -1207,7 +1263,17 @@ export function TelopScreen({
                   step={0.005}
                   value={styles[editingStyle].fontSizeRatio}
                   onChange={(e) =>
-                    patchStyle(editingStyle, { fontSizeRatio: Number(e.target.value) })
+                    patchStyle(editingStyle, { fontSizeRatio: Number(e.target.value) }, 'current')
+                  }
+                  onPointerUp={() =>
+                    patchStyle(editingStyle, {
+                      fontSizeRatio: styles[editingStyle].fontSizeRatio,
+                    })
+                  }
+                  onKeyUp={() =>
+                    patchStyle(editingStyle, {
+                      fontSizeRatio: styles[editingStyle].fontSizeRatio,
+                    })
                   }
                 />
                 <button type="button" onClick={() => patchStyle(editingStyle, DEFAULT_STYLES[editingStyle])}>
@@ -1241,18 +1307,60 @@ export function TelopScreen({
                 作業フォルダではなくアプリ側に覚えさせる。
               */}
               {onSaveDefaults && (
+                <>
                 <div className="row defaults">
                   <label className="sub">次の動画から</label>
-                  <button type="button" onClick={saveDefaults} disabled={saving}>
+                  <button
+                    type="button"
+                    onClick={saveDefaults}
+                    disabled={saving}
+                    title="今の3つの雛形を覚えます。次に別の動画を編集するとき、この見た目で始まります"
+                  >
                     {saving ? '保存中…' : '今の見た目を既定にする'}
-                  </button>
-                  <button type="button" className="minor" onClick={restoreFactory}>
-                    最初の見た目に戻す
                   </button>
                   <span className="hint">
                     {savedNote || '3つの雛形をまとめて覚えます。今の動画の見た目は変わりません'}
                   </span>
+                  <span className="grow" />
+                  {/*
+                    🔴 確認を挟むこと。
+                       このボタンは「今の動画の雛形」と「覚えている既定」の両方を
+                       まとめて捨てる。押し間違い1回で、詰めた見た目が消える。
+                       すぐ左のヒントは「今の動画の見た目は変わりません」と
+                       **逆のことを言っている**ので、なおさら誤解しやすい。
+                  */}
+                  <button
+                    type="button"
+                    className="minor"
+                    onClick={() => setConfirmReset(true)}
+                    title="今の動画の雛形と、覚えている既定の両方を、アプリ最初の見た目に戻します"
+                  >
+                    最初の見た目に戻す
+                  </button>
                 </div>
+
+                {confirmReset && (
+                  <div className="row confirm-reset" role="alertdialog" aria-live="assertive">
+                    <span>
+                      <strong>今の動画の雛形</strong>と<strong>覚えている既定</strong>の
+                      両方が、アプリ最初の見た目に戻ります。取り消せません。
+                    </span>
+                    <button
+                      type="button"
+                      autoFocus
+                      onClick={() => {
+                        setConfirmReset(false);
+                        restoreFactory();
+                      }}
+                    >
+                      戻す
+                    </button>
+                    <button type="button" className="minor" onClick={() => setConfirmReset(false)}>
+                      やめる
+                    </button>
+                  </div>
+                )}
+                </>
               )}
             </div>
           </div>

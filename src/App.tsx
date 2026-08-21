@@ -748,47 +748,66 @@ export function App() {
   /** 最後に受け取ったレビューの判定。下書きに含める */
   const reviewStateRef = useRef<ReviewState | null>(null);
 
+  /*
+    自動保存が書き出す内容の置き場所。
+
+    🔴 保存する値は ref から読むこと。
+
+    自動保存は「最後の変更から 0.8 秒後」に走る。そのとき参照する値が
+    **タイマーを仕掛けた時点の値**だと、下書きは常に1操作ぶん遅れる。
+    最後の変更のあとは新しいタイマーが立たないので、
+    **その1操作は永久に書かれない**。
+
+    実際にそうなっていた:
+      テロップを1枚消して取り消す（画面上は14枚に戻る）→ 0.8秒後に保存が走る
+      → 書かれたのは**消したあとの13枚**。開き直すと1枚足りない。
+    ここで ref を挟むことで、いつ走っても「今の値」を書くようになる。
+  */
+  const latest = useRef({ analysis, phase, cuts, cards, finalState, shots, pace });
+  latest.current = { analysis, phase, cuts, cards, finalState, shots, pace };
+
   const saveDraft = useCallback(async () => {
-    if (!analysis) return;
+    const now = latest.current;
+    if (!now.analysis) return;
     const draft: Draft = {
-      video_path: analysis.video_path,
+      video_path: now.analysis.video_path,
       savedAt: new Date().toISOString(),
-      phase,
-      analysis,
+      phase: now.phase,
+      analysis: now.analysis,
       review: reviewStateRef.current ?? undefined,
-      cuts: cuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
-      cards: finalState?.cards ?? (cards.length ? cards : undefined),
-      styles: finalState?.styles,
-      options: finalState?.options,
-      removed: finalState?.removed,
-      pace,
-      shots,
+      cuts: now.cuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
+      cards: now.finalState?.cards ?? (now.cards.length ? now.cards : undefined),
+      styles: now.finalState?.styles,
+      options: now.finalState?.options,
+      removed: now.finalState?.removed,
+      pace: now.pace,
+      shots: now.shots,
     };
     await window.app.saveProject({
-      workDir: analysis.work_dir,
+      workDir: now.analysis.work_dir,
       data: draft,
       // 一覧に出すぶんだけ別に渡す。本体を読まずに一覧を作れるようにする
       // （20分素材の下書きは数MBあり、一覧のたびに全部読むと重い）
       summary: {
-        videoPath: analysis.video_path,
+        videoPath: now.analysis.video_path,
         savedAt: draft.savedAt,
-        phase,
+        phase: now.phase,
         decided: Object.keys(reviewStateRef.current?.decisions ?? {}).length,
-        total: analysis.candidates.length,
-        duration: analysis.duration,
+        total: now.analysis.candidates.length,
+        duration: now.analysis.duration,
       },
     });
-  }, [analysis, phase, cuts, cards, finalState, shots, pace]);
+  }, []);
 
   /**
    * 少し待ってからまとめて書く。押すたびに書くと I/O が多すぎる。
    * 🔴 やめるときは必ず打ち切ること（quitEditing 参照）。
    */
   const scheduleSave = useCallback(() => {
-    if (!analysis) return;
+    if (!latest.current.analysis) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => void saveDraft(), 800);
-  }, [analysis, saveDraft]);
+  }, [saveDraft]);
 
   /** テロップ画面で直した内容を受け取る。カット画面の onStateChange と同じ形 */
   const saveTelopEdits = useCallback(
@@ -922,7 +941,7 @@ export function App() {
       text: string,
       style: TelopStyleName,
       styles?: StyleMap,
-      card?: { sizeScale?: number; breaks?: number[] },
+      card?: { sizeScale?: number; breaks?: number[]; highlight?: string | null },
     ) =>
       measure
         ? rewrapCard(text, style, measure, frame, {}, styles, card)

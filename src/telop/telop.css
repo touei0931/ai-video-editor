@@ -401,9 +401,22 @@
   目立たせたい側は塗ったまま（＝既定のボタン）、
   めったに使わない側だけ落とす、という向きにする。
 */
-.telop .panel .row.defaults button.minor {
+.telop .panel .row.defaults button.minor,
+.telop .panel .row.confirm-reset button.minor {
   background: transparent;
   color: var(--muted);
+}
+
+.telop .panel .row.defaults .grow {
+  flex: 1;
+}
+
+/* 取り消せない操作の確認。見落とされないよう色を変える */
+.telop .panel .row.confirm-reset {
+  border: 1px solid var(--error);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #241a1a;
 }
 
 /*

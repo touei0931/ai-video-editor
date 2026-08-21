@@ -171,7 +171,8 @@ export function splitIntoCards(
   const style = (options.styles ?? DEFAULT_STYLES)[unit.style];
   const fontPx = telopFontSize(style, frame);
   const maxWidth = frame.width * (1 - marginRatio * 2);
-  const measureAt = (t: string, scale: number) => measure(t, fontPx * scale, style);
+  // 強調する語は大きく描かれるので、測るほうでもそのぶん足す（measureWithHighlight）
+  const measureAt = measureWithHighlight(measure, style, fontPx, unit.highlight);
 
   const text = unit.words.map((w) => w.text).join('');
   if (!text.trim()) return [];
@@ -322,17 +323,55 @@ export function rewrapCard(
    *    小さくしたのに 2行のまま、大きくしたら画面からはみ出す、という形で出る。
    *    描画側（resolveStyle）は sizeScale を掛けるので、測るほうも掛けないと合わない。
    */
-  card: { sizeScale?: number; breaks?: number[] } = {},
+  card: { sizeScale?: number; breaks?: number[]; highlight?: string | null } = {},
 ): { lines: string[]; fontScale: number } {
   const marginRatio = options.marginRatio ?? 0.08;
   const style = styles?.[styleName] ?? DEFAULT_STYLES[styleName];
   const fontPx = telopFontSize(style, frame) * (card.sizeScale ?? 1);
   const fit = fitToLines(
-    (t, scale) => measure(t, fontPx * scale, style),
+    measureWithHighlight(measure, style, fontPx, card.highlight),
     text,
     frame.width * (1 - marginRatio * 2),
     options.maxLines ?? 2,
     { breaks: card.breaks },
   );
   return { lines: fit.lines.map((l) => l.trim()).filter(Boolean), fontScale: fit.fontScale };
+}
+
+/**
+ * 強調する語のぶんまで含めて幅を測る関数を作る。
+ *
+ * 🔴 強調語は**他より大きく描かれる**（既定 1.15 倍 / style.highlightScale）。
+ *    等倍で測って大きく描けば、その差だけ行が伸びて画面からはみ出す。
+ *    しかもプレビューと書き出しは同じ計算を通るので、見比べても気づけない。
+ *
+ * 描画側（render.ts の drawTelop）は強調語だけ別サイズで測って足している。
+ * 同じ分け方をここでも行う。
+ */
+function measureWithHighlight(
+  measure: Measure,
+  style: TelopStyle,
+  fontPx: number,
+  highlight?: string | null,
+): (text: string, scale: number) => number {
+  const word = highlight?.trim();
+  if (!word) return (t, scale) => measure(t, fontPx * scale, style);
+
+  const bigger = style.highlightScale ?? 1.15;
+  return (t, scale) => {
+    const px = fontPx * scale;
+    let total = 0;
+    let rest = t;
+    while (rest.length > 0) {
+      const at = rest.indexOf(word);
+      if (at < 0) {
+        total += measure(rest, px, style);
+        break;
+      }
+      if (at > 0) total += measure(rest.slice(0, at), px, style);
+      total += measure(word, Math.round(px * bigger), style);
+      rest = rest.slice(at + word.length);
+    }
+    return total;
+  };
 }
