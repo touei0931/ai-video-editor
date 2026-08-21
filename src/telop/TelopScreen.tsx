@@ -48,6 +48,14 @@ export interface ExportOptions {
   fcpxml: boolean;
 }
 
+/** 一覧の絞り込み。並び順がそのまま画面のボタンの並びになる */
+const FILTERS: { id: string; label: string; hint: string }[] = [
+  { id: 'all', label: 'すべて', hint: '全部のテロップを出す' },
+  { id: 'check', label: '要確認', hint: '聞き取りが怪しいものだけ' },
+  { id: 'edited', label: '手を入れた', hint: '文言や時刻を直したもの・手で足したものだけ' },
+  { id: 'styled', label: '見た目を変えた', hint: 'この1枚だけ色や位置を変えたものだけ' },
+];
+
 /**
  * 雛形の並び。入っている順そのまま。
  *
@@ -195,6 +203,9 @@ export function TelopScreen({
   /** 名前を付けて保存する入力中か */
   const [naming, setNaming] = useState(false);
   const [presetName, setPresetName] = useState('');
+  /** 一覧の絞り込みと本文の検索 */
+  const [filter, setFilter] = useState<string>('all');
+  const [query, setQuery] = useState('');
   const [exportOptions, setExportOptions] = useState<ExportOptions>(
     () => initialOptions ?? { burn: true, srt: true, fcpxml: false },
   );
@@ -555,12 +566,80 @@ export function TelopScreen({
     [rewrap, styles],
   );
 
+  /**
+   * 一覧の絞り込み。
+   *
+   * 🔴 400枚を触る画面に、絞り込みも印も無かった。
+   *    カードは「手を入れた」「この1枚だけ見た目を変えた」「改行を決めた」を
+   *    全部持っているのに、一覧には何も出ていない。
+   *    「さっき色を変えたのどれだっけ」「あの言い回し直したっけ」に
+   *    答える手段がゼロで、400行を上から見るしかなかった。
+   */
+  const visible = useMemo(() => {
+    const q = query.trim();
+    return cards
+      .map((card, i) => ({ card, i }))
+      .filter(({ card }) => {
+        if (q && !card.text.includes(q)) return false;
+        switch (filter) {
+          case 'all':
+            return true;
+          case 'check':
+            return card.needsCheck;
+          case 'edited':
+            return Boolean(card.edited || card.manual);
+          case 'styled':
+            return Boolean(
+              card.override ||
+                card.positionOverride ||
+                card.breaks?.length ||
+                card.offsetX !== 0 ||
+                card.offsetY !== 0,
+            );
+          default:
+            return card.style === filter;
+        }
+      });
+  }, [cards, filter, query]);
+
+  /**
+   * 絞り込んだ結果から選んでいる行が外れたら、見えている先頭へ寄せる。
+   * 外れたままだと、一覧のどこも選ばれていないのにプレビューだけ別のものを映す。
+   */
+  useEffect(() => {
+    if (visible.length === 0) return;
+    if (visible.some((v) => v.i === index)) return;
+    setIndex(visible[0].i);
+    setEditing(false);
+  }, [visible, index]);
+
+  /** 絞り込みボタンに出す件数。押す前に「何件あるか」が分かるようにする */
+  const countOf = useCallback(
+    (id: string) =>
+      cards.filter((c) => {
+        if (id === 'check') return c.needsCheck;
+        if (id === 'edited') return Boolean(c.edited || c.manual);
+        if (id === 'styled')
+          return Boolean(
+            c.override || c.positionOverride || c.breaks?.length || c.offsetX !== 0 || c.offsetY !== 0,
+          );
+        return c.style === id;
+      }).length,
+    [cards],
+  );
+
+  /** 上下移動は**見えている行の中で**。絞り込んだ意味が無くなるので */
   const move = useCallback(
     (delta: number) => {
-      setIndex((i) => Math.max(0, Math.min(cards.length - 1, i + delta)));
       setEditing(false);
+      setIndex((i) => {
+        const at = visible.findIndex((v) => v.i === i);
+        if (at < 0) return visible[0]?.i ?? i;
+        const next = Math.max(0, Math.min(visible.length - 1, at + delta));
+        return visible[next].i;
+      });
     },
-    [cards.length],
+    [visible],
   );
 
   /**
@@ -573,12 +652,14 @@ export function TelopScreen({
    *    認識がきれいな素材ほど（要確認が0件になるほど）踏む。
    */
   const nextCheck = useCallback(() => {
-    const after = cards.findIndex((c, i) => i > index && c.needsCheck);
-    const target = after >= 0 ? after : cards.findIndex((c) => c.needsCheck);
-    if (target < 0) return;
-    setIndex(target);
+    // 絞り込んでいるときは、その中の「要確認」を辿る
+    const checks = visible.filter((v) => v.card.needsCheck);
+    const after = checks.find((v) => v.i > index);
+    const target = after ?? checks[0];
+    if (!target) return;
+    setIndex(target.i);
     setEditing(false);
-  }, [cards, index]);
+  }, [visible, index]);
 
   const cycleStyle = useCallback(
     (name: TelopStyleName) => {
@@ -1051,28 +1132,87 @@ export function TelopScreen({
       )}
 
       <div className="body">
-        <ul className="list" ref={listRef}>
-          {cards.map((c, i) => (
-            <li key={c.id}>
+        <div className="listwrap">
+          {/*
+            ── 絞り込みと検索 ──
+            400枚を上から見るしかない状態だと、「さっき色を変えたのどれだっけ」に
+            答えられない。カードは手入れの跡を全部持っているので、それで絞る。
+          */}
+          <div className="listfilter">
+            {FILTERS.map((f) => (
               <button
+                key={f.id}
                 type="button"
-                className={`row ${i === index ? 'current' : ''} ${c.needsCheck ? 'check' : ''}`}
-                aria-current={i === index}
-                onClick={() => {
-                  setIndex(i);
-                  setEditing(false);
-                }}
+                className={filter === f.id ? 'on' : ''}
+                onClick={() => setFilter(f.id)}
+                title={f.hint}
               >
-                <span className="t">{formatTime(c.srcStart)}</span>
-                <span className={`chip ${c.style}`}>
-                  {styles[c.style]?.label ?? c.style}
-                </span>
-                <span className="text">{c.text}</span>
-                {c.needsCheck && <span className="flag" title="認識が怪しい箇所です">要確認</span>}
+                {f.label}
+                {f.id !== 'all' && (
+                  <span className="n">{countOf(f.id)}</span>
+                )}
               </button>
-            </li>
-          ))}
-        </ul>
+            ))}
+            <input
+              type="search"
+              value={query}
+              placeholder="本文を探す"
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="本文を探す"
+            />
+          </div>
+
+          <ul className="list" ref={listRef}>
+            {visible.map(({ card: c, i }) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  className={`row ${i === index ? 'current' : ''} ${c.needsCheck ? 'check' : ''}`}
+                  aria-current={i === index}
+                  onClick={() => {
+                    setIndex(i);
+                    setEditing(false);
+                  }}
+                >
+                  <span className="t">{formatTime(c.srcStart)}</span>
+                  <span className={`chip ${c.style}`}>
+                    {styles[c.style]?.label ?? c.style}
+                  </span>
+                  <span className="text">{c.text}</span>
+                  {/*
+                    手を入れた跡。1枚だけ見た目が違う理由を、
+                    一覧のまま辿れるようにする（他の編集ソフトも同じ印を出す）。
+                  */}
+                  <span className="marks" aria-hidden>
+                    {c.manual && <i className="m-new" title="手で足したテロップ">＋</i>}
+                    {c.edited && !c.manual && <i className="m-edit" title="手を入れました">✎</i>}
+                    {(c.override || c.positionOverride || c.offsetX !== 0 || c.offsetY !== 0) && (
+                      <i className="m-style" title="この1枚だけ見た目を変えています">あ</i>
+                    )}
+                    {c.breaks && c.breaks.length > 0 && (
+                      <i className="m-break" title="改行位置を決めています">↵</i>
+                    )}
+                  </span>
+                  {c.needsCheck && <span className="flag" title="認識が怪しい箇所です">要確認</span>}
+                </button>
+              </li>
+            ))}
+            {visible.length === 0 && (
+              <li className="empty-row">
+                当てはまるテロップがありません
+                <button type="button" className="minor" onClick={() => { setFilter('all'); setQuery(''); }}>
+                  絞り込みを解除
+                </button>
+              </li>
+            )}
+          </ul>
+
+          <p className="listcount">
+            {visible.length === cards.length
+              ? `${cards.length} 枚`
+              : `${cards.length} 枚中 ${visible.length} 枚を表示`}
+          </p>
+        </div>
 
         <section className="stage">
           <div

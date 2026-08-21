@@ -110,6 +110,110 @@
 
 /* ── 一覧 ─────────────────────────────────────────────── */
 
+.telop .listwrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+/* 絞り込みと検索。一覧の上に常に出しておく */
+.telop .listfilter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.telop .listfilter button {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  min-height: 28px;
+}
+
+.telop .listfilter button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0b0f;
+  font-weight: 700;
+}
+
+/* 押す前に件数が見えるように */
+.telop .listfilter button .n {
+  margin-left: 5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.telop .listfilter input[type='search'] {
+  flex: 1;
+  min-width: 100px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: #14141a;
+  color: #fff;
+}
+
+.telop .listcount {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.telop .empty-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/*
+  手を入れた跡。
+  1枚だけ見た目が違う理由を、400行の一覧のまま辿れるようにする。
+  文字は小さいが、色を分けてあるので「何か付いている」ことは流し読みでも分かる。
+*/
+.telop .row .marks {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.telop .row .marks i {
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+}
+
+.telop .row .marks .m-new {
+  color: #a5e0a5;
+  border-color: #3d5c3d;
+}
+.telop .row .marks .m-edit {
+  color: #d7c48a;
+  border-color: #5c523d;
+}
+.telop .row .marks .m-style {
+  color: #c9a9e6;
+  border-color: #4d3d5c;
+}
+.telop .row .marks .m-break {
+  color: #9fd8ff;
+  border-color: #3d4d5c;
+}
+
 .telop .list {
   list-style: none;
   margin: 0;
