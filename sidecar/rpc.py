@@ -32,12 +32,20 @@ def _env(_params: dict[str, Any], **_kw) -> dict[str, Any]:
        ここに出していれば、配布物の中で1階層ずれていた事故を
        友達に届く前に CI で止められた（release-mac.yml の関門が見ている）。
     """
+    from .face import DETECTOR_MODEL, LANDMARK_MODEL, model_path
     from .media import find_ffmpeg
 
-    try:
-        ffmpeg = find_ffmpeg()
-    except RuntimeError as e:
-        ffmpeg = f"見つからない: {e}"
+    def resolve(fn) -> str:
+        try:
+            return str(fn())
+        except RuntimeError as e:
+            return f"見つからない: {e}"
+
+    ffmpeg = resolve(find_ffmpeg)
+    models = {
+        "detector": resolve(lambda: model_path(DETECTOR_MODEL)),
+        "landmark": resolve(lambda: model_path(LANDMARK_MODEL)),
+    }
 
     return {
         "platform": platform_name(),
@@ -45,6 +53,7 @@ def _env(_params: dict[str, Any], **_kw) -> dict[str, Any]:
         "machine": platform.machine(),
         "frozen": getattr(sys, "frozen", False),
         "ffmpeg": ffmpeg,
+        "face_models": models,
         "asr_backend": describe_asr(),
         "face_backend": describe_face(),
         "encoder_args": video_args(),

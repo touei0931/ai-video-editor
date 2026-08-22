@@ -79,20 +79,27 @@ def main() -> None:
 
     print(f"  frozen  : {info.get('frozen')}")
     print(f"  machine : {info.get('machine')}")
-    print(f"  ffmpeg  : {info.get('ffmpeg')}")
 
     if not info.get("frozen"):
         fail("固めた状態で動いていない")
 
-    found = info.get("ffmpeg") or ""
-    if not found or "見つからない" in found:
-        fail("配布した形で ffmpeg を見つけられていない（これが友達の環境で起きた事故）")
-    if str(res) not in found:
-        fail(f"アプリの外の ffmpeg を掴んでいる: {found}")
-    if not Path(found).exists():
-        fail(f"返ってきた場所に実体が無い: {found}")
+    # アプリが実行時に掴みにいく物は、全部ここで場所を確かめる。
+    # 「同梱されているか」だけ見ていて「どこを見に行くか」を見ていなかったのが
+    # 友達の環境で落ちた原因なので、解決結果そのものを検める。
+    targets = [("ffmpeg", info.get("ffmpeg"))]
+    for key, value in (info.get("face_models") or {}).items():
+        targets.append((f"顔のモデル({key})", value))
 
-    print("\n  OK アプリの中の ffmpeg を、リポジトリの外からでも見つけられている")
+    for label, found in targets:
+        print(f"  {label:18}: {found}")
+        if not found or "見つからない" in str(found):
+            fail(f"配布した形で {label} を見つけられていない")
+        if str(res) not in str(found):
+            fail(f"アプリの外の {label} を掴んでいる: {found}")
+        if not Path(found).exists():
+            fail(f"返ってきた場所に実体が無い: {found}")
+
+    print(f"\n  OK {len(targets)} 件すべて、リポジトリの外からでもアプリの中を掴めている")
 
 
 if __name__ == "__main__":

@@ -34,17 +34,27 @@ LANDMARK_MODEL = "face_landmarker.task"
 
 
 def model_path(name: str) -> Path:
-    """同梱モデルの場所。scripts/fetch_models.py が置く。"""
+    """同梱モデルの場所。scripts/fetch_models.py が置く。
+
+    🔴 配布時の候補を先に見ること。開発時の vendor/ を先に見ると、
+       「配布物の中でだけ場所がずれている」を手元でもCIでも踏めなくなる。
+       ffmpeg で実際にそれをやって、友達の Mac で落ちた（media.py 参照）。
+    """
+    if getattr(sys, "frozen", False):
+        # extraResources で vendor/models → Resources/sidecar/models に置かれる。
+        # 実行ファイルは Resources/sidecar/sidecar なので、その隣の models/。
+        packed = Path(sys.executable).resolve().parent / "models" / name
+        if packed.exists():
+            return packed
+        raise RuntimeError(
+            "顔を見つけるための部品がアプリの中に見つかりません。"
+            "アプリを入れ直してください。"
+        )
+
     root = Path(__file__).resolve().parent.parent.parent
     candidate = root / "vendor" / "models" / name
     if candidate.exists():
         return candidate
-
-    # 配布時は実行ファイルの隣
-    if getattr(sys, "frozen", False):
-        packed = Path(sys.executable).parent / "models" / name
-        if packed.exists():
-            return packed
 
     raise RuntimeError(
         f"顔のモデルが見つかりません（{name}）。"
