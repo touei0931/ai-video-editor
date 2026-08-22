@@ -35,25 +35,61 @@ def _clip_encoder(ffmpeg: str) -> tuple[list[str], str]:
 ProgressFn = Callable[[float, str], None]
 
 
+_EXE_NAMES = ("ffmpeg.exe", "ffmpeg")
+
+
+def ffmpeg_candidates() -> list[Path]:
+    """ffmpeg を探す場所を、優先順に返す。
+
+    🔴 配布時の位置を勘で書かないこと。ここは一度間違えている。
+
+    以前は「配布時は実行ファイルの隣」と書いていたが、実際の同梱先は
+
+        PAC.app/Contents/Resources/ffmpeg/ffmpeg      ← 本当の場所
+        PAC.app/Contents/Resources/sidecar/sidecar    ← 実行ファイル
+
+    で、1階層ずれていた。開発中はリポジトリの vendor/ffmpeg が先に
+    見つかるため、手元でもCIでも一度も踏めず、友達の Mac で
+    「動画を選ぶ」を押した瞬間に落ちた。
+
+    今は Electron が PAC_FFMPEG で正解を渡してくる（sidecar.ts 参照）ので、
+    以下は単体で動かしたときのための保険。
+    """
+    out: list[Path] = []
+
+    given = os.environ.get("PAC_FFMPEG")
+    if given:
+        out.append(Path(given))
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        for name in _EXE_NAMES:
+            out.append(exe_dir.parent / "ffmpeg" / name)  # 配布時の実際の位置
+            out.append(exe_dir / name)  # 隣に置く形にした場合
+
+    repo = Path(__file__).resolve().parent.parent
+    for name in _EXE_NAMES:
+        out.append(repo / "vendor" / "ffmpeg" / name)
+
+    return out
+
+
 def find_ffmpeg() -> str:
     """同梱の LGPL ビルドを優先する。"""
-    root = Path(__file__).resolve().parent.parent
-    for name in ("ffmpeg.exe", "ffmpeg"):
-        candidate = root / "vendor" / "ffmpeg" / name
+    for candidate in ffmpeg_candidates():
         if candidate.exists():
             return str(candidate)
-
-    # 配布時は実行ファイルの隣に置かれる
-    if getattr(sys, "frozen", False):
-        for name in ("ffmpeg.exe", "ffmpeg"):
-            candidate = Path(sys.executable).parent / name
-            if candidate.exists():
-                return str(candidate)
 
     found = shutil.which("ffmpeg")
     if found:
         return found
 
+    if getattr(sys, "frozen", False):
+        # 画面に出る文言。友達が読むので、開発者向けの指示は書かない。
+        raise RuntimeError(
+            "動画を扱う部品（ffmpeg）がアプリの中に見つかりません。"
+            "アプリを入れ直してください。"
+        )
     raise RuntimeError(
         "ffmpeg が見つかりません。python scripts/fetch_ffmpeg.py を実行してください。"
     )

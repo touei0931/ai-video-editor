@@ -33,6 +33,9 @@ const TOOLING_EXEMPT = [
   'scripts/platform-guard.mjs',
   'scripts/fetch_ffmpeg.py',
   'scripts/verify_ffmpeg.py',
+  // ビルド時にしか走らない。electron-builder が全対象OS分を呼ぶので、
+  // darwin のときだけ署名する、という分岐がどうしても要る。アプリの動作には入らない。
+  'packaging/adhoc-sign.cjs',
 ];
 
 const ALLOWLIST = [...RUNTIME_ALLOWLIST, ...TOOLING_EXEMPT];

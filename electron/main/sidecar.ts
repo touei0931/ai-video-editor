@@ -6,7 +6,7 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { sidecarCommand } from './paths.js';
+import { ffmpegPath, sidecarCommand } from './paths.js';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 
@@ -40,7 +40,23 @@ export class Sidecar {
     if (this.proc) return;
 
     const { command, args, cwd } = sidecarCommand();
-    const proc = spawn(command, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+
+    /*
+      🔴 ffmpeg の場所は Electron 側が決めて渡す。サイドカーに探させない。
+
+      以前はサイドカー側が自力で探していて、配布時の想定を
+      「実行ファイルの隣」と書いていた。実際の同梱先は1つ上の ffmpeg/ の中で、
+      開発中はリポジトリの vendor/ffmpeg が先に見つかるため誰も気づけなかった。
+      友達の Mac で「動画を選ぶ」を押した瞬間に落ちた。
+
+      paths.ts の ffmpegPath() は開発時も配布時も正しい値を返す。
+      置き場所を知っているのはここだけにする。
+    */
+    const proc = spawn(command, args, {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PAC_FFMPEG: ffmpegPath() },
+    });
     this.proc = proc;
 
     /*

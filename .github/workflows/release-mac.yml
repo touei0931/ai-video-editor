@@ -31,6 +31,16 @@ jobs:
 
       - run: npm ci
 
+      # 🔴 手元で流し忘れても、配る前には必ず通す。
+      #    guard を CI で回していなかったため、プラットフォーム分岐の混入に
+      #    push したあとまで気づけなかったことがある。
+      - name: 型と検査
+        run: |
+          npm run typecheck
+          npm run guard
+          npm run test:drafts
+          npm run test:telop
+
       - name: Python の依存をそろえる
         run: |
           python -m pip install --upgrade pip
@@ -126,6 +136,16 @@ jobs:
 
           # 未署名の状態がどう見えるかの記録も残す（spctl は公証が無いので落ちて当然）。
           spctl -a -vv "$APP" 2>&1 | head -5 || true
+
+      # 🔴 「同梱されているか」ではなく「配布した形で動くか」を見る関門。
+      #    ここが無かったせいで、ffmpeg の探し先が1階層ずれたまま友達に届いた。
+      #    同梱物の一覧では ffmpeg は「入っている」と見えていた。入っていても、
+      #    サイドカーが違う場所を見ていれば起動時に落ちる。
+      - name: 配布した形でサイドカーが ffmpeg を見つけられるか
+        run: |
+          APP="release/mac-arm64/PAC.app"
+          [ -d "$APP" ] || APP=$(find release -name '*.app' -maxdepth 3 | head -1)
+          python scripts/check_packed_sidecar.py "$APP"
 
       # 何が同梱されたかを残す。実機で「動かない」と言われたとき、
       # まずここを見れば同梱漏れかどうかが分かる。

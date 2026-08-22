@@ -1,6 +1,6 @@
 {
   "name": "ai-video-editor",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "PAC（Prep Auto Cut）— 喋り主体の動画の下ごしらえを自動化し、Final Cut Pro に渡すアプリ（カット/テロップ/ズームの自動提案 → 人間が承認して書き出し）",
   "author": "touei",
