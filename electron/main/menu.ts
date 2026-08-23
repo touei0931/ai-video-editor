@@ -14,6 +14,8 @@
  *    項目が無いより分かりにくい。
  */
 import { app, BrowserWindow, Menu, shell, type MenuItemConstructorOptions } from 'electron';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** 画面の段階。どの項目を有効にするかを決める。 */
 export type Phase =
@@ -260,7 +262,18 @@ export function buildMenu(win: BrowserWindow | null, ctx: MenuContext): void {
           label: '不具合の記録を開く',
           enabled: Boolean(ctx.logDir),
           click: () => {
-            if (ctx.logDir) void shell.openPath(ctx.logDir);
+            if (!ctx.logDir) return;
+            /*
+              🔴 フォルダを開くだけにしないこと。
+
+              以前は shell.openPath(logDir) でフォルダを開くだけだった。
+              中には last-launch.json（起動の記録・原因は入っていない）も
+              並んでいるので、友達はそちらを送ってきた。原因が分からず往復した。
+              送ってほしい last-error.json を**選択した状態**で開く。
+            */
+            const target = join(ctx.logDir, 'last-error.json');
+            if (existsSync(target)) shell.showItemInFolder(target);
+            else void shell.openPath(ctx.logDir);
           },
         },
         {

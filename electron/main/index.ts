@@ -218,10 +218,33 @@ function recordFailure(stage: string, error: unknown, params?: Record<string, un
   writeArtifact('last-error.json', {
     stage,
     at: new Date().toISOString(),
+    version: app.getVersion(),
     message: e?.message ?? String(error),
     stack: e?.stack,
     params,
+    /*
+      🔴 サイドカーの stderr を必ず残す。
+
+      ffmpeg の失敗の**本当の理由はここにしか出ない**。画面に出るのは
+      友達向けに言い換えた一文だけで、それだけを送ってもらっても
+      「見つからない／許可が無い／壊れている」の区別がつかない。
+      実際に、これが無かったせいで原因を絞れず友達を往復させた。
+    */
+    sidecarStderr: sidecar.stderrTail.slice(-60),
+    // 素材そのものの状態。パスは記録するが、中身は一切読まない。
+    input: describeInput(params?.video_path),
   });
+}
+
+/** 選ばれた素材が、その場所に本当にあるかを記録に残すためだけの情報。 */
+function describeInput(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'string' || !value) return null;
+  try {
+    const s = statSync(value);
+    return { path: value, exists: true, size: s.size, isFile: s.isFile() };
+  } catch (err) {
+    return { path: value, exists: false, reason: (err as NodeJS.ErrnoException)?.code ?? String(err) };
+  }
 }
 
 /**

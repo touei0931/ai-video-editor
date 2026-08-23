@@ -95,6 +95,77 @@ def find_ffmpeg() -> str:
     )
 
 
+#: 読めない理由を、OS が返した理由ごと画面に出すための共通文。
+#: 「移動や削除をしていないか確認してください」だけだと、存在しているファイルを
+#: 友達が探しに行くことになる（実際にそうなった）。
+_ACCESS_HINT = (
+    "動画のあるフォルダへのアクセスが許可されていない可能性があります。"
+    "アプリを一度終了し、もう一度開いて、フォルダへのアクセスを聞かれたら「許可」を押してください。"
+    "それでも直らないときは、システム設定 → プライバシーとセキュリティ →"
+    "「ファイルとフォルダ」または「フルディスクアクセス」で PAC を許可してください。"
+)
+
+
+def ensure_readable_video(path: str) -> None:
+    """解析に入る前に、その動画を本当に読めるか確かめる。
+
+    🔴 ffmpeg の "No such file or directory" を素材のせいだと決めつけない。
+
+       以前は ffmpeg が失敗したら一律で「元の動画が見つかりません。移動や削除を
+       していないか確認してください。」と出していた。実際にはアクセス許可が無い
+       場合も、作業フォルダを作れない場合も同じ文言になる。
+       友達は、目の前にあるファイルを「移動していないか」探すことになった。
+
+       ここで先に切り分けて、OS が返した理由をそのまま添える。
+    """
+    p = Path(path)
+
+    try:
+        st = p.stat()
+    except PermissionError:
+        raise RuntimeError(f"動画を読む許可がありません。{_ACCESS_HINT}\n\n選んだ動画: {path}") from None
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"選んだ動画が見つかりません。移動や削除をしていないか確認してください。\n\n{path}"
+        ) from None
+    except OSError as e:
+        raise RuntimeError(f"動画を確認できません（{e.strerror}）。\n\n{path}") from None
+
+    if not p.is_file():
+        raise RuntimeError(f"選んだものが動画ファイルではありません。\n\n{path}")
+    if st.st_size == 0:
+        raise RuntimeError(f"選んだ動画は中身が空です。\n\n{path}")
+
+    try:
+        with open(p, "rb") as f:
+            f.read(4096)
+    except PermissionError:
+        raise RuntimeError(f"動画を読む許可がありません。{_ACCESS_HINT}\n\n選んだ動画: {path}") from None
+    except OSError as e:
+        raise RuntimeError(f"動画を開けません（{e.strerror}）。\n\n{path}") from None
+
+
+def ensure_writable_dir(path: Path, what: str) -> None:
+    """作業フォルダを作れるか確かめる。作れない理由を OS の言葉ごと返す。
+
+    作業フォルダは**動画と同じフォルダの中**に作る（heavy.py の default_work_dir）。
+    そのため、動画が読めても、そこに書けないことがありうる。
+    """
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        raise RuntimeError(f"{what}を作れません。{_ACCESS_HINT}\n\n作ろうとした場所: {path}") from None
+    except OSError as e:
+        raise RuntimeError(f"{what}を作れません（{e.strerror}）。\n\n{path}") from None
+
+    probe = path / ".書き込み確認"
+    try:
+        probe.write_bytes(b"")
+        probe.unlink()
+    except OSError as e:
+        raise RuntimeError(f"{what}に書き込めません（{e.strerror}）。\n\n{path}") from None
+
+
 def _ffmpeg_error(stderr: str) -> RuntimeError:
     """ffmpeg の失敗を、画面に出してよい形にする。
 
@@ -107,12 +178,24 @@ def _ffmpeg_error(stderr: str) -> RuntimeError:
     print(text[-4000:], file=sys.stderr, flush=True)
 
     lowered = text.lower()
+    # 🔴 「アクセスが許可されていない」を先に見ること。
+    #    macOS でフォルダの許可が無いときは "Operation not permitted" になる。
+    #    これを下の "no such file" に流すと「動画が見つかりません」と出てしまい、
+    #    友達は目の前にあるファイルを探すことになる（実際に起きた）。
+    if "operation not permitted" in lowered or "permission denied" in lowered:
+        return RuntimeError(f"動画のあるフォルダを扱えません。{_ACCESS_HINT}")
     if "no such file" in lowered or "does not exist" in lowered:
-        return RuntimeError("元の動画が見つかりません。移動や削除をしていないか確認してください。")
+        return RuntimeError(
+            "元の動画か、作業用のファイルが見つかりません。"
+            "動画を移動・削除していないか確認してください。"
+        )
     if "no space left" in lowered or "disk full" in lowered:
         return RuntimeError("保存先の空き容量が足りません。空きを作ってからもう一度お試しください。")
-    if "permission denied" in lowered:
-        return RuntimeError("保存先に書き込めません。別の場所を選んでください。")
+    if "read-only file system" in lowered:
+        return RuntimeError(
+            "動画のある場所に書き込めません（書き込み禁止）。"
+            "動画をデスクトップなどにコピーしてから、もう一度お試しください。"
+        )
     if "invalid data" in lowered or "moov atom not found" in lowered:
         return RuntimeError("動画ファイルが壊れているようです。別の動画でお試しください。")
     return RuntimeError("動画の処理に失敗しました。もう一度お試しください。")

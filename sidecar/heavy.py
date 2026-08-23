@@ -202,14 +202,25 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     動画 → 音声抽出 → 文字起こし → カット候補検出 → analysis.json
     """
     from .cut import detect_candidates
-    from .media import extract_audio, probe_video_info, write_json
+    from .media import (
+        ensure_readable_video,
+        ensure_writable_dir,
+        extract_audio,
+        probe_video_info,
+        write_json,
+    )
 
     video_path = params.get("video_path")
     if not video_path:
         raise ValueError("video_path が必要です")
 
+    # 🔴 ffmpeg に渡す前に切り分ける。
+    #    ffmpeg が失敗してからでは「見つからない／許可が無い／書けない」の
+    #    区別がつかず、友達には全部「動画が見つかりません」に見えてしまう。
+    ensure_readable_video(video_path)
+
     work_dir = Path(params.get("work_dir") or default_work_dir(video_path))
-    work_dir.mkdir(parents=True, exist_ok=True)
+    ensure_writable_dir(work_dir, "作業用のフォルダ")
 
     video_info = probe_video_info(video_path)
     duration = video_info["duration"]
