@@ -1,0 +1,707 @@
+/*
+  編集アプリの骨格。Final Cut Pro / Premiere / DaVinci に共通する配置に寄せる。
+
+  🔴 中央寄せカラムにしないこと。
+     以前は main { max-width: 720px; margin: 0 auto } の**書類の見た目**で、
+     段階ごとに画面ごと入れ替わっていた。編集ソフトに慣れた人が開くと
+     「毎回どこを見ればいいか分からない」状態になる（友達の指摘）。
+
+  守る約束:
+    - 画面いっぱいに広げる。ビューア・タイムライン・インスペクタは**常に同じ場所**
+    - 段階が変わっても場所は動かさない。変わるのは中身だけ
+    - クリップは端をドラッグして伸縮できる（FCPと同じ操作）
+*/
+
+.fcp {
+  /* 面 —— 手前ほど明るい。FCP と同じ「沈んだ無彩色にわずかな青み」 */
+  --s0: #161619; /* いちばん奥（タイムラインの溝） */
+  --s1: #1c1c20; /* アプリ地 */
+  --s2: #232329; /* パネル面 */
+  --s3: #2b2b33; /* 一段上げた面（ツールバー・行） */
+  --s4: #34343e; /* 押せるものの面 */
+
+  --line: #3a3a45;
+  --line-soft: #2a2a32;
+
+  --text: #ecedf2;
+  --text-dim: #9a9aa8;
+  --text-faint: #6d6d7a;
+
+  /* 選択は黄色。FCP でクリップを選んだときの枠と同じ役割 */
+  --sel: #f2c14e;
+  /* 操作系の青。押せるもの・進めるもの */
+  --accent: #4a90d9;
+
+  /* クリップ —— 上端に明るい帯を入れると「クリップらしさ」が出る */
+  --keep: #3d6493;
+  --keep-top: #5d8cc4;
+  --cut: #8e3f4c;
+  --cut-top: #bd5666;
+  --hold: #8a6a2f;
+  --hold-top: #c09a4a;
+  --telop: #3f8a72;
+  --telop-top: #5cb79a;
+
+  --playhead: #f5f5f7;
+  --danger: #ff7b72;
+  --ok: #5fd08a;
+
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr var(--inspector-w, 340px);
+  grid-template-rows: 48px minmax(0, 1fr) minmax(200px, var(--timeline-h, 38vh));
+  grid-template-areas:
+    'toolbar   toolbar'
+    'viewer    inspector'
+    'timeline  timeline';
+  background: var(--s1);
+  color: var(--text);
+  font-family: 'Yu Gothic UI', 'Hiragino Sans', system-ui, sans-serif;
+  /* 🔴 日本語の本文は16px以上。ここを下げると補助文が連鎖的に読めなくなる */
+  font-size: 16px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+
+/* ---------------- ツールバー ---------------- */
+
+.fcp-toolbar {
+  grid-area: toolbar;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: linear-gradient(var(--s3), var(--s2));
+  border-bottom: 1px solid var(--line);
+}
+
+.fcp-brand {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+}
+
+/* 手順の現在地。段階が変わっても場所が動かないことが要点 */
+.fcp-steps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fcp-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.fcp-step .n {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fcp-step.done {
+  color: var(--ok);
+}
+
+.fcp-step.done .n {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #10241a;
+}
+
+.fcp-step.now {
+  color: var(--text);
+  background: var(--s4);
+}
+
+.fcp-step.now .n {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08121d;
+}
+
+.fcp-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+/* ---------------- ビューア ---------------- */
+
+.fcp-viewer {
+  grid-area: viewer;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--s0);
+  border-right: 1px solid var(--line);
+}
+
+.fcp-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  position: relative;
+}
+
+/* 映像は必ず枠に収める。はみ出すとテロップの位置が確認できない */
+.fcp-stage video,
+.fcp-stage canvas,
+.fcp-stage .fcp-stage-inner {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.fcp-stage-empty {
+  color: var(--text-faint);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* 再生操作。ビューアの下に固定する */
+.fcp-transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--s2);
+  border-top: 1px solid var(--line);
+}
+
+.fcp-time {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.fcp-time strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------------- インスペクタ ---------------- */
+
+.fcp-inspector {
+  grid-area: inspector;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--s2);
+  display: flex;
+  flex-direction: column;
+}
+
+.fcp-insp-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px 14px;
+  background: var(--s3);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.fcp-insp-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fcp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fcp-field > label {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+
+/* ---------------- タイムライン ---------------- */
+
+.fcp-timeline {
+  grid-area: timeline;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--s1);
+  border-top: 1px solid var(--line);
+}
+
+.fcp-tl-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--s2);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+
+/* 横スクロールする領域。縦は溢れさせない */
+.fcp-tl-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  position: relative;
+}
+
+.fcp-tl-canvas {
+  position: relative;
+  min-width: 100%;
+  /* 幅は JS が指定する（拡大率 × 尺） */
+}
+
+/* 目盛り */
+.fcp-ruler {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 26px;
+  background: var(--s2);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+  cursor: pointer;
+}
+
+.fcp-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 4px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  line-height: 26px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.fcp-tick.minor {
+  border-left-color: var(--line-soft);
+}
+
+/* トラック */
+.fcp-track {
+  position: relative;
+  border-bottom: 1px solid var(--line-soft);
+  background: repeating-linear-gradient(
+    90deg,
+    var(--s0),
+    var(--s0) 1px,
+    transparent 1px,
+    transparent 40px
+  );
+}
+
+.fcp-track-label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 4px;
+  border-radius: 4px;
+  background: var(--s3);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.fcp-track-body {
+  position: relative;
+  height: var(--track-h, 56px);
+}
+
+/* 素材そのもの（残る部分の地） */
+.fcp-source {
+  position: absolute;
+  inset: 6px 0;
+  border-radius: 4px;
+  background: linear-gradient(var(--keep-top) 0 3px, var(--keep) 3px);
+  opacity: 0.55;
+}
+
+/* クリップ（カット区間・テロップ） */
+.fcp-clip {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  min-width: 3px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.fcp-clip .cap {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+}
+
+.fcp-clip .name {
+  padding: 0 8px 0 10px;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.fcp-clip.kind-cut {
+  background: var(--cut);
+}
+.fcp-clip.kind-cut .cap {
+  background: var(--cut-top);
+}
+.fcp-clip.kind-keep {
+  background: var(--keep);
+}
+.fcp-clip.kind-keep .cap {
+  background: var(--keep-top);
+}
+.fcp-clip.kind-hold {
+  background: var(--hold);
+}
+.fcp-clip.kind-hold .cap {
+  background: var(--hold-top);
+}
+.fcp-clip.kind-telop {
+  background: var(--telop);
+}
+.fcp-clip.kind-telop .cap {
+  background: var(--telop-top);
+}
+
+/* 選択は黄色い枠。FCP と同じ合図にする */
+.fcp-clip.selected {
+  border-color: var(--sel);
+  box-shadow:
+    0 0 0 1px var(--sel),
+    0 1px 6px rgba(242, 193, 78, 0.35);
+  z-index: 2;
+}
+
+/*
+  端のつまみ。ここをドラッグして伸縮する。
+
+  🔴 幅は 10px 以上にすること。友達の指摘は「カット余白を伸ばしづらい」だった。
+     細いつまみは狙えない。掴める幅と、掴めることが見える形の両方が要る。
+*/
+.fcp-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 11px;
+  cursor: ew-resize;
+  display: grid;
+  place-items: center;
+  z-index: 3;
+}
+
+.fcp-handle.left {
+  left: -1px;
+}
+.fcp-handle.right {
+  right: -1px;
+}
+
+/*
+  🔴 細いクリップではつまみを外側に出す。
+     内側のままだと、幅 5px のクリップで 11px のつまみが2つ重なり、
+     どちらも掴めない（全体表示だと 10分素材の 2.4秒がまさにこれ）。
+     クリック時に自動で寄る作りにはしてあるが、寄る前の一手でも
+     「掴めるものがそこにある」と見えている必要がある。
+*/
+.fcp-clip.narrow {
+  overflow: visible;
+}
+.fcp-clip.narrow .fcp-handle.left {
+  left: -12px;
+}
+.fcp-clip.narrow .fcp-handle.right {
+  right: -12px;
+}
+
+.fcp-handle::before {
+  content: '';
+  width: 3px;
+  height: 60%;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.fcp-clip.selected .fcp-handle::before,
+.fcp-handle:hover::before {
+  background: var(--sel);
+  height: 74%;
+  width: 4px;
+}
+
+/* ドラッグ中は掴んでいる端を強調し、数値をその場に出す */
+.fcp-clip.trimming {
+  z-index: 4;
+}
+
+.fcp-trim-readout {
+  position: absolute;
+  top: -22px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--sel);
+  color: #241d06;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* 再生位置 */
+.fcp-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--playhead);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.fcp-playhead::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -6px;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--playhead);
+}
+
+/* ---------------- 部品 ---------------- */
+
+/*
+  🔴 既定のボタンを accent で塗らないこと。
+     以前は button { background: var(--accent) } が既定で、
+     文字色に var(--accent) を足したボタンが**青地に青文字で消えた**。
+     ここでは「塗らない」を既定にし、進めるものだけ明示的に塗る。
+*/
+.fcp button {
+  background: var(--s4);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  min-height: 30px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fcp button:hover:not(:disabled) {
+  background: #3e3e4a;
+  border-color: #4a4a58;
+}
+
+.fcp button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.fcp button.go {
+  background: var(--accent);
+  border-color: #2f6fb0;
+  color: #061320;
+  font-weight: 700;
+}
+
+.fcp button.danger {
+  color: var(--danger);
+}
+
+.fcp button.icon {
+  min-width: 32px;
+  padding: 4px 8px;
+}
+
+.fcp button.on {
+  background: var(--accent);
+  border-color: #2f6fb0;
+  color: #061320;
+}
+
+.fcp button:focus-visible,
+.fcp [tabindex]:focus-visible {
+  outline: 2px solid var(--sel);
+  outline-offset: 1px;
+}
+
+.fcp-dim {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.fcp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--s3);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.fcp-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* 数値の入力。フレーム単位の微調整に使う */
+.fcp-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fcp-stepper output {
+  min-width: 84px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--s0);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 4px 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fcp * {
+    transition: none !important;
+  }
+}
+
+/* ---------------- テロップの編集 ---------------- */
+
+/* 改行位置。文字のあいだの点を押すとそこで折り返す */
+.fcp-breaks {
+  background: var(--s0);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 8px;
+  line-height: 2.1;
+  font-size: 15px;
+  word-break: break-all;
+}
+
+/*
+  🔴 押せる点は小さくしすぎないこと。
+     文字と文字のあいだを狙う操作なので、見た目の細さと
+     当たり判定の大きさを分ける。
+*/
+.fcp-breaks .brk {
+  min-height: 0;
+  min-width: 0;
+  padding: 0 3px;
+  margin: 0 1px;
+  background: transparent;
+  border: 0;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.fcp-breaks .brk:hover {
+  background: var(--s4);
+  color: var(--text);
+}
+
+.fcp-breaks .brk.on {
+  background: var(--sel);
+  color: #241d06;
+  font-weight: 700;
+}
+
+/* 雛形の編集。畳んでおく。開いている間だけ深い設定を見せる */
+.fcp-styleedit {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--s3);
+  padding: 8px 10px;
+}
+
+.fcp-styleedit > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.fcp-styleedit > summary::before {
+  content: '▸ ';
+  color: var(--text-dim);
+}
+
+.fcp-styleedit[open] > summary::before {
+  content: '▾ ';
+}
+
+.fcp-styleedit .fcp-field {
+  margin-top: 12px;
+}
+
+.fcp-styleedit input[type='color'] {
+  width: 44px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--s0);
+  cursor: pointer;
+}
+
+.fcp-styleedit input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}

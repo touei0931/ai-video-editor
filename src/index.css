@@ -1,12 +1,36 @@
+/*
+  編集画面以外（素材を選ぶ・解析中・書き出し中・完了）の見た目。
+
+  🔴 骨格（shell.css）と同じ配色を使うこと。
+     ここだけ別の色にすると、同じアプリに見えない。
+     色の定義は shell.css と揃えてある。片方を変えたらもう片方も変える。
+
+  これらの画面は編集をしないので、中央に寄せた1枚の面で構わない。
+  ただし「書類」ではなく「編集ソフトの起動画面」に見えるようにする。
+*/
+
 :root {
   color-scheme: dark;
-  --bg: #101014;
-  --fg: #e6e6ea;
-  --muted: #8a8a96;
-  --accent: #6ea8fe;
+
+  --s0: #161619;
+  --s1: #1c1c20;
+  --s2: #232329;
+  --s3: #2b2b33;
+  --s4: #34343e;
+
+  --line: #3a3a45;
+  --line-soft: #2a2a32;
+
+  --bg: var(--s1);
+  --fg: #ecedf2;
+  --muted: #9a9aa8;
+  --faint: #6d6d7a;
+
+  --accent: #4a90d9;
+  --sel: #f2c14e;
   --ok: #5fd08a;
   --error: #ff7b72;
-  --border: #26262e;
+  --border: var(--line);
 }
 
 * {
@@ -15,48 +39,56 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, #22222b 0%, transparent 60%),
+    var(--bg);
   color: var(--fg);
-  font-family: "Yu Gothic UI", "Hiragino Sans", system-ui, sans-serif;
+  font-family: 'Yu Gothic UI', 'Hiragino Sans', system-ui, sans-serif;
   /* 🔴 日本語の本文は16pxを下限にする。15pxだと補助文が連鎖的に小さくなる */
   font-size: 16px;
   line-height: 1.75;
 }
 
 main {
-  max-width: 720px;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 40px 24px 64px;
+  padding: 56px 24px 72px;
 }
 
 h1 {
-  font-size: 22px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   margin: 0;
 }
 
 .phase {
   color: var(--muted);
-  margin: 4px 0 32px;
-  font-size: 13px;
+  margin: 6px 0 36px;
+  font-size: 14px;
 }
 
 section {
   border: 1px solid var(--border);
   border-radius: 10px;
+  background: var(--s2);
   padding: 20px 24px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 h2 {
-  font-size: 15px;
-  margin: 0 0 12px;
-  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  margin: 0 0 14px;
+  color: var(--fg);
 }
 
 dl {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 4px 20px;
+  gap: 6px 20px;
   margin: 0 0 16px;
 }
 
@@ -67,32 +99,50 @@ dt {
 
 dd {
   margin: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 code {
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
   font-size: 13px;
-  color: var(--accent);
+  color: #9fd8ff;
   overflow-wrap: anywhere;
 }
 
 /*
-  🔴 ボタンは既定で accent 色に塗られる。
-     個別に文字色を足すときに var(--accent) を指定すると、
-     青地に青文字で**文字が消える**（押せば動くので試しても気づけない）。
-     落ち着かせたいボタンは、塗りを外して文字色を var(--muted) にすること。
+  🔴 既定のボタンを accent で塗らないこと。
+     以前は button の既定が accent 塗りで、文字色に var(--accent) を足したボタンが
+     **青地に青文字で消えた**。押せば動くので、試しても気づけない。
+     塗らないのを既定にし、進めるものだけ .primary で塗る。
 */
 button {
-  background: var(--accent);
-  color: #0b0b0f;
-  border: 0;
+  background: var(--s4);
+  color: var(--fg);
+  border: 1px solid var(--line);
   border-radius: 6px;
   /* 🔴 押せるものは高さ40px以上。マウスで狙える下限 */
   min-height: 40px;
   padding: 8px 18px;
   font: inherit;
-  font-weight: 600;
+  font-size: 15px;
   cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #3e3e4a;
+  border-color: #4a4a58;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: #2f6fb0;
+  color: #061320;
+  font-weight: 700;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* キーボードで辿れることが見えるようにする */
@@ -100,19 +150,14 @@ button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--sel);
   outline-offset: 2px;
-}
-
-button:hover {
-  filter: brightness(1.1);
 }
 
 /*
   🔴 補助文でも、日本語で13pxは小さすぎる。
      このアプリは説明の大半が .muted で書かれているので、
      ここが小さいと「重要な情報ほど読みにくい」状態になる。
-     色も #8a8a96 は 12〜14px の日本語には薄い。少し明るくする。
 */
 .muted {
   color: #a2acba;
@@ -132,15 +177,16 @@ ol {
 
 .progress-track {
   height: 8px;
-  background: #26262e;
+  background: var(--s0);
+  border: 1px solid var(--line-soft);
   border-radius: 4px;
   overflow: hidden;
-  margin: 12px 0;
+  margin: 14px 0;
 }
 
 .progress-fill {
   height: 100%;
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--accent), #6fb0f0);
   transition: width 0.2s ease-out;
 }
 
@@ -148,16 +194,7 @@ ol {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  margin-top: 8px;
-}
-
-button.primary {
-  background: var(--ok);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
+  margin-top: 12px;
 }
 
 /* 下書きの一覧。最初の画面から続きを開くための入口 */
@@ -172,11 +209,11 @@ button:disabled {
   align-items: center;
   gap: 16px;
   padding: 12px 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line-soft);
 }
 
 .drafts li:last-child {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .drafts .who {
@@ -210,14 +247,15 @@ button:disabled {
 /* 前回の続きから始めたことの通知 */
 .resumed {
   margin: 0;
-  padding: 6px 24px;
+  padding: 8px 24px;
   background: #1f2733;
   color: #9fd8ff;
-  font-size: 12px;
+  font-size: 13px;
   text-align: center;
+  border-bottom: 1px solid var(--line);
 }
 
 /* 書き出し後の注意書き。読み飛ばされると Final Cut で書体が変わる */
 .fontnote {
-  color: #ffd479;
+  color: var(--sel);
 }

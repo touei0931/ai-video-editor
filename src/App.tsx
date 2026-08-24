@@ -15,14 +15,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DraftEntry } from './global';
 import { PreviewScreen, type Shot } from './preview/PreviewScreen';
 import { ShortcutHelp } from './ShortcutHelp';
-import { ReviewScreen, type PacePreset, type ReviewState } from './review/ReviewScreen';
+import { type PacePreset, type ReviewState } from './review/ReviewScreen';
+import { CutStage } from './shell/CutStage';
 import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
-import {
-  TelopScreen,
-  type ExportOptions,
-  type StyleMap,
-  type TelopEdits,
-} from './telop/TelopScreen';
+import { type ExportOptions, type StyleMap, type TelopEdits } from './telop/TelopScreen';
+import { TelopStage } from './shell/TelopStage';
+
+/** 書き出しの既定。TelopScreen の既定と揃えること */
+const DEFAULT_EXPORT_OPTIONS: ExportOptions = { burn: true, srt: true, fcpxml: false };
 import { loadTelopFonts, macFontOf } from './telop/fonts';
 import { fcpLook, type FcpLook } from './telop/render';
 import { renderBlank, renderTelopPngs } from './telop/rasterize';
@@ -425,6 +425,13 @@ export function App() {
       structuredClone(DEFAULT_STYLES),
     [library],
   );
+
+  /**
+   * いま使っている雛形。
+   * 下書きに残っていればそれ、無ければ本人が既定として保存した見た目から始める。
+   */
+  const [telopStyles, setTelopStyles] = useState<StyleMap | null>(null);
+  const styles = telopStyles ?? finalState?.styles ?? defaultStyles;
 
   const measure = useMemo(() => (hasBridge ? makeMeasure() : null), [hasBridge]);
   const frame: Frame = useMemo(
@@ -1189,13 +1196,12 @@ export function App() {
         {resumed && (
           <p className="resumed">前回の続きから再開しました（判定済みの内容を復元しています）</p>
         )}
-        <ReviewScreen
+        <CutStage
           candidates={analysis.candidates.map(toCandidate)}
           band={analysis.review_band}
           fps={analysis.video.fps}
           videoPath={analysis.video_path}
           videoDuration={analysis.duration}
-          frame={frame}
           initialState={savedReview}
           onStateChange={saveReview}
           onNeedClip={requestClip}
@@ -1214,30 +1220,45 @@ export function App() {
     return (
       <>
         {help}
-        <TelopScreen
+        <TelopStage
           cards={cards}
           // 下書きに残っていればそれ、無ければ本人が既定として保存した見た目
-          initialStyles={finalState?.styles ?? defaultStyles}
-          initialOptions={finalState?.options}
-          initialRemoved={finalState?.removed}
+          styles={styles}
+          onStylesChange={setTelopStyles}
           fontFamilies={fontFamilies}
           library={library}
           onLibraryChange={saveLibrary}
           videoPath={analysis.video_path}
           frame={frame}
           rewrap={rewrap}
-          onEditsChange={saveTelopEdits}
-          onBack={(edits) => {
-            // 🔴 戻る前に直した内容を受け取っておく。
-            //    受け取らないと、この画面が消えた時点で全部消える。
-            setCards(edits.cards);
-            setFinalState(edits);
-            setPhase('review');
+          duration={analysis.duration}
+          fps={analysis.video.fps}
+          cutRegions={cuts.map((c) => ({
+            id: c.id,
+            start: c.srcStart,
+            end: c.srcEnd,
+          }))}
+          onChange={(next) => {
+            /*
+              🔴 直すたびに受け取って保存すること。
+                 「戻る」「進む」のときだけでは足りない。100枚校正したあとに
+                 窓を閉じれば、押した記憶だけ残して全部消える。
+            */
+            setCards(next);
+            saveTelopEdits({
+              cards: next,
+              styles,
+              options: finalState?.options ?? DEFAULT_EXPORT_OPTIONS,
+              removed: finalState?.removed ?? [],
+            });
           }}
+          onBack={() => setPhase('review')}
           onQuit={() => void quitEditing()}
-          onExport={goFullPreview}
+          onExport={(next) => {
+            setCards(next);
+            goFullPreview(next, styles, finalState?.options ?? DEFAULT_EXPORT_OPTIONS);
+          }}
           exporting={false}
-          error={error}
         />
       </>
     );
