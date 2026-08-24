@@ -78,10 +78,10 @@ jobs:
         run: ./fcp-extension/scripts/build.sh
 
       - name: アドホック署名
-        run: ./fcp-extension/scripts/adhoc-sign.sh fcp-extension/build/Build/Products/Release/PAC.app
+        run: ./fcp-extension/scripts/adhoc-sign.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
 
       - name: 関門チェック
-        run: ./fcp-extension/scripts/check_extension.sh fcp-extension/build/Build/Products/Release/PAC.app
+        run: ./fcp-extension/scripts/check_extension.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
 
       - name: 配布物を固める
         run: |
