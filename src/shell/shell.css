@@ -64,6 +64,25 @@
   overflow: hidden;
 }
 
+/*
+  🔴 index.css の要素セレクタが、ここへ漏れてくる。
+
+  index.css には section { padding: 20px 24px; margin-bottom: 16px; border: 1px }
+  が書いてある。骨格のビューアとタイムラインは <section> なので、
+  そのまま当たって**内側に 24px / 20px ずれ、下に 16px の隙間ができ**、
+  はみ出した分の映像が切れた。CSS は例外にならないので気づきにくい。
+
+  :where() で包むのは、詳細度を 0 にして下の個別指定を必ず勝たせるため。
+  ここを普通のセレクタで書くと、逆に .fcp-viewer の背景や罫線を潰してしまう。
+*/
+.fcp :where(section, aside, header, article, h1, h2, ol, dl) {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
 /* ---------------- ツールバー ---------------- */
 
 .fcp-toolbar {
@@ -153,13 +172,34 @@
   border-right: 1px solid var(--line);
 }
 
+/*
+  🔴 行と列を minmax(0, 1fr) で必ず**確定**させること。
+
+     grid の行を既定の auto のままにすると、行の高さが中身で決まる。
+     すると子の max-height: 100% の基準が定まらず**効かない**。
+     映像が枠より高くなり、下がタイムラインに潜り込む（実際にそうなった）。
+
+  🔴 子は全部同じマス（1/1）に重ねる。
+     ビューアには「元の映像」「繋いだ結果」「知らせ」が同時に置かれる。
+     自動配置に任せると縦に積まれ、その分はみ出す。
+*/
 .fcp-stage {
   flex: 1;
   min-height: 0;
   display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   padding: 12px;
   position: relative;
+  overflow: hidden;
+}
+
+.fcp-stage > * {
+  grid-area: 1 / 1;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* 映像は必ず枠に収める。はみ出すとテロップの位置が確認できない */
@@ -501,7 +541,7 @@
   width: 1px;
   background: var(--playhead);
   pointer-events: none;
-  z-index: 4;
+  z-index: 5;
 }
 
 .fcp-playhead::before {
@@ -512,6 +552,38 @@
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
   border-top: 8px solid var(--playhead);
+}
+
+/*
+  掴むための帯。線は 1px なので、これが無いと狙って掴めない。
+  🔴 見た目は細いまま、当たり判定だけ広げること。
+*/
+.fcp-playhead .grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -7px;
+  width: 15px;
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.fcp-playhead .grip:hover ~ *,
+.fcp-playhead:hover {
+  background: var(--sel);
+}
+
+.fcp-playhead:hover::before {
+  border-top-color: var(--sel);
+}
+
+/* 掴んでいる間は色を変えて、動かしていることを分かるようにする */
+.fcp-playhead.grabbing {
+  background: var(--sel);
+}
+
+.fcp-playhead.grabbing::before {
+  border-top-color: var(--sel);
 }
 
 /* ---------------- 部品 ---------------- */
@@ -704,4 +776,23 @@
 .fcp-styleedit input[type='range'] {
   width: 100%;
   accent-color: var(--accent);
+}
+
+/*
+  映像の上に重ねる小さな知らせ。
+  🔴 映像を消して置き換えないこと。「動画が表示されない」に見える。
+*/
+.fcp-stage-note {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(18, 18, 22, 0.86);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
 }

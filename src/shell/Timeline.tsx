@@ -142,7 +142,7 @@ export function Timeline({
     [duration, fps],
   );
 
-  /* --- 目盛りをクリックして再生位置を移す --- */
+  /* --- 再生位置を動かす --- */
   const seekFromEvent = useCallback(
     (clientX: number, el: HTMLElement) => {
       const rect = el.getBoundingClientRect();
@@ -150,6 +150,42 @@ export function Timeline({
     },
     [duration, onSeek, scale],
   );
+
+  /**
+   * 再生位置のドラッグ（スクラブ）。
+   *
+   * 🔴 押した瞬間に1回動かすだけにしないこと。
+   *    編集ソフトの目盛りは、押したまま左右に動かすと映像が追いてくる。
+   *    クリックだけだと、目当ての場所を一発で当てにいく操作になり、
+   *    行ったり来たりが必要な確認作業に向かない。
+   */
+  const [scrubbing, setScrubbing] = useState(false);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+
+  const startScrub = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      setScrubbing(true);
+      if (canvasRef.current) seekFromEvent(e.clientX, canvasRef.current);
+    },
+    [seekFromEvent],
+  );
+
+  useEffect(() => {
+    if (!scrubbing) return;
+    const move = (e: PointerEvent) => {
+      if (canvasRef.current) seekFromEvent(e.clientX, canvasRef.current);
+    };
+    const up = () => setScrubbing(false);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, [scrubbing, seekFromEvent]);
 
   /* --- 端のドラッグ --- */
   const startDrag = useCallback(
@@ -330,10 +366,10 @@ export function Timeline({
       </div>
 
       <div className="fcp-tl-scroll" ref={scrollRef} onWheel={onWheel}>
-        <div className="fcp-tl-canvas" style={{ width }}>
+        <div className="fcp-tl-canvas" style={{ width }} ref={canvasRef}>
           <div
             className="fcp-ruler"
-            onPointerDown={(e) => seekFromEvent(e.clientX, e.currentTarget)}
+            onPointerDown={startScrub}
             role="slider"
             aria-label="再生位置"
             aria-valuemin={0}
@@ -431,7 +467,17 @@ export function Timeline({
             </div>
           ))}
 
-          <div className="fcp-playhead" style={{ left: currentTime * scale }} />
+          {/*
+            再生位置。線そのものは 1px なので掴めない。
+            🔴 見た目の細さと、掴める幅を分けること。
+               当たり判定を線と同じ太さにすると、狙って掴むのが苦行になる。
+          */}
+          <div
+            className={`fcp-playhead ${scrubbing ? 'grabbing' : ''}`}
+            style={{ left: currentTime * scale }}
+          >
+            <span className="grip" onPointerDown={startScrub} title="ドラッグで再生位置を動かせます" />
+          </div>
         </div>
       </div>
     </section>

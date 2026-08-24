@@ -414,6 +414,8 @@ export function CutStage({
   }, [selected, onNeedClip, byId, clips]);
 
   const clip = selected ? clips[selected] : undefined;
+  /** 繋いだ結果を前に出せる状態か。出せないときは元の映像を見せ続ける */
+  const showJoined = viewMode === 'joined' && clip?.status === 'ready';
 
   /*
     🔴 loop 属性は使わない。必ず 0 秒に戻ってしまい、繋ぎ目の手前から流し直せない。
@@ -537,34 +539,17 @@ export function CutStage({
         </>
       }
       viewer={
+        /*
+          🔴 ビューアを空にしないこと。
+
+          最初はここを「繋いだ結果」だけにしていたので、カットを選ぶまで
+          元の映像を display:none で隠していた。編集ソフトのビューアは
+          常に映像が出ているものなので、「動画が表示されない」と受け取られる。
+
+          元の映像を土台として常に出し、繋いだ結果が用意できたときだけ
+          その上に差し替える。作成中や失敗は、映像を消さずに重ねて知らせる。
+        */
         <>
-          {/* 切って繋いだ結果。選んだ箇所があり、用意できているときだけ前に出す */}
-          {viewMode === 'joined' && clip?.status === 'ready' && (
-            <video
-              ref={clipRef}
-              src={mediaUrl(clip.path)}
-              muted={false}
-              style={{ width: '100%', height: '100%' }}
-            />
-          )}
-          {viewMode === 'joined' && clip?.status === 'loading' && (
-            <div className="fcp-stage-empty">繋いだ結果を作っています…</div>
-          )}
-          {viewMode === 'joined' && clip?.status === 'failed' && (
-            <div className="fcp-stage-empty">
-              繋いだ結果を作れませんでした。
-              <br />
-              「元の映像」に切り替えて確認してください。
-            </div>
-          )}
-          {viewMode === 'joined' && !clip && (
-            <div className="fcp-stage-empty">
-              タイムラインでカットを選ぶと、
-              <br />
-              切って繋いだ結果がここで繰り返し再生されます。
-            </div>
-          )}
-          {/* 元の映像。切り替えたときだけ出す */}
           <video
             ref={videoRef}
             src={videoPath ? mediaUrl(videoPath) : undefined}
@@ -573,9 +558,25 @@ export function CutStage({
             style={{
               width: '100%',
               height: '100%',
-              display: viewMode === 'source' ? 'block' : 'none',
+              display: showJoined ? 'none' : 'block',
             }}
           />
+          {clip?.status === 'ready' && (
+            <video
+              ref={clipRef}
+              src={mediaUrl(clip.path)}
+              style={{ width: '100%', height: '100%', display: showJoined ? 'block' : 'none' }}
+            />
+          )}
+          {viewMode === 'joined' && clip?.status === 'loading' && (
+            <div className="fcp-stage-note">繋いだ結果を作っています…</div>
+          )}
+          {viewMode === 'joined' && clip?.status === 'failed' && (
+            <div className="fcp-stage-note">
+              繋いだ結果を作れませんでした。元の映像で確認してください。
+            </div>
+          )}
+          {!videoPath && <div className="fcp-stage-empty">映像はここに出ます</div>}
         </>
       }
       transport={

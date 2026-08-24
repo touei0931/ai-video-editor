@@ -101,14 +101,22 @@ export function TelopStage({
 
   /* ---------- プレビュー ---------- */
 
-  useEffect(() => {
+  /**
+   * 1コマ描く。映像を敷いてからテロップを重ねる。
+   *
+   * 🔴 書き出しと同じ関数を、同じ順序で通すこと。
+   *    resolveStyle → buildLines → drawTelop。
+   *    とくに buildLines を飛ばすと、強調した語が**プレビューにだけ出ない**。
+   */
+  const paint = useCallback(() => {
     const cv = canvasRef.current;
     if (!cv) return;
-    cv.width = frame.width;
-    cv.height = frame.height;
+    if (cv.width !== frame.width || cv.height !== frame.height) {
+      cv.width = frame.width;
+      cv.height = frame.height;
+    }
     const ctx = cv.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, cv.width, cv.height);
 
     const v = videoRef.current;
     if (v && v.readyState >= 2) {
@@ -118,16 +126,8 @@ export function TelopStage({
       ctx.fillRect(0, 0, cv.width, cv.height);
     }
 
-    const card = showing ?? (cur && time === 0 ? cur : null);
+    const card = showing ?? cur;
     if (!card) return;
-
-    /*
-      🔴 書き出しと同じ関数を、同じ順序で通すこと。
-
-      resolveStyle → buildLines → drawTelop。
-      とくに buildLines を飛ばすと、強調した語が**プレビューにだけ出ない**。
-      lines は素の文字列で持ち、色と大きさは描く直前に決める作りになっている。
-    */
     const style = resolveStyle(styles, card.style, card.override, card.fontScale);
     drawTelop(
       ctx,
@@ -140,7 +140,43 @@ export function TelopStage({
       },
       frame,
     );
-  }, [showing, cur, time, styles, frame]);
+  }, [showing, cur, styles, frame]);
+
+  // 直したら描き直す
+  useEffect(() => {
+    paint();
+  }, [paint, time]);
+
+  /*
+    🔴 映像が読めた瞬間に描き直すこと。
+       描画のきっかけを「状態が変わったとき」だけにしていたので、
+       動画の読み込みが終わっても Canvas は黒いままだった。
+       画面には何も出ず、原因も分からない。
+  */
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const redraw = () => paint();
+    for (const ev of ['loadeddata', 'seeked', 'canplay']) v.addEventListener(ev, redraw);
+    return () => {
+      for (const ev of ['loadeddata', 'seeked', 'canplay']) v.removeEventListener(ev, redraw);
+    };
+  }, [paint]);
+
+  /*
+    再生中は毎コマ描く。
+    timeupdate は毎秒4回ほどしか鳴らないので、それだけだと紙芝居になる。
+  */
+  useEffect(() => {
+    if (!playing) return;
+    let id = 0;
+    const loop = () => {
+      paint();
+      id = requestAnimationFrame(loop);
+    };
+    id = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(id);
+  }, [playing, paint]);
 
   /* ---------- 再生 ---------- */
 
