@@ -22,6 +22,7 @@ import {
   type StyleMap,
   type TelopStyleName,
 } from '../telop/style';
+import { mediaUrl } from './media';
 
 export interface TelopStageProps {
   cards: TelopCard[];
@@ -382,7 +383,7 @@ export function TelopStage({
           {videoPath && (
             <video
               ref={videoRef}
-              src={`app-media://${encodeURI(videoPath)}`}
+              src={mediaUrl(videoPath)}
               style={{ display: 'none' }}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}

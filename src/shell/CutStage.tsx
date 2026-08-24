@@ -27,6 +27,7 @@ import {
   DEFAULT_BAND,
 } from '../review/mockCandidates';
 import type { PacePreset, ReviewState } from '../review/ReviewScreen';
+import { mediaUrl } from './media';
 
 const PACE_LABEL: Record<PacePreset, string> = {
   loose: 'ゆったり',
@@ -541,7 +542,7 @@ export function CutStage({
           {viewMode === 'joined' && clip?.status === 'ready' && (
             <video
               ref={clipRef}
-              src={`app-media://${encodeURI(clip.path)}`}
+              src={mediaUrl(clip.path)}
               muted={false}
               style={{ width: '100%', height: '100%' }}
             />
@@ -566,7 +567,7 @@ export function CutStage({
           {/* 元の映像。切り替えたときだけ出す */}
           <video
             ref={videoRef}
-            src={videoPath ? `app-media://${encodeURI(videoPath)}` : undefined}
+            src={videoPath ? mediaUrl(videoPath) : undefined}
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
             style={{

@@ -11,7 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "app": "npm run build && electron .",
-    "guard": "node scripts/platform-guard.mjs",
+    "guard": "node scripts/platform-guard.mjs && node scripts/check-media-urls.mjs",
     "test:drafts": "node scripts/test-drafts.mjs",
     "test:telop": "node scripts/test-telop.mjs",
     "test:track": "python scripts/test_telop_track.py",
