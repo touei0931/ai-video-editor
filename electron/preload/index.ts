@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('telopE2E', {
 /** アプリ本体の操作 */
 contextBridge.exposeInMainWorld('app', {
   pickVideo: () => ipcRenderer.invoke('app:pickVideo'),
+  pickMusic: () => ipcRenderer.invoke('app:pickMusic'),
   pickOutput: (defaultPath: string) => ipcRenderer.invoke('app:pickOutput', defaultPath),
   analyze: (params: Record<string, unknown>) => ipcRenderer.invoke('app:analyze', params),
   cancel: () => ipcRenderer.invoke('app:cancel'),

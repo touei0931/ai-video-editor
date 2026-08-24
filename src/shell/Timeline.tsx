@@ -13,7 +13,7 @@
  *   - 掴んでいる間、動かした量を数値でその場に出す（何フレーム伸ばしたか分からないと戻せない）
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 export type RegionKind = 'cut' | 'keep' | 'hold' | 'telop';
 
@@ -35,6 +35,28 @@ export interface TimelineTrack {
   /** 背景に素材の帯を敷くか（カットのトラックだけ） */
   showSource?: boolean;
   height?: number;
+  /**
+   * 区間の代わりに自前で描くレーン（音の波・映像のコマ）。
+   * 拡大率と、いま見えている範囲を受け取る。
+   *
+   * 🔴 見えている範囲を渡すのが要点。
+   *    素材全体を一度に描こうとすると、20分の素材で固まる。
+   *    コマの取り出しは重いので、見えている分だけ作る。
+   */
+  render?(view: TimelineView): ReactNode;
+}
+
+export interface TimelineView {
+  /** 1秒あたりの画素数 */
+  scale: number;
+  /** 見えている左端（秒） */
+  from: number;
+  /** 見えている右端（秒） */
+  to: number;
+  /** レーンの高さ（画素） */
+  height: number;
+  /** 素材全体の長さ（秒） */
+  duration: number;
 }
 
 export interface TimelineProps {
@@ -161,6 +183,8 @@ export function Timeline({
    */
   const [scrubbing, setScrubbing] = useState(false);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  /** いま見えている範囲。重いレーン（波形・コマ）に渡す */
+  const [view, setView] = useState({ left: 0, width: 900 });
 
   const startScrub = useCallback(
     (e: React.PointerEvent) => {
@@ -365,7 +389,14 @@ export function Timeline({
         </button>
       </div>
 
-      <div className="fcp-tl-scroll" ref={scrollRef} onWheel={onWheel}>
+      <div
+        className="fcp-tl-scroll"
+        ref={scrollRef}
+        onWheel={onWheel}
+        onScroll={(e) =>
+          setView({ left: e.currentTarget.scrollLeft, width: e.currentTarget.clientWidth })
+        }
+      >
         <div className="fcp-tl-canvas" style={{ width }} ref={canvasRef}>
           <div
             className="fcp-ruler"
@@ -399,6 +430,14 @@ export function Timeline({
               >
                 {track.showSource && <div className="fcp-source" />}
 
+                {track.render?.({
+                  scale,
+                  from: view.left / scale,
+                  to: (view.left + view.width) / scale,
+                  height: track.height ?? 56,
+                  duration,
+                })}
+
                 {track.regions.map((r) => {
                   const v = shown(r);
                   const left = v.start * scale;
@@ -425,8 +464,17 @@ export function Timeline({
                         onSelect(r.id);
                         // 掴める大きさに足りないなら、その場で寄る。
                         // 「拡大してから掴んでください」を人にやらせない。
-                        if (!r.fixed && w < GRABBABLE) focus(r.id);
-                        else if (!r.fixed && e.altKey) startDrag(e, r, 'move');
+                        if (!r.fixed && w < GRABBABLE) {
+                          focus(r.id);
+                          return;
+                        }
+                        /*
+                          🔴 本体を掴んだらそのまま動かせること。
+                             以前は Alt を押しながらでないと動かせなかった。
+                             編集ソフトのクリップは掴めば動く。修飾キーは要らない。
+                             （端のつまみは伸縮。本体は移動、と役割を分ける）
+                        */
+                        if (!r.fixed) startDrag(e, r, 'move');
                       }}
                       title={`${clock(v.start)} 〜 ${clock(v.end)}（${(v.end - v.start).toFixed(2)}秒）`}
                     >

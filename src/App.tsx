@@ -19,7 +19,7 @@ import { type PacePreset, type ReviewState } from './review/ReviewScreen';
 import { CutStage } from './shell/CutStage';
 import type { CutCandidate, CutKind, ReviewBand } from './review/mockCandidates';
 import { type ExportOptions, type StyleMap, type TelopEdits } from './telop/TelopScreen';
-import { TelopStage } from './shell/TelopStage';
+import { TelopStage, type MusicTrack } from './shell/TelopStage';
 
 /** 書き出しの既定。TelopScreen の既定と揃えること */
 const DEFAULT_EXPORT_OPTIONS: ExportOptions = { burn: true, srt: true, fcpxml: false };
@@ -431,6 +431,12 @@ export function App() {
    * 下書きに残っていればそれ、無ければ本人が既定として保存した見た目から始める。
    */
   const [telopStyles, setTelopStyles] = useState<StyleMap | null>(null);
+  /**
+   * BGM。テロップ画面で足し、書き出しに渡す。
+   * 🔴 書き出しの引数に必ず載せること。画面で足しただけで出力に乗らないと、
+   *    「付けたのに入っていない」という一番たちの悪い壊れ方をする。
+   */
+  const [music, setMusic] = useState<MusicTrack | null>(null);
   const styles = telopStyles ?? finalState?.styles ?? defaultStyles;
 
   const measure = useMemo(() => (hasBridge ? makeMeasure() : null), [hasBridge]);
@@ -1132,6 +1138,9 @@ export function App() {
           burn_telops: options.burn,
           write_srt: options.srt,
           write_fcpxml: options.fcpxml,
+          music: music
+            ? { path: music.path, volume: music.volume, loop: music.loop }
+            : null,
         })) as ExportResult;
         /*
           Final Cut 用のタイムラインを出したなら、使った書体も隣に置く。
@@ -1202,6 +1211,8 @@ export function App() {
           fps={analysis.video.fps}
           videoPath={analysis.video_path}
           videoDuration={analysis.duration}
+          audioPath={analysis.wav_path}
+          frame={frame}
           initialState={savedReview}
           onStateChange={saveReview}
           onNeedClip={requestClip}
@@ -1233,6 +1244,10 @@ export function App() {
           rewrap={rewrap}
           duration={analysis.duration}
           fps={analysis.video.fps}
+          audioPath={analysis.wav_path}
+          music={music}
+          onMusicChange={setMusic}
+          onPickMusic={() => window.app.pickMusic()}
           cutRegions={cuts.map((c) => ({
             id: c.id,
             start: c.srcStart,

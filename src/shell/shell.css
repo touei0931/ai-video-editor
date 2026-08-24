@@ -398,7 +398,8 @@
   border-radius: 4px;
   border: 1px solid rgba(0, 0, 0, 0.45);
   overflow: hidden;
-  cursor: pointer;
+  /* 本体は掴んで動かす。端のつまみは伸縮（ew-resize）と役割を分ける */
+  cursor: grab;
   display: flex;
   align-items: center;
   min-width: 3px;
@@ -516,6 +517,7 @@
 /* ドラッグ中は掴んでいる端を強調し、数値をその場に出す */
 .fcp-clip.trimming {
   z-index: 4;
+  cursor: grabbing;
 }
 
 .fcp-trim-readout {
@@ -795,4 +797,62 @@
   font-size: 13px;
   white-space: nowrap;
   pointer-events: none;
+}
+
+/* ---------------- 波形・コマのレーン ---------------- */
+
+.fcp-lane-canvas {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+}
+
+.fcp-lane-note {
+  position: sticky;
+  left: 8px;
+  display: inline-block;
+  margin: 6px 0 0 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--s3);
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+/*
+  コマ。取り出しが追いつくまでは枠だけ出す。
+  🔴 何も出さないと「壊れている」に見える。取り出し中だと分かる形にする。
+*/
+.fcp-frame {
+  position: absolute;
+  top: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-right: 1px solid rgba(0, 0, 0, 0.5);
+}
+
+.fcp-frame.empty {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.03),
+    rgba(255, 255, 255, 0.03) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+
+.fcp-frame img {
+  display: block;
+  object-fit: cover;
+  width: auto;
+}
+
+/* 音楽（BGM）のクリップ */
+.fcp-clip.kind-music {
+  background: var(--music, #4a6b3f);
+}
+.fcp-clip.kind-music .cap {
+  background: var(--music-top, #6d9a5c);
 }

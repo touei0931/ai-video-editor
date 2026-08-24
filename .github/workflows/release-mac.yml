@@ -40,6 +40,7 @@ jobs:
           npm run guard
           npm run test:drafts
           npm run test:telop
+          npm run test:music
 
       - name: Python の依存をそろえる
         run: |

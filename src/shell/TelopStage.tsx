@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorShell } from './EditorShell';
 import { Timeline, clock, type TimelineRegion } from './Timeline';
+import { Waveform } from './Waveform';
+import { Filmstrip } from './Filmstrip';
 import { buildLines, drawTelop, type Frame } from '../telop/render';
 import { resolveOverlaps, type TelopCard } from '../telop/split';
 import {
@@ -55,6 +57,26 @@ export interface TelopStageProps {
   cutRegions?: { id: string; start: number; end: number }[];
   duration: number;
   fps?: number;
+  /** 解析で作った audio.wav。音の波を出すのに使う */
+  audioPath?: string;
+  /**
+   * BGM。無ければ null。
+   * 🔴 書き出しにも渡ること。画面で足しただけで出力に乗らないと、
+   *    「付けたのに入っていない」という一番たちの悪い壊れ方をする。
+   */
+  music?: MusicTrack | null;
+  onMusicChange?(m: MusicTrack | null): void;
+  onPickMusic?(): Promise<string | null>;
+}
+
+export interface MusicTrack {
+  path: string;
+  /** 動画の何秒から鳴らすか */
+  start: number;
+  /** 0〜1。声より小さくするのが前提なので既定は控えめ */
+  volume: number;
+  /** 尺に足りないとき繰り返すか */
+  loop: boolean;
 }
 
 export function TelopStage({
@@ -75,6 +97,10 @@ export function TelopStage({
   cutRegions = [],
   duration,
   fps = 30,
+  audioPath,
+  music,
+  onMusicChange,
+  onPickMusic,
 }: TelopStageProps) {
   const [cards, setCards] = useState<TelopCard[]>(initial);
   const [selected, setSelected] = useState<string | null>(initial[0]?.id ?? null);
@@ -360,6 +386,33 @@ export function TelopStage({
       })),
     [cutRegions],
   );
+
+  /**
+   * BGM の帯。
+   * 🔴 尺は「動画の残り全部」にする。
+   *    音楽ファイルの実際の長さは読み込まないと分からないが、
+   *    書き出し側で尺に合わせて切る／繰り返すので、ここでは動画側に合わせておく。
+   */
+  const musicRegions = useMemo<TimelineRegion[]>(
+    () =>
+      music
+        ? [
+            {
+              id: 'music',
+              start: music.start,
+              end: duration,
+              kind: 'telop',
+              label: `♪ ${music.path.split(/[\/]/).pop() ?? 'BGM'}`,
+            },
+          ]
+        : [],
+    [music, duration],
+  );
+
+  const addMusic = useCallback(async () => {
+    const path = await onPickMusic?.();
+    if (path) onMusicChange?.({ path, start: 0, volume: 0.18, loop: true });
+  }, [onPickMusic, onMusicChange]);
 
   const needCheck = cards.filter((c) => c.needsCheck).length;
 
@@ -723,6 +776,50 @@ export function TelopStage({
               </div>
             )}
 
+            {onPickMusic && (
+              <div className="fcp-field">
+                <label>BGM</label>
+                {music ? (
+                  <>
+                    <div style={{ overflowWrap: 'anywhere', fontSize: 14 }}>
+                      ♪ {music.path.split(/[\/]/).pop()}
+                    </div>
+                    <label className="fcp-dim">音量 {Math.round(music.volume * 100)}%</label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={0.6}
+                      step={0.01}
+                      value={music.volume}
+                      onChange={(e) =>
+                        onMusicChange?.({ ...music, volume: Number(e.target.value) })
+                      }
+                    />
+                    <label className="fcp-dim">
+                      <input
+                        type="checkbox"
+                        checked={music.loop}
+                        onChange={(e) => onMusicChange?.({ ...music, loop: e.target.checked })}
+                      />{' '}
+                      足りなければ繰り返す
+                    </label>
+                    <p className="fcp-dim">
+                      動画の長さに合わせて切り、終わりは自然に消えます。
+                      声の大きさは BGM に影響されません。
+                    </p>
+                    <button className="danger" onClick={() => onMusicChange?.(null)}>
+                      BGM を外す
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => void addMusic()}>♪ 音楽を追加</button>
+                    <p className="fcp-dim">mp3 / m4a / wav などを選べます。</p>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="fcp-field">
               <label>枚数</label>
               <div>{cards.length} 枚</div>
@@ -748,8 +845,30 @@ export function TelopStage({
           onSelect={setSelected}
           onTrim={onTrim}
           tracks={[
+            {
+              id: 'film',
+              label: 'コマ',
+              regions: [],
+              height: 42,
+              render: (v) => (
+                <Filmstrip {...v} videoPath={videoPath} aspect={frame.width / frame.height} />
+              ),
+            },
             { id: 'telop', label: 'テロップ', regions: telopRegions, height: 44 },
-            { id: 'cut', label: 'カット', regions: cutTrack, showSource: true, height: 34 },
+            { id: 'cut', label: 'カット', regions: cutTrack, showSource: true, height: 30 },
+            {
+              id: 'wave',
+              label: '音',
+              regions: [],
+              height: 48,
+              render: (v) => <Waveform {...v} audioPath={audioPath} />,
+            },
+            {
+              id: 'music',
+              label: 'BGM',
+              regions: musicRegions,
+              height: 34,
+            },
           ]}
         />
       }

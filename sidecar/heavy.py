@@ -486,6 +486,8 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
         # フィルタのファイルは作業フォルダへ。書き出し先（利用者が選んだ場所）を
         # 中間ファイルで汚さない。
         work_dir=str(work_dir),
+        # BGM。{"path": ..., "volume": 0〜1, "loop": true} を想定
+        music=params.get("music") or None,
     )
     # ── 編集ソフトへ渡す用のタイムライン ──
     #

@@ -34,6 +34,8 @@ declare global {
     };
     app: {
       pickVideo: () => Promise<string | null>;
+      /** BGM に使う音楽ファイルを選ぶ */
+      pickMusic: () => Promise<string | null>;
       pickOutput: (defaultPath: string) => Promise<string | null>;
       analyze: (params: Record<string, unknown>) => Promise<unknown>;
       cancel: () => Promise<boolean>;

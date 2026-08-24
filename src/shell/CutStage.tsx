@@ -19,6 +19,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorShell } from './EditorShell';
 import { Timeline, clock, type TimelineRegion } from './Timeline';
+import { Waveform } from './Waveform';
+import { Filmstrip } from './Filmstrip';
 import {
   KIND_LABEL,
   type CutCandidate,
@@ -63,6 +65,10 @@ export interface CutStageProps {
   fps?: number;
   videoPath?: string;
   videoDuration?: number;
+  /** 解析で作った audio.wav。音の波を出すのに使う */
+  audioPath?: string;
+  /** 素材の縦横。コマの形を合わせるのに使う */
+  frame?: { width: number; height: number };
   initialState?: ReviewState | null;
   onStateChange?(s: ReviewState): void;
   onExport?(approved: CutCandidate[]): void;
@@ -95,6 +101,8 @@ export function CutStage({
   fps = 30,
   videoPath,
   videoDuration,
+  audioPath,
+  frame,
   initialState,
   onStateChange,
   onExport,
@@ -793,7 +801,29 @@ export function CutStage({
           onSelect={select}
           onTrim={onTrim}
           focusId={focusId}
-          tracks={[{ id: 'cut', label: 'カット', regions, showSource: true, height: 60 }]}
+          tracks={[
+            {
+              id: 'film',
+              label: 'コマ',
+              regions: [],
+              height: 46,
+              render: (v) => (
+                <Filmstrip
+                  {...v}
+                  videoPath={videoPath}
+                  aspect={frame ? frame.width / frame.height : 16 / 9}
+                />
+              ),
+            },
+            { id: 'cut', label: 'カット', regions, showSource: true, height: 60 },
+            {
+              id: 'wave',
+              label: '音',
+              regions: [],
+              height: 54,
+              render: (v) => <Waveform {...v} audioPath={audioPath} />,
+            },
+          ]}
         />
       }
     />

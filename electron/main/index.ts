@@ -140,6 +140,22 @@ ipcMain.handle('app:pickVideo', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+/**
+ * BGM に使う音楽ファイルを選ぶ。
+ *
+ * 🔴 動画も選べるようにしないこと。
+ *    「音楽を追加」で動画を選べてしまうと、映像が混ざったのか音だけなのかが
+ *    画面から分からなくなる。ここは音声ファイルだけに絞る。
+ */
+ipcMain.handle('app:pickMusic', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '音楽（BGM）を選ぶ',
+    properties: ['openFile'],
+    filters: [{ name: '音楽', extensions: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg'] }],
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
 ipcMain.handle('app:pickOutput', async (_e, defaultPath: string) => {
   const result = await dialog.showSaveDialog({
     title: '書き出し先',
@@ -629,7 +645,26 @@ const MEDIA_TYPES: Record<string, string> = {
   '.avi': 'video/x-msvideo',
   '.png': 'image/png',
   '.wav': 'audio/wav',
+  // BGM に使う音声。ここに無い拡張子は octet-stream になり、<audio> が鳴らない
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.ogg': 'audio/ogg',
 };
+
+/*
+  🔴 CORS を許すこと。
+
+  これが無いと、レンダラからの fetch() は「Failed to fetch」で落ち、
+  <video crossOrigin="anonymous"> も読み込めない。結果として
+    - 音の波（fetch して解析する）が出ない
+    - 映像のコマ（canvas に写して取り出す）が取れない
+  という形で表に出る。どちらも例外が読めるところに出ないので気づきにくい。
+
+  読ませるのは自分のアプリのレンダラだけで、外部には公開していない。
+*/
+const MEDIA_CORS = { 'Access-Control-Allow-Origin': '*' } as const;
 
 /**
  * ローカルの動画をレンダラで再生できるようにする。
@@ -654,7 +689,7 @@ function registerMediaProtocol(): void {
       size = statSync(filePath).size;
     } catch (e) {
       console.error('[media] 読み込めませんでした:', filePath, e);
-      return new Response('not found', { status: 404 });
+      return new Response('not found', { status: 404, headers: { ...MEDIA_CORS } });
     }
 
     const type = MEDIA_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
@@ -667,13 +702,14 @@ function registerMediaProtocol(): void {
       if (start >= size || end < start) {
         return new Response(null, {
           status: 416,
-          headers: { 'Content-Range': `bytes */${size}` },
+          headers: { ...MEDIA_CORS, 'Content-Range': `bytes */${size}` },
         });
       }
       const stream = Readable.toWeb(createReadStream(filePath, { start, end })) as ReadableStream;
       return new Response(stream, {
         status: 206,
         headers: {
+          ...MEDIA_CORS,
           'Content-Type': type,
           'Content-Length': String(end - start + 1),
           'Content-Range': `bytes ${start}-${end}/${size}`,
@@ -686,6 +722,7 @@ function registerMediaProtocol(): void {
     return new Response(stream, {
       status: 200,
       headers: {
+        ...MEDIA_CORS,
         'Content-Type': type,
         'Content-Length': String(size),
         'Accept-Ranges': 'bytes',
@@ -694,8 +731,29 @@ function registerMediaProtocol(): void {
   });
 }
 
+/*
+  🔴 corsEnabled を必ず付けること。
+
+  supportFetchAPI だけでは足りない。これが無いと
+    - レンダラからの fetch() が「Failed to fetch」で落ちる
+    - <video crossOrigin="anonymous"> が「Format error」で読み込めない
+  という形になり、音の波（fetch して解析する）も
+  映像のコマ（canvas に写して取り出す）も出ない。
+
+  どちらも「機能が黙って出ない」だけで、例外が読めるところに出ないので
+  原因に辿り着きにくい。実際ここで一度止まった。
+*/
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+  {
+    scheme: 'media',
+    privileges: {
+      standard: true,
+      secure: true,
+      stream: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
 ]);
 
 app

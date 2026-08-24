@@ -532,6 +532,7 @@ def export_cut_video(
     framing: list[dict[str, Any]] | None = None,
     on_progress: ProgressFn | None = None,
     work_dir: str | None = None,
+    music: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """残す区間だけを繋いで書き出す。テロップがあれば同じパスで焼き込む。
 
@@ -607,22 +608,57 @@ def export_cut_video(
     joined = (
         f"{video_inputs}concat=n={len(pieces)}:v=1:a=0[vcat];"
         f"{audio_inputs}concat=n={len(keeps)}:v=0:a=1[acat];"
-        f"[acat]{loudnorm}[aout];"
+        f"[acat]{loudnorm}[avoice];"
     )
 
     decode = available_decode_args(ffmpeg)
     inputs = [*decode, "-i", video_path]
+
+    # ── BGM ──
+    #
+    # 🔴 音量の正規化(loudnorm)は声にだけ掛けること。
+    #    混ぜたあとに掛けると、BGM の大きさに引きずられて**声の大きさが変わる**。
+    #    声を基準に揃えてから、その下に BGM を敷く。
+    #
+    # 🔴 BGM は必ず尺に合わせて切る。
+    #    長ければ切り、短ければ繰り返す。合わせないと、
+    #    音が先に終わる（無音の尻）か、映像より長くなって最後が切れる。
+    music_graph = ""
+    music_index = None
+    if music and music.get("path"):
+        music_index = 1 + (1 if telop_track else 0)
+        kept_total = sum(e - s for s, e in keeps)
+        gain = float(music.get("volume", 0.18))
+        fade = min(3.0, max(0.5, kept_total * 0.05))
+        loop = "aloop=loop=-1:size=2147483647," if music.get("loop", True) else ""
+        music_graph = (
+            f"[{music_index}:a]{loop}"
+            f"atrim=0:{kept_total:.3f},asetpts=N/SR/TB,"
+            f"volume={gain:.3f},"
+            f"afade=t=out:st={max(0.0, kept_total - fade):.3f}:d={fade:.3f}[amus];"
+            # dropout_transition=0 にしないと、片方が終わった瞬間に
+            # もう片方の音量が持ち上がる（BGM が終わると声が急に大きくなる）
+            f"[avoice][amus]amix=inputs=2:duration=first:dropout_transition=0[aout];"
+        )
+    else:
+        music_graph = "[avoice]anull[aout];"
     if telop_track:
         inputs += ["-f", "concat", "-safe", "0", "-i", telop_track]
         filter_complex = (
-            "".join(parts) + joined
+            "".join(parts) + joined + music_graph
             # 静止画のままだとタイムスタンプが疎なので、動画と同じ fps に揃える
             + f"[1:v]format=rgba,fps={fps:.5g},setpts=PTS-STARTPTS[ov];"
             # repeatlast=0 にしないと、テロップ列が尽きた後も最後の1枚が残り続ける
             "[vcat][ov]overlay=0:0:eof_action=pass:repeatlast=0[vout]"
         )
     else:
-        filter_complex = "".join(parts) + joined + "[vcat]null[vout]"
+        filter_complex = "".join(parts) + joined + music_graph + "[vcat]null[vout]"
+
+    # 🔴 BGM の入力は、テロップ列より**後**に足すこと。
+    #    上で決めた music_index（1 + テロップの有無）と順番が合わなくなると、
+    #    別の入力を音として混ぜることになる。
+    if music_index is not None:
+        inputs += ["-i", str(music["path"])]
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
