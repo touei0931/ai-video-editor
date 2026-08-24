@@ -29,9 +29,13 @@ fcp-extension/
 
 Apple の SDK は再配布できないので、この public リポジトリには置かない。
 
-**ビルドは private リポジトリ [`touei0931/pac-fcp-build`](https://github.com/touei0931/pac-fcp-build) で回す。**
-あちらが SDK を持っていて、こちらのコードを checkout してビルドする。
-（public 側に PAT を置かずに済ませるための構成。Actions → build → Run workflow）
+**ビルドはこの public リポジトリの `build-fcp-extension` ワークフローで回す**
+（public なので macOS ランナーは課金 0。private リポジトリでは macOS ランナーが
+支払い設定なしに使えず、費用ゼロ方針と両立しなかった）。
+
+SDK は private リポジトリ [`touei0931/pac-fcp-build`](https://github.com/touei0931/pac-fcp-build)
+に置き、**そのリポジトリ専用の読み取り専用 deploy key**（secret: `SDK_DEPLOY_KEY`）で CI が取りに行く。
+アカウント全体を触れる PAT を public リポジトリの Secrets に置かないための構成。
 
 ## 実装上の要点（実際に出荷されている TheAcharya/MarkerData から確認）
 

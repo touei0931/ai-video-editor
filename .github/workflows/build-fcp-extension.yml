@@ -1,0 +1,100 @@
+name: build-fcp-extension
+
+# PAC の Final Cut Pro プラグイン(Workflow Extension)をビルドする。
+# public リポジトリなので macOS ランナーの課金は 0。
+#
+# Apple の Workflow Extensions SDK は再配布できないので、ここには置かない。
+# private リポジトリ touei0931/pac-fcp-build に置き、
+# そのリポジトリ専用の読み取り専用 deploy key (secret: SDK_DEPLOY_KEY) で取得する。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'fcp-extension/**'
+      - '.github/workflows/build-fcp-extension.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SDK を private リポジトリから取得
+        env:
+          DEPLOY_KEY: ${{ secrets.SDK_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_KEY:-}" ]; then
+            echo "::error::secret SDK_DEPLOY_KEY が未設定です"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git clone --depth 1 git@github.com:touei0931/pac-fcp-build.git sdkrepo
+          ls -la sdkrepo/sdk/
+
+      - name: Workflow Extensions SDK を設置
+        run: |
+          set -euo pipefail
+          DMG=$(ls sdkrepo/sdk/*.dmg | head -1)
+          echo "▶ $DMG をマウント"
+          MP=$(hdiutil attach -nobrowse -readonly "$DMG" | tail -1 | sed 's/^.*\(\/Volumes\/.*\)$/\1/')
+          echo "mounted at: $MP"
+          echo "--- 中身 ---"
+          find "$MP" -maxdepth 3 | head -40
+
+          PKG=$(find "$MP" -maxdepth 2 -name '*.pkg' | head -1 || true)
+          if [ -n "$PKG" ]; then
+            echo "▶ installer: $PKG"
+            sudo installer -pkg "$PKG" -target /
+          fi
+
+          if [ ! -d /Library/Developer/SDKs/WorkflowExtensionSDK.sdk ]; then
+            SDK=$(find "$MP" -maxdepth 3 -name 'WorkflowExtensionSDK.sdk' | head -1 || true)
+            if [ -n "$SDK" ]; then
+              echo "▶ copy: $SDK"
+              sudo mkdir -p /Library/Developer/SDKs
+              sudo cp -R "$SDK" /Library/Developer/SDKs/
+            fi
+          fi
+          hdiutil detach "$MP" || true
+
+          echo "--- 設置結果 ---"
+          test -d /Library/Developer/SDKs/WorkflowExtensionSDK.sdk \
+            || { echo "::error::SDK の設置に失敗"; exit 1; }
+          find /Library/Developer/SDKs/WorkflowExtensionSDK.sdk -maxdepth 4 | head -40
+
+      - name: 鍵を消す
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
+
+      - name: xcodegen
+        run: brew install xcodegen
+
+      - name: ビルド
+        run: ./fcp-extension/scripts/build.sh
+
+      - name: アドホック署名
+        run: ./fcp-extension/scripts/adhoc-sign.sh fcp-extension/build/Build/Products/Release/PAC.app
+
+      - name: 関門チェック
+        run: ./fcp-extension/scripts/check_extension.sh fcp-extension/build/Build/Products/Release/PAC.app
+
+      - name: 配布物を固める
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/out"
+          mkdir -p "$OUT"
+          cd fcp-extension/build/Build/Products/Release
+          # zip でなく ditto。拡張属性と署名を壊さないため
+          ditto -c -k --sequesterRsrc --keepParent PAC.app "$OUT/PAC-fcp-test.zip"
+          cp "$GITHUB_WORKSPACE"/fcp-extension/deliver/* "$OUT/"
+          ls -la "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PAC-fcp-test
+          path: out/*
