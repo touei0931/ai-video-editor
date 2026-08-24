@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -201,10 +202,56 @@ def _ffmpeg_error(stderr: str) -> RuntimeError:
     return RuntimeError("動画の処理に失敗しました。もう一度お試しください。")
 
 
+def _record_ffmpeg_failure(cmd: list[str], stderr: str) -> str:
+    """ffmpeg の失敗を、コマンドごとファイルに残す。
+
+    🔴 これが無いと原因が誰にも分からない。
+
+       画面に出るのは友達向けに言い換えた一文だけで、ffmpeg が実際に何と言ったかは
+       どこにも残らない。Electron 側の記録に頼っていたが、そちらが繋がっておらず
+       last-error.json が作られていなかったため、実機の不具合を2往復しても
+       原因に辿り着けなかった。ここは Electron を経由せず自分で書く。
+
+    戻り値は、画面に1行だけ添える短い理由。
+    """
+    lines = [l.strip() for l in (stderr or "").splitlines() if l.strip()]
+    reason = lines[-1] if lines else "（ffmpeg は何も言わずに失敗しました）"
+
+    log_dir = os.environ.get("PAC_LOG_DIR")
+    if log_dir:
+        try:
+            target = Path(log_dir)
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "sidecar-error.json").write_text(
+                json.dumps(
+                    {
+                        "at": datetime.now().astimezone().isoformat(),
+                        "command": cmd,
+                        "returncode_stderr": lines[-40:],
+                        "ffmpeg": cmd[0] if cmd else None,
+                        "ffmpeg_exists": Path(cmd[0]).exists() if cmd else None,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass  # 記録できなくても本体の失敗報告は続ける
+
+    print(f"[ffmpeg] 失敗: {' '.join(cmd)}", file=sys.stderr, flush=True)
+    return reason[:300]
+
+
 def _run(cmd: list[str]) -> str:
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
-        raise _ffmpeg_error(result.stderr or "")
+        reason = _record_ffmpeg_failure(cmd, result.stderr or "")
+        error = _ffmpeg_error(result.stderr or "")
+        # 🔴 実際の理由を1行だけ画面にも添える。
+        #    英語のログを丸ごと出すのは避けるが、何も出さないと
+        #    友達のスクリーンショット1枚では原因が特定できない。
+        raise RuntimeError(f"{error}\n\n詳しい理由: {reason}") from None
     return result.stdout or ""
 
 
@@ -274,7 +321,8 @@ def _run_with_progress(
 
     code = proc.wait()
     if code != 0:
-        raise _ffmpeg_error("\n".join(tail))
+        reason = _record_ffmpeg_failure(cmd, "\n".join(tail))
+        raise RuntimeError(f"{_ffmpeg_error(chr(10).join(tail))}\n\n詳しい理由: {reason}") from None
 
 
 def probe_video_info(path: str) -> dict[str, Any]:

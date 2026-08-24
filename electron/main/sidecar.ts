@@ -6,7 +6,7 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { ffmpegPath, sidecarCommand } from './paths.js';
+import { ffmpegPath, logDir, sidecarCommand } from './paths.js';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 
@@ -55,7 +55,9 @@ export class Sidecar {
     const proc = spawn(command, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PAC_FFMPEG: ffmpegPath() },
+      // PAC_LOG_DIR: ffmpeg の失敗をサイドカー自身にも書かせる。
+      // Electron 側の記録だけに頼ると、そこが繋がっていなかったときに何も残らない。
+      env: { ...process.env, PAC_FFMPEG: ffmpegPath(), PAC_LOG_DIR: logDir() },
     });
     this.proc = proc;
 

@@ -174,6 +174,18 @@ async function runCancellable(
   runningRequestId = id;
   try {
     return await promise;
+  } catch (error) {
+    /*
+      🔴 ここで必ず記録すること。
+
+      以前は catch が無く、analyze / redetect / plan_framing の失敗が
+      last-error.json に一切残らなかった。recordFailure には
+      「友達の実機で起きた不具合を回収する唯一の手段」と書いてあるのに、
+      いちばん失敗する経路に繋がっていなかった。
+      友達が記録を送ろうとしても last-launch.json しか無い、という状態になる。
+    */
+    recordFailure(method, error, params);
+    throw error;
   } finally {
     runningRequestId = null;
     off();
@@ -203,6 +215,9 @@ ipcMain.handle('app:buildTelops', async (e, params: Record<string, unknown>) => 
   const off = forwardProgress(win);
   try {
     return await sidecar.call('build_telops', params);
+  } catch (error) {
+    recordFailure('build_telops', error, params);
+    throw error;
   } finally {
     off();
   }
