@@ -173,3 +173,51 @@ Workflow Extension** に作り替える。友達が FCP から離れずに「自
 
 友達から返ってくる `PAC診断結果.txt` の `pluginkit -mAvvv -p com.apple.FinalCut.WorkflowExtension` に
 PAC の行が出るかどうかが答え。メニューに出なくても、この出力があれば原因を切り分けられる。
+
+---
+
+# M1 実行結果 (2026-08-25)
+
+## ゲート1: SDK は無料で取れた ✅ 確定
+
+`Workflow_Extensions_SDK_1.0.3.dmg` を無料 Apple ID でダウンロードできた。**$99 は要求されなかった**。
+中身は pkg 1つで、`/Library/Developer/SDKs/WorkflowExtensionSDK.sdk` に入る:
+
+```
+usr/include/ProExtension/ProExtension.h
+usr/lib/libProExtension.a
+Library/Frameworks/ProExtensionHost.framework/ProExtensionHost.tbd
+```
+
+## ビルド: 成功 ✅
+
+macOS 15 ランナー + Xcode 16.4 + XcodeGen で **BUILD SUCCEEDED**（一発）。
+アドホック署名も通り、関門チェックは全項目通過:
+
+- 拡張が .app に同梱 / 実行ファイルあり
+- 拡張ポイント `com.apple.FinalCut.WorkflowExtension`
+- 主クラス `WorkflowExtension.WorkflowExtensionViewController`
+- サンドボックス entitlement あり
+- 署名が valid on disk / satisfies its Designated Requirement
+- システムライブラリのみに依存（Homebrew 汚染なし）
+
+## 🔴 判明した罠: private リポジトリでは macOS ランナーが動かない
+
+最初 SDK を private リポジトリに置き、そこでビルドを回す構成にしたが、
+ジョブが 3 秒で失敗した:
+
+> The job was not started because recent account payments have failed or
+> your spending limit needs to be increased.
+
+**private リポジトリの macOS ランナーは支払い設定が無いと起動できない**（無料枠 2,000 分の
+話以前に、支払い方法の登録が要る）。費用ゼロ方針と両立しないため、構成を変更した:
+
+- ビルドは **public な ai-video-editor** で回す（macOS ランナー課金 0）
+- 再配布できない Apple SDK だけを private `touei0931/pac-fcp-build` に置き、
+  **そのリポジトリ専用の読み取り専用 deploy key**（secret `SDK_DEPLOY_KEY`）で CI が取得する
+- アカウント全体を触れる PAT を public リポジトリの Secrets に置かずに済む
+
+## 残る唯一の未確定: PluginKit がアドホック署名の拡張を登録するか
+
+ここだけは友達の Mac でしか分からない。配布物は
+`C:\Users\touei\Downloads\PAC-fcp-test\` に用意済み。
