@@ -43,17 +43,27 @@ jobs:
 
       # 🔴 --disable-gpl と --disable-nonfree が要点。x264/x265 は明示的に落とす。
       # 外部ライブラリを足さないので LGPL v2.1 のままになる（--enable-version3 も不要）。
+      #
+      # 🔴 --disable-autodetect が要る（2026-08-24 に友達の Mac で踏んだ）。
+      #    これが無いと configure が **ランナーに入っている Homebrew のライブラリを
+      #    勝手に見つけて有効化する**。実際 libxcb がリンクされ、Homebrew の無い
+      #    友達の Mac で ffmpeg が dyld エラーで起動すらできなくなった。
+      #    ランナーには Homebrew があるので、ここでは最後まで動いてしまい気づけない。
+      #
+      #    zlib だけは明示的に戻す。テロップの PNG を読むのに要る（/usr/lib にある）。
       - name: configure
         working-directory: ffmpeg-src
         run: |
           ./configure \
             --prefix="$PWD/out" \
+            --disable-autodetect \
             --disable-gpl \
             --disable-nonfree \
             --disable-libx264 \
             --disable-libx265 \
             --enable-videotoolbox \
             --enable-audiotoolbox \
+            --enable-zlib \
             --enable-static \
             --disable-shared \
             --disable-doc \
@@ -72,8 +82,13 @@ jobs:
           cp ffmpeg-src/ffmpeg ffmpeg-src/ffprobe vendor/ffmpeg/
           chmod +x vendor/ffmpeg/*
           file vendor/ffmpeg/ffmpeg
-          echo '--- 動的ライブラリ依存（システム以外が出たら NG）---'
-          otool -L vendor/ffmpeg/ffmpeg
+
+      # 🔴 ここは「表示するだけ」にしないこと。
+      #    以前は otool -L を echo していただけで、Homebrew の dylib が混ざっていても
+      #    素通りした。ランナーには Homebrew があるので ffmpeg -version も通ってしまい、
+      #    壊れたバイナリがそのまま Release に上がって友達に届いた。
+      - name: 他所のライブラリに依存していないか
+        run: python scripts/check_mac_dylibs.py vendor/ffmpeg/ffmpeg vendor/ffmpeg/ffprobe
 
       # 🔴 T3 の受け入れ条件をこの場で検証する
       - name: 構成を検証（GPL 汚染がないこと）

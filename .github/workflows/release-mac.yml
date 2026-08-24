@@ -147,6 +147,17 @@ jobs:
           [ -d "$APP" ] || APP=$(find release -name '*.app' -maxdepth 3 | head -1)
           python scripts/check_packed_sidecar.py "$APP"
 
+      # 🔴 「動くか」だけでは足りない。**このランナーには Homebrew がある**ので、
+      #    Homebrew のライブラリにリンクされた ffmpeg でもここでは動いてしまう。
+      #    実際それで壊れた .dmg が友達に届いた。依存先そのものを見る。
+      - name: 同梱物が他所のライブラリに依存していないか
+        run: |
+          APP="release/mac-arm64/PAC.app"
+          [ -d "$APP" ] || APP=$(find release -name '*.app' -maxdepth 3 | head -1)
+          python scripts/check_mac_dylibs.py \
+            "$APP/Contents/Resources/ffmpeg/ffmpeg" \
+            "$APP/Contents/Resources/ffmpeg/ffprobe"
+
       # 何が同梱されたかを残す。実機で「動かない」と言われたとき、
       # まずここを見れば同梱漏れかどうかが分かる。
       - name: 同梱物の一覧
