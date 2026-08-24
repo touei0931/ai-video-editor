@@ -1,0 +1,86 @@
+# XcodeGen 定義（Mac が無いので .xcodeproj は手で持たず、CI で毎回生成する）
+#   生成: xcodegen generate
+#   ビルド: scripts/build.sh
+name: PAC
+options:
+  bundleIdPrefix: com.touei.pac
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  minimumXcodeGenVersion: "2.38.0"
+
+settings:
+  base:
+    ARCHS: arm64                      # 友達は MacBook Air M2。Intel は切る
+    ONLY_ACTIVE_ARCH: NO
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_HARDENED_RUNTIME: YES
+    # 署名は xcodebuild にやらせず、scripts/adhoc-sign.sh でアドホック署名する
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+
+targets:
+  PAC:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.touei.pac.fcp
+        PRODUCT_NAME: PAC
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - target: WorkflowExtension
+        embed: true
+        codeSign: false
+
+  WorkflowExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.touei.pac.fcp.WorkflowExtension
+        PRODUCT_NAME: WorkflowExtension
+        INFOPLIST_FILE: Extension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        WRAPPER_EXTENSION: appex
+        MACH_O_TYPE: mh_execute
+        COMBINE_HIDPI_IMAGES: YES
+        # Workflow Extensions SDK。Apple からダウンロードして
+        # /Library/Developer/SDKs/WorkflowExtensionSDK.sdk に置く
+        ADDITIONAL_SDKS: /Library/Developer/SDKs/WorkflowExtensionSDK.sdk
+        SWIFT_OBJC_BRIDGING_HEADER: Extension/Bridging-Header.h
+        OTHER_LDFLAGS:
+          - "-fapplication-extension"
+          - "-lProExtension"
+        FRAMEWORK_SEARCH_PATHS:
+          - /Library/Frameworks
+          - "$(inherited)"
+        LIBRARY_SEARCH_PATHS:
+          - /usr/lib
+          - "$(inherited)"
+        HEADER_SEARCH_PATHS:
+          - /usr/include
+          - "$(inherited)"
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+          - "@executable_path/../../../../Frameworks"
+
+schemes:
+  PAC:
+    build:
+      targets:
+        PAC: all
+    run:
+      config: Debug
+    archive:
+      config: Release
