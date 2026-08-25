@@ -98,13 +98,18 @@ export interface TelopStyle {
 }
 
 /**
- * 既定のスタイル一式。
- * 通常は友達の実際のテロップ（白の太ゴシック + 黒の太い縁取り、画面上部中央）に合わせてある。
+ * 既定のスタイル一式。白の太ゴシック + 黒の太い縁取り。
+ *
+ * 🔴 置き場所は3つとも「下」。
+ *    喋り主体の動画では画面の下にテロップを置くのが一般的で、
+ *    上に出すと人物の顔や背景の情報にかぶりやすい。
+ *    枠ごとに違う場所から始めると、揃えるのに全部触ることになる。
+ *    変えたいときは雛形（style）側を一度直せば、その枠のテロップ全部に効く。
  */
 export const DEFAULT_STYLES: StyleMap = {
   normal: {
     label: '通常',
-    position: 'top',
+    position: 'bottom',
     fontFamily: 'ZenKakuGothicNew',
     // 太字＝ Black のファイル。これまでの見た目をそのまま既定にしてある
     bold: true,
@@ -130,7 +135,7 @@ export const DEFAULT_STYLES: StyleMap = {
   },
   emphasis: {
     label: '強調',
-    position: 'middle',
+    position: 'bottom',
     fontFamily: 'DelaGothicOne',
     fontSizeRatio: 0.1,
     color: '#ff3b30',

@@ -349,6 +349,7 @@ export function CutStage({
   );
 
   const held = candidates.filter((c) => effective(c) === 'hold');
+
   const removedSec = approvedCuts.reduce((a, c) => a + (c.srcEnd - c.srcStart), 0);
 
   /* ---------- 再生 ---------- */
@@ -419,6 +420,22 @@ export function CutStage({
       return { ...r, start: at, end: toOutput(segments, r.end) };
     });
   }, [regions, axis, segments]);
+
+  /**
+   * 吸着させる時刻。カット画面では**他のカットの端**に合わせられるようにする。
+   * 隣り合うカットをぴったり繋げたいときに、1フレームずつ詰めなくて済む。
+   */
+  const snapPoints = useMemo(() => {
+    const out = new Set<number>();
+    for (const r of displayRegions) {
+      out.add(Number(r.start.toFixed(3)));
+      out.add(Number(r.end.toFixed(3)));
+    }
+    return [...out].sort((a, b) => a - b);
+  }, [displayRegions]);
+
+  /** 吸着の入り切り。Final Cut と同じく N キーで切り替える */
+  const [snapEnabled, setSnapEnabled] = useState(true);
 
   /** 選んだ区間の少し手前から流す。繋ぎ目は前後を見ないと判断できない */
   const playAround = useCallback(
@@ -594,6 +611,9 @@ export function CutStage({
           break;
         case 'markHold':
           if (selected) decide(selected, 'hold');
+          break;
+        case 'toggleSnap':
+          setSnapEnabled((v) => !v);
           break;
         case 'nextPending':
           goPending(1);
@@ -873,7 +893,17 @@ export function CutStage({
           onSelect={select}
           onTrim={onTrim}
           focusId={focusId}
+          snapPoints={snapPoints}
+          snapEnabled={snapEnabled}
           extraControls={
+            <>
+              <button
+                className={`fcp-snap-toggle ${snapEnabled ? 'on' : ''}`}
+                onClick={() => setSnapEnabled((v) => !v)}
+                title="隣のカットの端に吸い付ける（N キー）"
+              >
+                🧲 吸着
+              </button>
             <div className="fcp-axis" title="タイムラインの時間軸">
               <button className={axis === 'source' ? 'on' : ''} onClick={() => setAxis('source')}>
                 元の素材
@@ -882,6 +912,7 @@ export function CutStage({
                 カット後
               </button>
             </div>
+            </>
           }
           tracks={[
             {

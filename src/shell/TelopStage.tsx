@@ -410,18 +410,25 @@ export function TelopStage({
 
   const cutTrack = useMemo<TimelineRegion[]>(
     () =>
-      // カット後の並びでは、切った場所そのものが消えるので帯も出さない
-      applyCuts
-        ? []
-        : cutRegions.map((r) => ({
-            id: `cut-${r.id}`,
-            start: r.start,
-            end: r.end,
-            kind: 'cut' as const,
-            label: '',
-            fixed: true, // ここでは触らせない。カットの段階で決めたもの
-          })),
-    [cutRegions, applyCuts],
+      /*
+        🔴 カットした場所は必ず見えるようにすること。
+           以前は「カット後」では帯ごと消していたので、
+           テロップがどこの切れ目をまたいでいるのか分からなかった。
+           カット後では区間が潰れるので、繋ぎ目の細い印として出す。
+      */
+      cutRegions.map((r) => {
+        const start = toAxis(r.start);
+        const end = applyCuts ? start + 6 / 40 : toAxis(r.end);
+        return {
+          id: `cut-${r.id}`,
+          start,
+          end,
+          kind: 'cut' as const,
+          label: '',
+          fixed: true, // ここでは触らせない。カットの段階で決めたもの
+        };
+      }),
+    [cutRegions, applyCuts, toAxis],
   );
 
   /**
@@ -450,6 +457,25 @@ export function TelopStage({
     const path = await onPickMusic?.();
     if (path) onMusicChange?.({ path, start: 0, volume: 0.18, loop: true });
   }, [onPickMusic, onMusicChange]);
+
+  /**
+   * 吸着させる時刻（カットの切れ目）。
+   *
+   * 🔴 テロップが切れ目をまたぐと、書き出したときに
+   *    「前半だけ出て消える」「切った直後に唐突に出る」が起きる。
+   *    切れ目にぴったり合わせられれば、それを避けられる。
+   */
+  const snapPoints = useMemo(() => {
+    const out = new Set<number>();
+    for (const r of cutRegions) {
+      out.add(Number(toAxis(r.start).toFixed(3)));
+      if (!applyCuts) out.add(Number(toAxis(r.end).toFixed(3)));
+    }
+    return [...out].sort((a, b) => a - b);
+  }, [cutRegions, toAxis, applyCuts]);
+
+  /** 吸着の入り切り。Final Cut と同じく N キーで切り替える */
+  const [snapEnabled, setSnapEnabled] = useState(true);
 
   const needCheck = cards.filter((c) => c.needsCheck).length;
 
@@ -507,6 +533,9 @@ export function TelopStage({
           break;
         case 'delete':
           if (cur) remove(cur.id);
+          break;
+        case 'toggleSnap':
+          setSnapEnabled((v) => !v);
           break;
         default:
           break;
@@ -915,7 +944,17 @@ export function TelopStage({
           selectedId={selected}
           onSelect={setSelected}
           onTrim={onTrim}
+          snapPoints={snapPoints}
+          snapEnabled={snapEnabled}
           extraControls={
+            <>
+              <button
+                className={`fcp-snap-toggle ${snapEnabled ? 'on' : ''}`}
+                onClick={() => setSnapEnabled((v) => !v)}
+                title="カットの切れ目に吸い付ける（N キー）"
+              >
+                🧲 吸着
+              </button>
             <div className="fcp-axis" title="タイムラインの時間軸">
               <button className={axis === 'source' ? 'on' : ''} onClick={() => setAxis('source')}>
                 元の素材
@@ -924,6 +963,7 @@ export function TelopStage({
                 カット後
               </button>
             </div>
+            </>
           }
           tracks={[
             {

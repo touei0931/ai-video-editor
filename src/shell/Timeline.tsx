@@ -81,6 +81,15 @@ export interface TimelineProps {
    * 目盛りの右に置く追加の操作（時間軸の切り替えなど）。
    */
   extraControls?: ReactNode;
+  /**
+   * 吸着させたい時刻（秒）。カットの切れ目など。
+   *
+   * 🔴 表示している目盛りと同じ時間軸で渡すこと。
+   *    元素材の時刻のまま渡すと、見えている場所と吸き付く場所がずれる。
+   */
+  snapPoints?: readonly number[];
+  /** 吸着を効かせるか。N キーで切り替える（Final Cut と同じ） */
+  snapEnabled?: boolean;
 }
 
 /**
@@ -139,6 +148,8 @@ export function Timeline({
   initialPxPerSec,
   focusId,
   extraControls,
+  snapPoints,
+  snapEnabled = true,
 }: TimelineProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [pxPerSec, setPxPerSec] = useState(initialPxPerSec ?? 0);
@@ -159,14 +170,56 @@ export function Timeline({
   const width = Math.max(320, duration * scale);
   const step = useMemo(() => chooseStep(scale), [scale]);
 
-  const snap = useCallback(
-    (t: number, fine: boolean) => {
+  /**
+   * 掴んでいる端を、近い切れ目に吸い付ける距離（画素）。
+   *
+   * 🔴 秒ではなく画素で決めること。
+   *    秒にすると、拡大したときに画面上では遠いのに吸い付いてしまい、
+   *    細かく合わせたいときほど邪魔になる。
+   */
+  const SNAP_PX = 9;
+
+  /**
+   * 吸い付いた先。掴んでいる間だけ線を出して知らせる。
+   *
+   * 🔴 吸い付いたことが見えないと、思った位置に置けなかったときに
+   *    「ずれた」のか「吸い付いた」のか分からず、原因を探すことになる。
+   */
+  const [snappedAt, setSnappedAt] = useState<number | null>(null);
+
+  /**
+   * 掴んでいる位置を確定させる。吸い付いたかどうかも返す。
+   *
+   * 🔴 「吸い付いたか」を呼ぶ側へ伝えること。
+   *    値だけ返していたときは、移動のときに「始まり」と「終わり」の候補を
+   *    “動きが小さいほう”で選んでいたため、**吸着した候補が必ず負けた**
+   *    （吸着すると値が動くぶん、吸着しない候補のほうが元の位置に近いため）。
+   *    見た目には「吸着が効かない」としか分からない。
+   */
+  const snapTo = useCallback(
+    (t: number, fine: boolean): { value: number; snapped: number | null } => {
       const clamped = Math.min(duration, Math.max(0, t));
-      if (fine) return Number(clamped.toFixed(3));
+      // Shift を押している間は吸着もフレームの丸めも外す（細かく合わせたいとき）
+      if (fine) return { value: Number(clamped.toFixed(3)), snapped: null };
+
+      if (snapEnabled && snapPoints && snapPoints.length > 0) {
+        const within = SNAP_PX / scale;
+        let best: number | null = null;
+        let bestD = Infinity;
+        for (const p of snapPoints) {
+          const d = Math.abs(p - clamped);
+          if (d <= within && d < bestD) {
+            bestD = d;
+            best = p;
+          }
+        }
+        if (best !== null) return { value: Number(best.toFixed(3)), snapped: best };
+      }
+
       const f = Math.round(clamped * fps);
-      return Number((f / fps).toFixed(3));
+      return { value: Number((f / fps).toFixed(3)), snapped: null };
     },
-    [duration, fps],
+    [duration, fps, snapEnabled, snapPoints, scale],
   );
 
   /* --- 再生位置を動かす --- */
@@ -315,15 +368,39 @@ export function Timeline({
         if (!cur) return cur;
         if (cur.edge === 'move') {
           const len = cur.originEnd - cur.originStart;
-          let s = snap(cur.originStart + d, fine);
-          s = Math.min(Math.max(0, s), Math.max(0, duration - len));
+          /*
+            移動のときは**始まりと終わりの両方**で吸着を試す。
+            始まりだけ見ていると、終わりを切れ目に合わせたいときに合わせられない。
+            🔴 吸い付いたほうを優先する。両方吸い付いたら近いほうを選ぶ。
+          */
+          const rawStart = cur.originStart + d;
+          const a = snapTo(rawStart, fine);
+          const b = snapTo(rawStart + len, fine);
+          const startCand = { value: a.value, snapped: a.snapped, at: a.value };
+          const endCand = { value: b.value - len, snapped: b.snapped, at: b.value };
+
+          let pick = startCand;
+          if (endCand.snapped !== null && startCand.snapped === null) pick = endCand;
+          else if (endCand.snapped !== null && startCand.snapped !== null) {
+            pick =
+              Math.abs(endCand.value - rawStart) < Math.abs(startCand.value - rawStart)
+                ? endCand
+                : startCand;
+          }
+
+          let s = Math.min(Math.max(0, pick.value), Math.max(0, duration - len));
+          setSnappedAt(pick.snapped);
           return { ...cur, start: s, end: Number((s + len).toFixed(3)) };
         }
         if (cur.edge === 'start') {
-          const s = Math.min(snap(cur.originStart + d, fine), cur.originEnd - MIN_LEN);
+          const r = snapTo(cur.originStart + d, fine);
+          const s = Math.min(r.value, cur.originEnd - MIN_LEN);
+          setSnappedAt(s === r.value ? r.snapped : null);
           return { ...cur, start: Math.max(0, s) };
         }
-        const en = Math.max(snap(cur.originEnd + d, fine), cur.originStart + MIN_LEN);
+        const r = snapTo(cur.originEnd + d, fine);
+        const en = Math.max(r.value, cur.originStart + MIN_LEN);
+        setSnappedAt(en === r.value ? r.snapped : null);
         return { ...cur, end: Math.min(duration, en) };
       });
     };
@@ -337,6 +414,7 @@ export function Timeline({
       いつ壊れてもおかしくない状態になる。最新値は ref から読む。
     */
     const up = () => {
+      setSnappedAt(null);
       const cur = dragRef.current;
       if (cur && onTrim && (cur.start !== cur.originStart || cur.end !== cur.originEnd)) {
         onTrim(cur.id, cur.start, cur.end);
@@ -352,7 +430,7 @@ export function Timeline({
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
     };
-  }, [drag, duration, onTrim, scale, snap]);
+  }, [drag, duration, onTrim, scale, snapTo]);
 
   /* --- 拡大縮小 --- */
   const zoom = useCallback(
@@ -612,6 +690,11 @@ export function Timeline({
             🔴 見た目の細さと、掴める幅を分けること。
                当たり判定を線と同じ太さにすると、狙って掴むのが苦行になる。
           */}
+          {/* 吸い付いた切れ目。掴んでいる間だけ出す */}
+          {snappedAt !== null && (
+            <div className="fcp-snapline" style={{ left: snappedAt * scale }} />
+          )}
+
           <div
             className={`fcp-playhead ${scrubbing ? 'grabbing' : ''}`}
             style={{ left: currentTime * scale }}

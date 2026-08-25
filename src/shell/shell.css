@@ -1038,3 +1038,26 @@
 .fcp:has(.fcp-resizer.dragging) {
   user-select: none;
 }
+
+/*
+  吸い付いた切れ目。掴んでいる間だけ出す。
+  🔴 再生位置（白）と紛らわしくない色にすること。
+*/
+.fcp-snapline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--sel);
+  box-shadow: 0 0 0 1px rgba(242, 193, 78, 0.35);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* 吸着の入り切り。効いているかが一目で分かるようにする */
+.fcp-snap-toggle.on {
+  background: var(--accent);
+  border-color: #2f6fb0;
+  color: #061320;
+  font-weight: 700;
+}
