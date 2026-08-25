@@ -28,7 +28,7 @@ enum PanelData {
                 let range = timeline.sequenceTimeRange
                 let seconds = CMTimeGetSeconds(range.duration)
                 if seconds.isFinite && seconds > 0 { duration = seconds }
-                info["playheadSec"] = CMTimeGetSeconds(timeline.playheadTime)
+                info["playheadSec"] = CMTimeGetSeconds(timeline.playheadTime())  // ヘッダ上メソッド
 
                 if let seq = timeline.activeSequence {
                     info["sequenceName"] = seq.name

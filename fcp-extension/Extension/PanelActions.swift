@@ -10,6 +10,7 @@
 //
 
 import Cocoa
+import UniformTypeIdentifiers
 
 extension WorkflowExtensionViewController {
 
@@ -75,7 +76,9 @@ extension WorkflowExtensionViewController {
         }
 
         let panel = NSSavePanel()
-        panel.allowedFileTypes = ["fcpxml"]
+        if let type = UTType(filenameExtension: "fcpxml") {
+            panel.allowedContentTypes = [type]
+        }
         panel.nameFieldStringValue = "PAC.fcpxml"
         panel.message = "Final Cut Pro に読み込む XML の保存先を選んでください"
 
