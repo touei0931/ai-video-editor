@@ -11,10 +11,15 @@ APP="${1:?PAC.app のパスを渡してください}"
 PORT=47829
 WORK="$(mktemp -d)"
 
+# 🔴 後始末で終了コードを握りつぶさないこと。
+#    macOS の bash 3.2 は、EXIT トラップの最後のコマンドが成功すると
+#    それを終了コードにしてしまう。関門が黙って通る一番まずい壊れ方になる。
 cleanup() {
+  code=$?
   [ -n "${APP_PID:-}" ] && kill "$APP_PID" >/dev/null 2>&1 || true
   pkill -f "PAC.app/Contents/MacOS/PAC" >/dev/null 2>&1 || true
   rm -rf "$WORK"
+  exit $code
 }
 trap cleanup EXIT
 
@@ -30,7 +35,7 @@ echo "起動した pid=$APP_PID"
 echo "--- 待ち受けが始まるのを待つ ---"
 for i in $(seq 1 30); do
   if curl -s --max-time 2 "http://127.0.0.1:$PORT/ping" | grep -q '"ok"'; then
-    echo "✅ 待ち受けに繋がった（${i}秒）"
+    echo "✅ 待ち受けに繋がった: ${i} 秒"
     READY=1
     break
   fi
@@ -59,7 +64,7 @@ if [ -z "$JOB" ]; then
     -d "{\"videoPath\":\"$WORK/voice.aiff\",\"model\":\"base\"}"
   exit 1
 fi
-echo "✅ 受け付けた（$JOB）"
+echo "✅ 受け付けた: ${JOB}"
 
 echo "--- 進み具合を追う ---"
 for i in $(seq 1 180); do
