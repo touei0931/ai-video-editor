@@ -369,6 +369,7 @@ export function CutStage({
     duration,
     cuts: approvedCuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
     applyCuts,
+    reverseAudioPath: audioPath ? mediaUrl(audioPath) : null,
   });
   const { videoRef, seek } = player;
   const segments = useMemo(
@@ -627,21 +628,22 @@ export function CutStage({
             </>
           }
         >
-          <button
-            className={viewMode === 'joined' ? 'on' : ''}
-            onClick={() => setViewMode('joined')}
-            title="切って繋いだ結果を繰り返し再生する"
-          >
-            繋いだ結果
-          </button>
-          <button
-            className={viewMode === 'source' ? 'on' : ''}
-            onClick={() => setViewMode('source')}
-            title="元の映像をそのまま見る"
-          >
-            元の映像
-          </button>
-          <span style={{ width: 8 }} />
+          <div className="fcp-viewmode" title="ビューアに何を映すか">
+            <button
+              className={viewMode === 'joined' ? 'on' : ''}
+              onClick={() => setViewMode('joined')}
+              title="切って繋いだ結果を繰り返し再生する"
+            >
+              繋いだ結果
+            </button>
+            <button
+              className={viewMode === 'source' ? 'on' : ''}
+              onClick={() => setViewMode('source')}
+              title="元の映像をそのまま見る"
+            >
+              元の映像
+            </button>
+          </div>
         </Transport>
       }
       inspectorTitle={curRegion ? '選んだところ' : 'カット全体'}

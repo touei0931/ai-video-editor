@@ -12,7 +12,11 @@
 import type { EditedPlayer } from './useEditedPlayer';
 import { clock } from './Timeline';
 
-const RATES = [0.5, 1, 1.5, 2];
+/**
+ * 押して選べる速さ。
+ * 🔴 1倍の前後を細かく。0.5→1→1.5 だけだと「ほんの少し速く」ができない。
+ */
+const RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 export interface TransportProps {
   player: EditedPlayer;

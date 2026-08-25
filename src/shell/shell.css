@@ -218,14 +218,58 @@
   text-align: center;
 }
 
-/* 再生操作。ビューアの下に固定する */
+/*
+  再生操作。ビューアの下に固定する。
+
+  🔴 押せるものを潰さないこと。
+     flex は既定で中身より小さく縮む。横幅が足りないと
+     「繋いだ結果」のようなボタンが**1文字ずつ縦に折り返され**、
+     読めないうえに押しにくくなる（実際にそうなった）。
+     縮ませない・折り返さない・入らなければ**行を増やす**。
+*/
 .fcp-transport {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
   padding: 8px 12px;
   background: var(--s2);
   border-top: 1px solid var(--line);
+}
+
+.fcp-transport button,
+.fcp-transport .fcp-chip,
+.fcp-transport .fcp-time {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* 表示の切り替え（繋いだ結果 / 元の映像）は2つで1組に見せる */
+.fcp-viewmode {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--s0);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+
+.fcp-viewmode button {
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.fcp-viewmode button.on {
+  background: var(--accent);
+  color: #061320;
+  font-weight: 700;
 }
 
 .fcp-time {
@@ -870,8 +914,9 @@
 
 .fcp-rate button {
   min-height: 24px;
-  min-width: 34px;
-  padding: 0 6px;
+  min-width: 30px;
+  padding: 0 4px;
+  white-space: nowrap;
   font-size: 12px;
   background: transparent;
   border: 0;
@@ -897,7 +942,8 @@
 }
 
 .fcp-volume input[type='range'] {
-  width: 96px;
+  width: 88px;
+  flex: 0 0 auto;
   accent-color: var(--accent);
 }
 

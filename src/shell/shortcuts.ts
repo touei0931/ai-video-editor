@@ -143,8 +143,17 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
   }
 }
 
-/** J / L を続けて押したときの速さ。Final Cut と同じ段階 */
-export const SHUTTLE_STEPS = [1, 2, 4, 8, 16, 32];
+/**
+ * J / L を続けて押したときの速さ。
+ *
+ * 🔴 いきなり2倍にしないこと。1回押しただけで2倍になると、
+ *    「少しだけ速く見たい」ができない。細かい段から上げる。
+ *
+ * 🔴 16 を超えないこと。Chromium の playbackRate は 16 が上限で、
+ *    超えると例外を投げ、**画面が真っ白になって操作を受け付けなくなる**
+ *    （実際に 32 で起きた。useEditedPlayer の setRateSafely も参照）。
+ */
+export const SHUTTLE_STEPS = [1, 1.25, 1.5, 1.75, 2, 4, 8, 16];
 
 export function nextShuttle(current: number, forward: boolean): number {
   const dir = forward ? 1 : -1;

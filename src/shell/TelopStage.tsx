@@ -139,6 +139,7 @@ export function TelopStage({
     applyCuts,
     music: music ?? null,
     musicUrl: music ? mediaUrl(music.path) : null,
+    reverseAudioPath: audioPath ? mediaUrl(audioPath) : null,
   });
   const { videoRef, audioRef } = player;
   const time = player.time;
