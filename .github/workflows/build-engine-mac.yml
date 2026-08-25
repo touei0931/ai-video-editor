@@ -119,3 +119,16 @@ jobs:
           name: pac-engine-macos-arm64
           path: out/pac-engine-macos-arm64.zip
           retention-days: 30
+
+      # 成果物は期限で消えるので、リリースにも置く。
+      # アプリのビルドはこちらを取りに来る（ffmpeg と同じやり方）。
+      - name: リリースを更新
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd out
+          shasum -a 256 pac-engine-macos-arm64.zip > pac-engine-macos-arm64.sha256
+          gh release delete pac-engine-mac-arm64 --repo ${{ github.repository }} --yes --cleanup-tag || true
+          gh release create pac-engine-mac-arm64             --repo ${{ github.repository }}             --title "PAC 解析エンジン（macOS arm64）"             --notes "FCP パネル用の解析エンジン。faster-whisper を PyInstaller で固めたもの。$(date '+%Y-%m-%d')"             pac-engine-macos-arm64.zip pac-engine-macos-arm64.sha256

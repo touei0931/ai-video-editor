@@ -93,6 +93,32 @@ jobs:
       - name: FCPXML の検査
         run: ./fcp-extension/scripts/check_fcpxml.sh
 
+      - name: 解析エンジンと ffmpeg を同梱
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          APP="$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
+          RES="$APP/Contents/Resources"
+          mkdir -p dl "$RES/engine" "$RES/ffmpeg"
+
+          echo "▶ 解析エンジン"
+          gh release download pac-engine-mac-arm64 --repo ${{ github.repository }} --dir dl --clobber
+          ( cd dl && shasum -a 256 -c pac-engine-macos-arm64.sha256 )
+          ditto -x -k dl/pac-engine-macos-arm64.zip "$RES/engine"
+
+          echo "▶ ffmpeg（PAC 本体の LGPL ビルド。Homebrew に依存しないもの）"
+          gh release download ffmpeg-lgpl-mac-arm64 --repo ${{ github.repository }} --dir dl --clobber
+          ( cd dl && shasum -a 256 -c ffmpeg-lgpl-macos-arm64.sha256 )
+          tar -xzf dl/ffmpeg-lgpl-macos-arm64.tar.gz -C dl
+          FF=$(find dl -type f -name ffmpeg | head -1)
+          cp "$FF" "$RES/ffmpeg/ffmpeg"
+          chmod +x "$RES/ffmpeg/ffmpeg"
+
+          echo "--- 同梱の結果 ---"
+          ls -la "$RES/engine" "$RES/ffmpeg"
+          du -sh "$APP"
+
       - name: アドホック署名
         run: ./fcp-extension/scripts/adhoc-sign.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
 
