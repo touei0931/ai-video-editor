@@ -16,6 +16,9 @@ on:
       - 'fcp-extension/engine/**'
       - '.github/workflows/build-engine-mac.yml'
 
+permissions:
+  contents: write   # 固めたエンジンをリリースに置くため
+
 jobs:
   build:
     runs-on: macos-14
