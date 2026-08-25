@@ -4,3 +4,7 @@ Extension/webui/
 # Xcode / xcodegen の生成物
 PAC.xcodeproj/
 build/
+
+# 開発用の実データ（実素材から作るので commit しない）
+webui/public/dev-state.json
+webui/public/dev-sample.mp4

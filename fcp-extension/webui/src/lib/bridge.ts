@@ -47,10 +47,25 @@ function callSwift<T>(method: string, params: unknown = {}): Promise<T> {
   })
 }
 
-/** 素材とプレビューの読み込み。パネル内では FCP から、開発中はモックから */
+/**
+ * 素材とプレビューの読み込み。パネル内では FCP から、開発中はモックから。
+ *
+ * 開発中に public/dev-state.json（エンジンで実素材を解析した結果）を置いておくと、
+ * そちらを優先して読む。作り物ではなく本物のデータで UI を確認するため。
+ */
 export async function loadProject(): Promise<ProjectState> {
-  if (!isInFCP) return structuredClone(MOCK)
-  return callSwift<ProjectState>('loadProject')
+  if (isInFCP) return callSwift<ProjectState>('loadProject')
+
+  try {
+    const res = await fetch('./dev-state.json', { cache: 'no-store' })
+    if (res.ok) {
+      const real = (await res.json()) as Partial<ProjectState>
+      return { ...structuredClone(MOCK), ...real }
+    }
+  } catch {
+    // 置いていないだけなのでモックに落ちる
+  }
+  return structuredClone(MOCK)
 }
 
 /** macOS のフォント一覧。サンドボックス内でも取得できる */
