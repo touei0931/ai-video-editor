@@ -540,12 +540,25 @@ export function Timeline({
          そのたびに白線の位置へスクロールが戻っていた。
          「余白で動かしてカット箇所を押すと戻る」「拡大が効かない」はこれが原因。
     */
-    if (currentTime === prev || drag) return;
+    // 🔴 余白を掴んで動かしている最中は絶対に動かさないこと。
+    //    ここが動くと、掴んで動かしている手と引っ張り合いになり、
+    //    「余白ドラッグが効かない」「コマが点滅する」に見える。
+    if (currentTime === prev || drag || pan.current) return;
 
     const x = currentTime * scale;
+    const prevX = prev * scale;
     const left = el.scrollLeft;
     const right = left + el.clientWidth;
-    const nearEdge = x < left + 40 || x > right - 40;
+
+    /*
+      端と見なす幅。
+      🔴 1回の更新で進む距離より狭くしないこと。
+         再生位置は毎コマ来るとは限らず（前面に無いときは毎秒4回ほど）、
+         拡大しているほど1回の進みが大きい。40px 固定にしていたら
+         **判定の帯をまたいで画面の外へ出てしまい、以後ずっと追わなくなった**。
+    */
+    const edge = Math.max(40, Math.abs(x - prevX) * 1.5);
+    const nearEdge = x < left + edge || x > right - edge;
 
     // 人が飛ばしたとき（頭出し・目盛りのクリック・次の保留へ）は、その場所を見せる
     if (Math.abs(currentTime - prev) > 0.5) {
@@ -558,10 +571,14 @@ export function Timeline({
 
          画面の外にある白線まで追いかけると、余白で動かした先や拡大した先から
          毎回引き戻される。引き戻されるたびに映っている範囲が変わるので、
-         コマも取り直しになり、**点滅しているように見えていた**。
-         見失ったときは「全体」を押すか、目盛りを押せば戻れる。
+         コマも取り直しになり、点滅しているように見える。
+         見失ったときは「白線へ」か「全体」で戻れる。
+
+      🔴 見えていたかどうかは**進む前の位置**で判断すること。
+         進んだ先で判断すると、1回の進みが大きいときに
+         「見えていた → 一気に画面の外」となり、追いかけそこねる。
     */
-    if (x < left || x > right) return;
+    if (prevX < left || prevX > right) return;
     if (nearEdge) scrollTo(x - el.clientWidth / 2);
   }, [currentTime, drag, scale, scrollTo]);
 
