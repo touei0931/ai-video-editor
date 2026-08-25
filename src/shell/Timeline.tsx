@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-export type RegionKind = 'cut' | 'keep' | 'hold' | 'telop';
+export type RegionKind = 'cut' | 'keep' | 'hold' | 'telop' | 'music';
 
 export interface TimelineRegion {
   id: string;
@@ -77,6 +77,10 @@ export interface TimelineProps {
    * 選び直したときに、タイムライン側も同じ場所を映すために使う。
    */
   focusId?: string | null;
+  /**
+   * 目盛りの右に置く追加の操作（時間軸の切り替えなど）。
+   */
+  extraControls?: ReactNode;
 }
 
 /**
@@ -134,6 +138,7 @@ export function Timeline({
   onTrim,
   initialPxPerSec,
   focusId,
+  extraControls,
 }: TimelineProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [pxPerSec, setPxPerSec] = useState(initialPxPerSec ?? 0);
@@ -374,6 +379,7 @@ export function Timeline({
     <section className="fcp-timeline" aria-label="タイムライン">
       <div className="fcp-tl-bar">
         <span className="fcp-dim">タイムライン</span>
+        {extraControls}
         <div className="fcp-spacer" />
         <span className="fcp-dim" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {clock(currentTime)} / {clock(duration)}

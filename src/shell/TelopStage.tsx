@@ -25,6 +25,10 @@ import {
   type TelopStyleName,
 } from '../telop/style';
 import { mediaUrl } from './media';
+import { Transport } from './Transport';
+import { useEditedPlayer } from './useEditedPlayer';
+import { buildSegments, toOutput, toSource } from './editedTime';
+import { isTyping, matchShortcut, nextShuttle } from './shortcuts';
 
 export interface TelopStageProps {
   cards: TelopCard[];
@@ -104,10 +108,7 @@ export function TelopStage({
 }: TelopStageProps) {
   const [cards, setCards] = useState<TelopCard[]>(initial);
   const [selected, setSelected] = useState<string | null>(initial[0]?.id ?? null);
-  const [time, setTime] = useState(0);
-  const [playing, setPlaying] = useState(false);
   const [onlyCheck, setOnlyCheck] = useState(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // 🔴 呼び出し側の関数を依存に入れない。毎描画で作り直されると無限に鳴る
@@ -117,12 +118,47 @@ export function TelopStage({
     notify.current?.(cards);
   }, [cards]);
 
+  /* ---------- 再生（書き出し後と同じ並びで流す）---------- */
+
+  /**
+   * 🔴 テロップ画面の既定は「カット後」。
+   *    ここで確かめたいのは**出来上がり**であって、素材そのものではない。
+   *    切った場所の声が聞こえると、テロップの位置が合っているのか判断できない。
+   */
+  const [axis, setAxis] = useState<'source' | 'edited'>('edited');
+  const applyCuts = axis === 'edited';
+
+  const segments = useMemo(
+    () => buildSegments(duration, cutRegions.map((c) => ({ srcStart: c.start, srcEnd: c.end }))),
+    [duration, cutRegions],
+  );
+
+  const player = useEditedPlayer({
+    duration,
+    cuts: cutRegions.map((c) => ({ srcStart: c.start, srcEnd: c.end })),
+    applyCuts,
+    music: music ?? null,
+    musicUrl: music ? mediaUrl(music.path) : null,
+  });
+  const { videoRef, audioRef } = player;
+  const time = player.time;
+
+  /** 表示している時間軸の時刻 → 元素材の時刻（テロップの照合に使う） */
+  const srcTime = applyCuts && segments.length ? toSource(segments, time) : time;
+
+  const playing = player.playing;
+
   const cur = useMemo(() => cards.find((c) => c.id === selected) ?? null, [cards, selected]);
 
-  /** いま画面に出ているべきテロップ */
+  /**
+   * いま画面に出ているべきテロップ。
+   * 🔴 照合は**元素材の時刻**で行うこと。
+   *    テロップの時刻は元素材で持っているので、カット後の時刻で比べると
+   *    切った分だけずれて、別のテロップが出る。
+   */
   const showing = useMemo(
-    () => cards.find((c) => time >= c.srcStart && time < c.srcEnd) ?? null,
-    [cards, time],
+    () => cards.find((c) => srcTime >= c.srcStart && srcTime < c.srcEnd) ?? null,
+    [cards, srcTime],
   );
 
   /* ---------- プレビュー ---------- */
@@ -204,31 +240,18 @@ export function TelopStage({
     return () => cancelAnimationFrame(id);
   }, [playing, paint]);
 
-  /* ---------- 再生 ---------- */
-
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const onTime = () => setTime(v.currentTime);
-    v.addEventListener('timeupdate', onTime);
-    return () => v.removeEventListener('timeupdate', onTime);
-  }, []);
-
-  const seek = useCallback((t: number) => {
-    setTime(t);
-    const v = videoRef.current;
-    if (v && Number.isFinite(t)) v.currentTime = t;
-  }, []);
-
-  const toggle = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) void v.play().then(() => setPlaying(true));
-    else {
-      v.pause();
-      setPlaying(false);
-    }
-  }, []);
+  /**
+   * 表示中の時間軸へ直す。
+   * 🔴 保存する値は元素材のまま。ここは表示のためだけの変換。
+   */
+  const toAxis = useCallback(
+    (t: number) => (applyCuts && segments.length ? toOutput(segments, t) : t),
+    [applyCuts, segments],
+  );
+  const fromAxis = useCallback(
+    (t: number) => (applyCuts && segments.length ? toSource(segments, t) : t),
+    [applyCuts, segments],
+  );
 
   /* ---------- 直す ---------- */
 
@@ -274,9 +297,18 @@ export function TelopStage({
   /** タイムラインで端を引いたとき */
   const onTrim = useCallback(
     (id: string, start: number, end: number) => {
-      patch(id, { srcStart: Number(start.toFixed(3)), srcEnd: Number(end.toFixed(3)) });
+      if (id === 'music') {
+        // BGM は開始位置だけ動かす。終わりは動画の終わりに合わせる
+        if (music) onMusicChange?.({ ...music, start: Math.max(0, Number(start.toFixed(3))) });
+        return;
+      }
+      // 🔴 保存は必ず元素材の時刻に戻してから
+      patch(id, {
+        srcStart: Number(fromAxis(start).toFixed(3)),
+        srcEnd: Number(fromAxis(end).toFixed(3)),
+      });
     },
-    [patch],
+    [patch, fromAxis, music, onMusicChange],
   );
 
   const remove = useCallback((id: string) => {
@@ -366,25 +398,28 @@ export function TelopStage({
     () =>
       shownCards.map((c) => ({
         id: c.id,
-        start: c.srcStart,
-        end: c.srcEnd,
+        start: toAxis(c.srcStart),
+        end: toAxis(c.srcEnd),
         kind: 'telop',
         label: c.needsCheck ? `⚠ ${c.text}` : c.text,
       })),
-    [shownCards],
+    [shownCards, toAxis],
   );
 
   const cutTrack = useMemo<TimelineRegion[]>(
     () =>
-      cutRegions.map((r) => ({
-        id: `cut-${r.id}`,
-        start: r.start,
-        end: r.end,
-        kind: 'cut',
-        label: '',
-        fixed: true, // ここでは触らせない。カットの段階で決めたもの
-      })),
-    [cutRegions],
+      // カット後の並びでは、切った場所そのものが消えるので帯も出さない
+      applyCuts
+        ? []
+        : cutRegions.map((r) => ({
+            id: `cut-${r.id}`,
+            start: r.start,
+            end: r.end,
+            kind: 'cut' as const,
+            label: '',
+            fixed: true, // ここでは触らせない。カットの段階で決めたもの
+          })),
+    [cutRegions, applyCuts],
   );
 
   /**
@@ -400,13 +435,13 @@ export function TelopStage({
             {
               id: 'music',
               start: music.start,
-              end: duration,
-              kind: 'telop',
+              end: player.duration,
+              kind: 'music',
               label: `♪ ${music.path.split(/[\/]/).pop() ?? 'BGM'}`,
             },
           ]
         : [],
-    [music, duration],
+    [music, player.duration],
   );
 
   const addMusic = useCallback(async () => {
@@ -421,27 +456,63 @@ export function TelopStage({
     [styles],
   );
 
-  /* ---------- キー操作 ---------- */
+  /* ---------- キー操作（Final Cut と同じ割り当て）---------- */
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === ' ') {
-        toggle();
-        e.preventDefault();
+      if (isTyping(e.target)) return;
+      const action = matchShortcut(e);
+      if (!action) {
+        // 1〜9 で雛形を切り替える（このアプリ固有）
+        const n = Number(e.key);
+        if (cur && n >= 1 && n <= 9 && styleNames[n - 1]) {
+          restyle(cur.id, styleNames[n - 1]);
+          e.preventDefault();
+        }
         return;
       }
-      // 1〜9 で雛形を切り替える（既存の操作をそのまま残す）
-      const n = Number(e.key);
-      if (cur && n >= 1 && n <= 9 && styleNames[n - 1]) {
-        restyle(cur.id, styleNames[n - 1]);
+      e.preventDefault();
+      switch (action) {
+        case 'playPause':
+          player.toggle();
+          break;
+        case 'shuttleForward':
+          player.shuttle(nextShuttle(player.rate * (player.playing ? 1 : 0), true));
+          break;
+        case 'shuttleBack':
+          player.shuttle(nextShuttle(player.rate * (player.playing ? 1 : 0), false));
+          break;
+        case 'stop':
+          player.shuttle(0);
+          break;
+        case 'frameBack':
+          player.seek(Math.max(0, player.time - 1 / fps));
+          break;
+        case 'frameForward':
+          player.seek(Math.min(player.duration, player.time + 1 / fps));
+          break;
+        case 'jumpBack':
+          player.seek(Math.max(0, player.time - 10 / fps));
+          break;
+        case 'jumpForward':
+          player.seek(Math.min(player.duration, player.time + 10 / fps));
+          break;
+        case 'home':
+          player.seek(0);
+          break;
+        case 'end':
+          player.seek(player.duration);
+          break;
+        case 'delete':
+          if (cur) remove(cur.id);
+          break;
+        default:
+          break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cur, styleNames, restyle, toggle]);
+  }, [cur, styleNames, restyle, player, fps, remove]);
 
   return (
     <EditorShell
@@ -470,14 +541,10 @@ export function TelopStage({
       viewer={
         <>
           {videoPath && (
-            <video
-              ref={videoRef}
-              src={mediaUrl(videoPath)}
-              style={{ display: 'none' }}
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-            />
+            <video ref={videoRef} src={mediaUrl(videoPath)} style={{ display: 'none' }} />
           )}
+          {/* BGM。映像とは別に鳴らし、出来上がりの時刻に合わせる */}
+          <audio ref={audioRef} style={{ display: 'none' }} />
           <canvas
             ref={canvasRef}
             className="fcp-stage-inner"
@@ -491,32 +558,33 @@ export function TelopStage({
         </>
       }
       transport={
-        <>
-          <button className="icon" onClick={() => seek(0)} title="頭出し">
-            ⏮
-          </button>
-          <button className="icon" onClick={toggle} title="再生 / 一時停止（Space）">
-            {playing ? '⏸' : '▶'}
-          </button>
+        <Transport
+          player={player}
+          fps={fps}
+          info={
+            <>
+              <span className="fcp-chip">テロップ {cards.length}</span>
+              {needCheck > 0 && (
+                <span className="fcp-chip" style={{ color: 'var(--sel)' }}>
+                  ⚠ 要確認 {needCheck}
+                </span>
+              )}
+              {music && <span className="fcp-chip">♪ BGM</span>}
+            </>
+          }
+        >
           <button
             className="icon"
-            onClick={() => cur && seek(Math.max(0, cur.srcStart - 1.5))}
+            onClick={() =>
+              cur && player.seek(Math.max(0, (applyCuts ? toOutput(segments, cur.srcStart) : cur.srcStart) - 1.5))
+            }
             disabled={!cur}
             title="選んだテロップの少し手前から"
           >
             ⟲
           </button>
-          <span className="fcp-time">
-            <strong>{clock(time)}</strong> / {clock(duration)}
-          </span>
-          <div className="fcp-spacer" />
-          <span className="fcp-chip">テロップ {cards.length}</span>
-          {needCheck > 0 && (
-            <span className="fcp-chip" style={{ color: 'var(--sel)' }}>
-              ⚠ 要確認 {needCheck}
-            </span>
-          )}
-        </>
+          <span style={{ width: 8 }} />
+        </Transport>
       }
       inspectorTitle={cur ? 'テロップ' : 'テロップ全体'}
       inspector={
@@ -837,13 +905,24 @@ export function TelopStage({
       }
       timeline={
         <Timeline
-          duration={duration}
+          key={axis}
+          duration={player.duration}
           fps={fps}
-          currentTime={time}
-          onSeek={seek}
+          currentTime={player.time}
+          onSeek={player.seek}
           selectedId={selected}
           onSelect={setSelected}
           onTrim={onTrim}
+          extraControls={
+            <div className="fcp-axis" title="タイムラインの時間軸">
+              <button className={axis === 'source' ? 'on' : ''} onClick={() => setAxis('source')}>
+                元の素材
+              </button>
+              <button className={axis === 'edited' ? 'on' : ''} onClick={() => setAxis('edited')}>
+                カット後
+              </button>
+            </div>
+          }
           tracks={[
             {
               id: 'film',
@@ -851,7 +930,12 @@ export function TelopStage({
               regions: [],
               height: 42,
               render: (v) => (
-                <Filmstrip {...v} videoPath={videoPath} aspect={frame.width / frame.height} />
+                <Filmstrip
+                  {...v}
+                  videoPath={videoPath}
+                  aspect={frame.width / frame.height}
+                  segments={applyCuts ? segments : undefined}
+                />
               ),
             },
             { id: 'telop', label: 'テロップ', regions: telopRegions, height: 44 },

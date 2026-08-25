@@ -14,14 +14,24 @@
  * ffmpeg を呼ばずに済むので、追加の仕組みが要らない。
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { mediaUrl } from './media';
 import type { TimelineView } from './Timeline';
+import { toSource, type Segment } from './editedTime';
 
 export interface FilmstripProps extends TimelineView {
   videoPath?: string;
   /** コマの縦横比。素材の解像度から渡す */
   aspect?: number;
+  /**
+   * 残る区間。渡すと**カット後の並び**になる。
+   *
+   * 🔴 タイムラインの目盛りと同じ時間軸で置くこと。
+   *    ここだけ別の時間で並べると、同じ横位置が別の瞬間を指すことになり、
+   *    「コマを見て場所を決める」ができなくなる。
+   *    渡す側（CutStage / TelopStage）が、目盛りごと切り替える。
+   */
+  segments?: readonly Segment[];
 }
 
 /** その拡大率で、何秒ごとにコマを置くか */
@@ -32,7 +42,16 @@ function stepFor(scale: number, thumbW: number): number {
   return steps.find((s) => s >= sec) ?? steps[steps.length - 1];
 }
 
-export function Filmstrip({ videoPath, scale, from, to, height, duration, aspect = 16 / 9 }: FilmstripProps) {
+export function Filmstrip({
+  videoPath,
+  scale,
+  from,
+  to,
+  height,
+  duration,
+  aspect = 16 / 9,
+  segments,
+}: FilmstripProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [shots, setShots] = useState<Map<number, string>>(new Map());
   const [failed, setFailed] = useState(false);
@@ -42,16 +61,27 @@ export function Filmstrip({ videoPath, scale, from, to, height, duration, aspect
   const thumbW = Math.round(height * aspect);
   const step = stepFor(scale, thumbW);
 
-  // 見えている範囲の、必要な時刻を並べる
-  const times: number[] = [];
-  const first = Math.max(0, Math.floor(from / step) * step);
-  for (let t = first; t < Math.min(duration, to + step); t += step) {
-    times.push(Number(t.toFixed(2)));
-  }
+  /*
+    見えている範囲の、必要な時刻を並べる。
+
+    segments が来ているときは、並べる位置は**カット後の時刻**で、
+    そこに写すのは対応する**元素材の時刻**のコマ。
+    ここを取り違えると、切ったはずの場面がコマに出る。
+  */
+  const slots = useMemo(() => {
+    const out: { at: number; src: number }[] = [];
+    const first = Math.max(0, Math.floor(from / step) * step);
+    for (let t = first; t < Math.min(duration, to + step); t += step) {
+      const at = Number(t.toFixed(2));
+      out.push({ at, src: segments ? toSource(segments, at) : at });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, step, duration, segments]);
 
   useEffect(() => {
     if (!videoPath || failed) return;
-    const need = times.filter((t) => !shots.has(t) && !queue.current.includes(t));
+    const need = slots.map((s) => s.src).filter((t) => !shots.has(t) && !queue.current.includes(t));
     if (need.length === 0) return;
     queue.current.push(...need);
 
@@ -126,9 +156,9 @@ export function Filmstrip({ videoPath, scale, from, to, height, duration, aspect
       alive = false;
       busy.current = false;
     };
-    // times は毎回新しい配列になるので、中身を文字列にして比べる
+    // slots は毎回新しい配列になるので、中身を文字列にして比べる
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoPath, times.join(','), thumbW, height, duration, failed]);
+  }, [videoPath, slots.map((s) => s.src).join(','), thumbW, height, duration, failed]);
 
   if (!videoPath) return null;
 
@@ -142,13 +172,13 @@ export function Filmstrip({ videoPath, scale, from, to, height, duration, aspect
         style={{ display: 'none' }}
         crossOrigin="anonymous"
       />
-      {times.map((t) => {
-        const url = shots.get(t);
+      {slots.map((slot) => {
+        const url = shots.get(slot.src);
         return (
           <div
-            key={t}
+            key={slot.at}
             className={`fcp-frame ${url ? '' : 'empty'}`}
-            style={{ left: t * scale, width: Math.max(2, step * scale), height }}
+            style={{ left: slot.at * scale, width: Math.max(2, step * scale), height }}
           >
             {url && <img src={url} alt="" draggable={false} style={{ height }} />}
           </div>

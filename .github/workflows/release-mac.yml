@@ -41,6 +41,7 @@ jobs:
           npm run test:drafts
           npm run test:telop
           npm run test:music
+          npm run test:time
 
       - name: Python の依存をそろえる
         run: |

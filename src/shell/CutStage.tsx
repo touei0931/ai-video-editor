@@ -30,6 +30,10 @@ import {
 } from '../review/mockCandidates';
 import type { PacePreset, ReviewState } from '../review/ReviewScreen';
 import { mediaUrl } from './media';
+import { Transport } from './Transport';
+import { useEditedPlayer } from './useEditedPlayer';
+import { buildSegments } from './editedTime';
+import { isTyping, matchShortcut, nextShuttle } from './shortcuts';
 
 const PACE_LABEL: Record<PacePreset, string> = {
   loose: 'ゆったり',
@@ -142,12 +146,9 @@ export function CutStage({
 
   const [selected, setSelected] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
-  const [time, setTime] = useState(0);
   const [markIn, setMarkIn] = useState<number | null>(null);
   const [markOut, setMarkOut] = useState<number | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const clipRef = useRef<HTMLVideoElement | null>(null);
-  const [playing, setPlaying] = useState(false);
   const [clips, setClips] = useState<Record<string, ClipState>>({});
   /** 'joined' = 切って繋いだ結果 / 'source' = 元の映像 */
   const [viewMode, setViewMode] = useState<'joined' | 'source'>('joined');
@@ -354,39 +355,39 @@ export function CutStage({
 
   /* ---------- 再生 ---------- */
 
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const onTime = () => setTime(v.currentTime);
-    v.addEventListener('timeupdate', onTime);
-    return () => v.removeEventListener('timeupdate', onTime);
-  }, []);
+  /**
+   * 時間軸。
+   * 「元の素材」= 切る前のまま / 「カット後」= 書き出したあとと同じ並び。
+   *
+   * 🔴 カットを直している最中は「元の素材」が既定。
+   *    カット後で見ていると、自分が今いじっている区間が消えて位置を見失う。
+   */
+  const [axis, setAxis] = useState<'source' | 'edited'>('source');
+  const applyCuts = axis === 'edited';
 
-  const seek = useCallback((t: number) => {
-    setTime(t);
-    const v = videoRef.current;
-    if (v && Number.isFinite(t)) v.currentTime = t;
-  }, []);
-
-  const toggle = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) void v.play().then(() => setPlaying(true));
-    else {
-      v.pause();
-      setPlaying(false);
-    }
-  }, []);
+  const player = useEditedPlayer({
+    duration,
+    cuts: approvedCuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
+    applyCuts,
+  });
+  const { videoRef, seek } = player;
+  const segments = useMemo(
+    () =>
+      buildSegments(
+        duration,
+        approvedCuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
+      ),
+    [duration, approvedCuts],
+  );
 
   /** 選んだ区間の少し手前から流す。繋ぎ目は前後を見ないと判断できない */
   const playAround = useCallback(
     (id: string) => {
       const r = regions.find((x) => x.id === id);
       if (r) seek(Math.max(0, r.start - 1.2));
-      const v = videoRef.current;
-      if (v) void v.play().then(() => setPlaying(true));
+      player.play();
     },
-    [regions, seek],
+    [regions, seek, player],
   );
 
   const select = useCallback((id: string | null) => {
@@ -460,60 +461,64 @@ export function CutStage({
     setSelected(id);
   }, [markIn, markOut]);
 
-  /* ---------- キー操作 ---------- */
+  /* ---------- キー操作（Final Cut と同じ割り当て。shortcuts.ts 参照）---------- */
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const typing =
-        t &&
-        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-      if (typing) return;
-
-      // 🔴 Ctrl+Z は修飾キーの判定より先に見る。
-      //    以前は「修飾キーが付いていたら無視」が先に走り、元に戻すが一度も効かなかった。
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        undo();
-        e.preventDefault();
+      if (isTyping(e.target)) return;
+      const action = matchShortcut(e);
+      if (!action) {
+        // Y / N / H は、このアプリ固有の判定キー
+        const k = e.key.toLowerCase();
+        if (selected && (k === 'y' || k === 'n' || k === 'h')) {
+          decide(selected, k === 'y' ? 'cut' : k === 'n' ? 'keep' : 'hold');
+          e.preventDefault();
+        }
         return;
       }
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-      switch (e.key.toLowerCase()) {
-        case ' ':
-          toggle();
-          e.preventDefault();
+      e.preventDefault();
+      switch (action) {
+        case 'playPause':
+          player.toggle();
           break;
-        case 'y':
-          if (selected) decide(selected, 'cut');
+        case 'shuttleForward':
+          player.shuttle(nextShuttle(player.rate * (player.playing ? 1 : 0), true));
           break;
-        case 'n':
+        case 'shuttleBack':
+          player.shuttle(nextShuttle(player.rate * (player.playing ? 1 : 0), false));
+          break;
+        case 'stop':
+          player.shuttle(0);
+          break;
+        case 'frameBack':
+          player.seek(Math.max(0, player.time - 1 / fps));
+          break;
+        case 'frameForward':
+          player.seek(Math.min(player.duration, player.time + 1 / fps));
+          break;
+        case 'jumpBack':
+          player.seek(Math.max(0, player.time - 10 / fps));
+          break;
+        case 'jumpForward':
+          player.seek(Math.min(player.duration, player.time + 10 / fps));
+          break;
+        case 'home':
+          player.seek(0);
+          break;
+        case 'end':
+          player.seek(player.duration);
+          break;
+        case 'markIn':
+          setMarkIn(player.time);
+          break;
+        case 'markOut':
+          setMarkOut(player.time);
+          break;
+        case 'undo':
+          undo();
+          break;
+        case 'delete':
           if (selected) decide(selected, 'keep');
-          break;
-        case 'h':
-          if (selected) decide(selected, 'hold');
-          break;
-        case 'i':
-          setMarkIn(time);
-          break;
-        case 'o':
-          setMarkOut(time);
-          break;
-        case 'enter':
-          addManual();
-          break;
-        case 'escape':
-          // 🔴 Esc で画面を閉じない。範囲の選択をやめるだけ
-          if (markIn !== null || markOut !== null) {
-            setMarkIn(null);
-            setMarkOut(null);
-          }
-          break;
-        case 'arrowleft':
-          seek(Math.max(0, time - 1 / fps));
-          break;
-        case 'arrowright':
-          seek(Math.min(duration, time + 1 / fps));
           break;
         default:
           break;
@@ -521,7 +526,26 @@ export function CutStage({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, decide, undo, toggle, time, fps, duration, seek, addManual, markIn, markOut]);
+  }, [selected, decide, undo, player, fps]);
+
+  /* ---------- 手で範囲を足す（Enter / Esc）---------- */
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e.target)) return;
+      if (e.key === 'Enter') {
+        addManual();
+        e.preventDefault();
+      } else if (e.key === 'Escape' && (markIn !== null || markOut !== null)) {
+        // 🔴 Esc で画面を閉じない。範囲の選択をやめるだけ
+        setMarkIn(null);
+        setMarkOut(null);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [addManual, markIn, markOut]);
 
   const cur = selected ? (byId.get(selected) ?? null) : null;
   const curRegion = regions.find((r) => r.id === selected) ?? null;
@@ -561,8 +585,6 @@ export function CutStage({
           <video
             ref={videoRef}
             src={videoPath ? mediaUrl(videoPath) : undefined}
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
             style={{
               width: '100%',
               height: '100%',
@@ -588,7 +610,23 @@ export function CutStage({
         </>
       }
       transport={
-        <>
+        <Transport
+          player={player}
+          fps={fps}
+          info={
+            <>
+              <span className="fcp-chip">
+                <span className="dot" style={{ background: 'var(--cut)' }} />
+                切る {approvedCuts.length}
+              </span>
+              <span className="fcp-chip">
+                <span className="dot" style={{ background: 'var(--hold)' }} />
+                判断待ち {held.length}
+              </span>
+              <span className="fcp-chip">−{removedSec.toFixed(1)}秒</span>
+            </>
+          }
+        >
           <button
             className={viewMode === 'joined' ? 'on' : ''}
             onClick={() => setViewMode('joined')}
@@ -604,40 +642,7 @@ export function CutStage({
             元の映像
           </button>
           <span style={{ width: 8 }} />
-          <button className="icon" onClick={() => seek(0)} title="頭出し">
-            ⏮
-          </button>
-          <button className="icon" onClick={toggle} title="再生 / 一時停止（Space）">
-            {playing ? '⏸' : '▶'}
-          </button>
-          <button
-            className="icon"
-            onClick={() => seek(Math.max(0, time - 1 / fps))}
-            title="1フレーム戻る（←）"
-          >
-            ◁
-          </button>
-          <button
-            className="icon"
-            onClick={() => seek(Math.min(duration, time + 1 / fps))}
-            title="1フレーム進む（→）"
-          >
-            ▷
-          </button>
-          <span className="fcp-time">
-            <strong>{clock(time)}</strong> / {clock(duration)}
-          </span>
-          <div className="fcp-spacer" />
-          <span className="fcp-chip">
-            <span className="dot" style={{ background: 'var(--cut)' }} />
-            切る {approvedCuts.length}
-          </span>
-          <span className="fcp-chip">
-            <span className="dot" style={{ background: 'var(--hold)' }} />
-            判断待ち {held.length}
-          </span>
-          <span className="fcp-chip">−{removedSec.toFixed(1)}秒</span>
-        </>
+        </Transport>
       }
       inspectorTitle={curRegion ? '選んだところ' : 'カット全体'}
       inspector={
@@ -793,14 +798,25 @@ export function CutStage({
       }
       timeline={
         <Timeline
-          duration={duration}
+          key={axis}
+          duration={player.duration}
           fps={fps}
-          currentTime={time}
-          onSeek={seek}
+          currentTime={player.time}
+          onSeek={player.seek}
           selectedId={selected}
           onSelect={select}
           onTrim={onTrim}
           focusId={focusId}
+          extraControls={
+            <div className="fcp-axis" title="タイムラインの時間軸">
+              <button className={axis === 'source' ? 'on' : ''} onClick={() => setAxis('source')}>
+                元の素材
+              </button>
+              <button className={axis === 'edited' ? 'on' : ''} onClick={() => setAxis('edited')}>
+                カット後
+              </button>
+            </div>
+          }
           tracks={[
             {
               id: 'film',
@@ -812,6 +828,7 @@ export function CutStage({
                   {...v}
                   videoPath={videoPath}
                   aspect={frame ? frame.width / frame.height : 16 / 9}
+                  segments={applyCuts ? segments : undefined}
                 />
               ),
             },
