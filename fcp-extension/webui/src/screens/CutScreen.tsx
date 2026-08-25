@@ -1,25 +1,48 @@
-// カット画面。左に映像とタイムライン、右にカット候補の一覧。
+// ④ カット画面。左に映像とタイムライン、右にカット候補の一覧。
+//
 // 友達のペインは「1本30〜60分のカット作業」なので、
 // 見て押すだけで進むこと（レビュー速度）を最優先にしている。
+// Enter で承認すると、次の未判断へ飛んで**その1秒前から再生**する。
+// 判断に必要なのは「切ったあとどう繋がるか」なので、手前から流して見せる。
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Preview } from '../components/Preview'
 import { Timeline } from '../components/Timeline'
+import type { Clip } from '../components/Timeline'
 import { usePlayback } from '../lib/store'
 import { CUT_LABEL } from '../lib/types'
 import type { Store } from '../lib/store'
 import { fmtTime } from '../lib/format'
 
-export function CutScreen({ store }: { store: Store }) {
-  const { state, decideCut, decideAllCuts } = store
+/** 承認したあと、次の候補の何秒前から再生するか */
+const LEAD_IN = 1.0
+
+export function CutScreen({ store, onNext }: { store: Store; onNext: () => void }) {
+  const { state, decideCut, decideAllCuts, updateCut } = store
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const listRef = useRef<HTMLDivElement>(null)
 
   const duration = state?.durationSec ?? 0
-  const { time, playing, seek, toggle } = usePlayback(duration, videoEl)
+  const { time, playing, seek, toggle, play } = usePlayback(duration, videoEl)
 
-  // キーボードで流れ作業ができるようにする
+  /** 次の「未判断」へ飛んで、その少し手前から流す */
+  const goNextPending = (fromId: string | null) => {
+    if (!state) return
+    const cuts = state.cuts
+    const idx = fromId ? cuts.findIndex((c) => c.id === fromId) : -1
+    const next =
+      cuts.slice(idx + 1).find((c) => c.decision === 'pending') ??
+      cuts.find((c) => c.decision === 'pending')
+    if (!next) {
+      // 全部さばけたら、そのまま次の画面へ進める合図を出す
+      setSelectedId(null)
+      return
+    }
+    setSelectedId(next.id)
+    seek(Math.max(0, next.start - LEAD_IN))
+    play()
+  }
+
   useEffect(() => {
     if (!state) return
     const onKey = (e: KeyboardEvent) => {
@@ -35,25 +58,28 @@ export function CutScreen({ store }: { store: Store }) {
         const next = state.cuts[Math.min(state.cuts.length - 1, idx + 1)]
         if (next) {
           setSelectedId(next.id)
-          seek(next.start)
+          seek(Math.max(0, next.start - LEAD_IN))
         }
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         const prev = state.cuts[Math.max(0, idx - 1)]
         if (prev) {
           setSelectedId(prev.id)
-          seek(prev.start)
+          seek(Math.max(0, prev.start - LEAD_IN))
         }
       } else if (e.key === 'Enter' && selectedId) {
         e.preventDefault()
         decideCut(selectedId, 'approved')
+        goNextPending(selectedId)
       } else if ((e.key === 'Backspace' || e.key === 'Delete') && selectedId) {
         e.preventDefault()
         decideCut(selectedId, 'rejected')
+        goNextPending(selectedId)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, selectedId, toggle, seek, decideCut])
 
   if (!state) return <div className="empty">読み込み中…</div>
@@ -65,10 +91,25 @@ export function CutScreen({ store }: { store: Store }) {
     .filter((c) => c.decision === 'approved')
     .reduce((a, c) => a + (c.end - c.start), 0)
 
+  const clips: Clip[] = state.cuts.map((c) => ({
+    id: c.id,
+    start: c.start,
+    end: c.end,
+    kind: c.kind,
+    label: CUT_LABEL[c.kind],
+    dim: c.decision === 'rejected',
+  }))
+
   return (
     <div className="body">
       <div className="panel" style={{ flex: 1 }}>
-        <div className="panel-title">プレビュー</div>
+        <div className="panel-title">
+          プレビュー
+          <span className="spacer" />
+          <span style={{ color: 'var(--text-faint)' }}>
+            クリップの端を掴むとカット位置を調整できます
+          </span>
+        </div>
         <Preview
           videoUrl={state.videoUrl}
           durationSec={duration}
@@ -82,19 +123,23 @@ export function CutScreen({ store }: { store: Store }) {
         />
         <div style={{ padding: '0 8px 8px' }}>
           <Timeline
-            durationSec={duration}
-            waveform={state.waveform}
-            cuts={state.cuts}
-            telops={state.telops}
+            duration={duration}
+            fps={30}
             time={time}
             onSeek={seek}
-            selectedCutId={selectedId}
-            onSelectCut={setSelectedId}
-            showTelopTrack={false}
+            waveform={state.waveform}
+            videoUrl={state.videoUrl}
+            clips={clips}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onTrim={(id, start, end) => updateCut(id, { start, end })}
+            laneLabel="カット"
           />
         </div>
         <div className="hint">
-          スペース = 再生/停止 ・ ↑↓ = 候補を移動 ・ Enter = 承認 ・ Delete = 却下
+          スペース = 再生/停止 ・ ↑↓ = 候補を移動 ・ Enter = 切る ・ Delete = 残す
+          <br />
+          判断すると、次の未判断へ飛んで {LEAD_IN} 秒前から再生します。
         </div>
       </div>
 
@@ -110,7 +155,7 @@ export function CutScreen({ store }: { store: Store }) {
           </button>
         </div>
 
-        <div className="list" ref={listRef}>
+        <div className="list">
           {state.cuts.map((c) => (
             <div
               key={c.id}
@@ -121,20 +166,26 @@ export function CutScreen({ store }: { store: Store }) {
               ].join(' ')}
               onClick={() => {
                 setSelectedId(c.id)
-                seek(c.start)
+                seek(Math.max(0, c.start - LEAD_IN))
               }}
             >
               <span className={`badge ${c.kind}`}>{CUT_LABEL[c.kind]}</span>
               <span className="row-time">{fmtTime(c.start)}</span>
               <span className="row-text">
-                {c.text || <span style={{ color: 'var(--text-faint)' }}>（無音 {(c.end - c.start).toFixed(1)}秒）</span>}
+                {c.text || (
+                  <span style={{ color: 'var(--text-faint)' }}>
+                    （無音 {(c.end - c.start).toFixed(1)}秒）
+                  </span>
+                )}
               </span>
               <span className="row-actions">
                 <button
                   className={`tiny ${c.decision === 'approved' ? 'primary' : 'ok'}`}
                   onClick={(e) => {
                     e.stopPropagation()
-                    decideCut(c.id, c.decision === 'approved' ? 'pending' : 'approved')
+                    const next = c.decision === 'approved' ? 'pending' : 'approved'
+                    decideCut(c.id, next)
+                    if (next === 'approved') goNextPending(c.id)
                   }}
                   title="このカットを実行する"
                 >
@@ -144,7 +195,9 @@ export function CutScreen({ store }: { store: Store }) {
                   className="tiny ng"
                   onClick={(e) => {
                     e.stopPropagation()
-                    decideCut(c.id, c.decision === 'rejected' ? 'pending' : 'rejected')
+                    const next = c.decision === 'rejected' ? 'pending' : 'rejected'
+                    decideCut(c.id, next)
+                    if (next === 'rejected') goNextPending(c.id)
                   }}
                   title="残す"
                 >
@@ -159,6 +212,13 @@ export function CutScreen({ store }: { store: Store }) {
           切る {approved} ・ 残す {rejected} ・ 未判断 {pending}
           <br />
           短くなる長さ： 約 {removedSec.toFixed(1)} 秒
+        </div>
+
+        <div className="step-footer">
+          <span className="spacer" />
+          <button className="primary" onClick={onNext}>
+            次へ（テロップ）
+          </button>
         </div>
       </div>
     </div>

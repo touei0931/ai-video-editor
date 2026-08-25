@@ -141,7 +141,7 @@ export function App() {
         />
       )}
 
-      {step === 'cut' && <CutScreen store={store} />}
+      {step === 'cut' && <CutScreen store={store} onNext={() => setStep('telop')} />}
       {step === 'telop' && <TelopScreen store={store} />}
     </div>
   )

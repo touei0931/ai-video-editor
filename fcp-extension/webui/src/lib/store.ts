@@ -11,6 +11,8 @@ export interface Store {
   /** カットの承認/却下 */
   decideCut: (id: string, decision: Decision) => void
   decideAllCuts: (decision: Decision) => void
+  /** カットの区間を直す（タイムラインで端を掴んだとき） */
+  updateCut: (id: string, patch: Partial<CutCandidate>) => void
   /** テロップの編集 */
   updateTelop: (id: string, patch: Partial<Telop>) => void
   addTelop: (telop: Telop) => void
@@ -47,6 +49,12 @@ export function useStore(): Store {
 
   const decideAllCuts = useCallback((decision: Decision) => {
     setState((s) => (s ? { ...s, cuts: s.cuts.map((c) => ({ ...c, decision })) } : s))
+  }, [])
+
+  const updateCut = useCallback((id: string, patch: Partial<CutCandidate>) => {
+    setState((s) =>
+      s ? { ...s, cuts: s.cuts.map((c) => (c.id === id ? { ...c, ...patch } : c)) } : s,
+    )
   }, [])
 
   const updateTelop = useCallback((id: string, patch: Partial<Telop>) => {
@@ -124,6 +132,7 @@ export function useStore(): Store {
     state,
     decideCut,
     decideAllCuts,
+    updateCut,
     updateTelop,
     addTelop,
     removeTelop,
@@ -197,6 +206,11 @@ export function usePlayback(durationSec: number, videoEl: HTMLVideoElement | nul
     [durationSec, videoEl],
   )
 
+  const play = useCallback(() => {
+    if (videoEl) void videoEl.play()
+    else setPlaying(true)
+  }, [videoEl])
+
   const toggle = useCallback(() => {
     if (videoEl) {
       videoEl.paused ? void videoEl.play() : videoEl.pause()
@@ -205,5 +219,5 @@ export function usePlayback(durationSec: number, videoEl: HTMLVideoElement | nul
     }
   }, [videoEl])
 
-  return { time, playing, seek, toggle }
+  return { time, playing, seek, toggle, play }
 }

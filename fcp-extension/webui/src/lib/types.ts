@@ -109,25 +109,25 @@ export const MODELS: {
 }[] = [
   {
     name: 'large-v3-turbo',
-    label: '高い（おすすめ）',
+    label: '高い（おすすめ） — large-v3-turbo',
     description: '一番きれいに文字起こしできます。M2 なら実時間の 1〜2 倍くらいです。',
     downloadSize: '1.6GB',
   },
   {
     name: 'medium',
-    label: 'ふつう',
+    label: 'ふつう — medium',
     description: '少し粗くなりますが、その分軽いです。',
     downloadSize: '1.5GB',
   },
   {
     name: 'small',
-    label: '低い（速い）',
+    label: '低い（速い） — small',
     description: '固有名詞をよく間違えます。下書きを急ぎで作るとき向けです。',
     downloadSize: '480MB',
   },
   {
     name: 'base',
-    label: '最低（試し用）',
+    label: '最低（試し用） — base',
     description: '動くかどうかを確かめるためのものです。仕上げには向きません。',
     downloadSize: '145MB',
   },

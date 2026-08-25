@@ -1,10 +1,13 @@
-// テロップ画面。左にプレビュー、右に生成テロップの一覧。
-// 一覧で選ぶとプレビューがその時刻に飛び、テロップが乗った状態で見える。
-// FCP と同じ感覚で Cmd+C / Cmd+V / Cmd+D / Delete が効く。
+// ⑤ テロップ画面。左にプレビュー、右に生成テロップの一覧。
+//
+// タイムラインではテロップを掴んで動かせる。端を掴めば表示時間を変えられる。
+// 一覧は再生中のものを目立たせ、隠れたら自動で追いかける。
+// （長い素材ではテロップが数百枚になるので、探す作業が発生しないようにする）
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Preview } from '../components/Preview'
 import { Timeline } from '../components/Timeline'
+import type { Clip } from '../components/Timeline'
 import { StylePanel } from '../components/StylePanel'
 import { usePlayback } from '../lib/store'
 import type { Store } from '../lib/store'
@@ -12,32 +15,70 @@ import { STYLE_LABEL } from '../lib/types'
 import type { StyleName, Telop, TelopStyle } from '../lib/types'
 import { fmtTime } from '../lib/format'
 
-let telopSeq = 1000
+/**
+ * 新しいテロップの ID を作る。
+ *
+ * 🔴 モジュール変数の連番だけで作ってはいけない。画面が作り直されると
+ *    カウンタが戻り、**既に居るテロップと同じ ID** が生まれる。
+ *    そうなると「再生中の行」が複数光り、選択も取り違える。
+ */
+let telopSeq = 0
+function newTelopId(): string {
+  const rand = globalThis.crypto?.randomUUID?.().slice(0, 8) ?? Math.random().toString(36).slice(2, 10)
+  return `t${Date.now().toString(36)}${(telopSeq++).toString(36)}${rand}`
+}
 
 export function TelopScreen({ store }: { store: Store }) {
   const { state, updateTelop, addTelop, removeTelop, updateStyle, pickTemplate, dropTemplate } = store
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingStyle, setEditingStyle] = useState<StyleName>('normal')
+  // 既定スタイルは畳んでおく。普段は一覧を広く使いたいので
+  const [styleOpen, setStyleOpen] = useState(false)
+  const [templateOpen, setTemplateOpen] = useState(false)
   const clipboard = useRef<Telop | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const duration = state?.durationSec ?? 0
   const { time, playing, seek, toggle } = usePlayback(duration, videoEl)
 
   const selected = state?.telops.find((t) => t.id === selectedId) ?? null
 
-  /** いまプレビューに出すべきテロップ。
-   *  選択中のものがあればそれを優先する（一覧で選んで見た目を確認するため）。 */
-  const shown = useMemo(() => {
-    if (!state) return null
-    if (selected) return selected
-    return state.telops.find((t) => time >= t.start && time <= t.end) ?? null
-  }, [state, selected, time])
+  /** いま再生位置にかかっているテロップ */
+  const playingTelop = useMemo(
+    () => state?.telops.find((t) => time >= t.start && time <= t.end) ?? null,
+    [state, time],
+  )
+
+  /** プレビューに出すもの。選択中があればそれを優先（見た目を確かめるため） */
+  const shown = selected ?? playingTelop
 
   const shownStyle: TelopStyle | null = useMemo(() => {
     if (!state || !shown) return null
     return { ...state.styles[shown.style], ...(shown.overrides ?? {}) }
   }, [state, shown])
+
+  // 再生中のテロップが画面の外に出たら、一覧を追いかけさせる。
+  //
+  // 位置は getBoundingClientRect で測る。offsetTop は「位置指定された親」からの
+  // 距離なので、一覧が position: relative でないと別の場所を指してしまう。
+  useEffect(() => {
+    if (!playingTelop || !listRef.current) return
+    const list = listRef.current
+    const row = list.querySelector<HTMLElement>(`[data-telop="${playingTelop.id}"]`)
+    if (!row) return
+
+    const listBox = list.getBoundingClientRect()
+    const rowBox = row.getBoundingClientRect()
+    const above = rowBox.top < listBox.top
+    const below = rowBox.bottom > listBox.bottom
+    if (!above && !below) return
+
+    // 真ん中に寄せる。scrollTop を直に入れる（滑らかな移動は
+    // パネルが隠れている間は動かないことがあるため、確実な方を採る）
+    const delta = rowBox.top - listBox.top - (list.clientHeight - rowBox.height) / 2
+    list.scrollTop = Math.max(0, list.scrollTop + delta)
+  }, [playingTelop])
 
   useEffect(() => {
     if (!state) return
@@ -88,17 +129,20 @@ export function TelopScreen({ store }: { store: Store }) {
   function pasteAt(src: Telop, at: number) {
     const len = src.end - src.start
     const start = Math.max(0, Math.min(duration - len, at))
-    const copy: Telop = {
-      ...src,
-      id: `t${++telopSeq}`,
-      start,
-      end: start + len,
-    }
+    const copy: Telop = { ...src, id: newTelopId(), start, end: start + len }
     addTelop(copy)
     setSelectedId(copy.id)
   }
 
   if (!state) return <div className="empty">読み込み中…</div>
+
+  const clips: Clip[] = state.telops.map((t) => ({
+    id: t.id,
+    start: t.start,
+    end: t.end,
+    kind: 'telop',
+    label: t.text,
+  }))
 
   return (
     <div className="body">
@@ -126,18 +170,24 @@ export function TelopScreen({ store }: { store: Store }) {
         />
         <div style={{ padding: '0 8px 8px' }}>
           <Timeline
-            durationSec={duration}
-            waveform={state.waveform}
-            cuts={[]}
-            telops={state.telops}
+            duration={duration}
+            fps={30}
             time={time}
             onSeek={seek}
-            selectedTelopId={selectedId}
-            onSelectTelop={setSelectedId}
+            waveform={state.waveform}
+            videoUrl={state.videoUrl}
+            clips={clips}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onTrim={(id, start, end) => updateTelop(id, { start, end })}
+            movable
+            laneLabel="テロップ"
           />
         </div>
         <div className="hint">
-          スペース = 再生/停止 ・ ↑↓ = 移動 ・ Cmd+C / Cmd+V = コピー・貼り付け ・ Cmd+D = 複製 ・ Delete = 削除
+          クリップを掴むと移動、端を掴むと表示時間の変更 ・ スペース = 再生/停止 ・ ↑↓ = 移動
+          <br />
+          Cmd+C / Cmd+V = コピー・貼り付け ・ Cmd+D = 複製 ・ Delete = 削除
         </div>
       </div>
 
@@ -160,16 +210,25 @@ export function TelopScreen({ store }: { store: Store }) {
           >
             貼り付け
           </button>
-          <button className="tiny" disabled={!selected} onClick={() => selected && pasteAt(selected, selected.end + 0.2)}>
+          <button
+            className="tiny"
+            disabled={!selected}
+            onClick={() => selected && pasteAt(selected, selected.end + 0.2)}
+          >
             複製
           </button>
         </div>
 
-        <div className="list">
+        <div className="list" ref={listRef}>
           {state.telops.map((t) => (
             <div
               key={t.id}
-              className={['row', selectedId === t.id ? 'selected' : ''].join(' ')}
+              data-telop={t.id}
+              className={[
+                'row',
+                selectedId === t.id ? 'selected' : '',
+                playingTelop?.id === t.id ? 'playing' : '',
+              ].join(' ')}
               onClick={() => {
                 setSelectedId(t.id)
                 seek(t.start)
@@ -184,7 +243,7 @@ export function TelopScreen({ store }: { store: Store }) {
 
         {/* 選択中のテロップの編集 */}
         {selected && (
-          <div style={{ borderTop: '1px solid var(--line)' }}>
+          <div className="section">
             <div className="panel-title">選択中のテロップ</div>
             <div className="form">
               <label>本文</label>
@@ -223,61 +282,82 @@ export function TelopScreen({ store }: { store: Store }) {
           </div>
         )}
 
-        {/* テロップの見本（テンプレート） */}
-        <div style={{ borderTop: '1px solid var(--line)' }}>
-          <div className="panel-title">テロップの見本</div>
-          <div className="form">
-            <label>いまの見た目</label>
-            <div className="inline">
-              {state.template ? (
-                <span>
-                  {state.template.effectName}（{state.template.font} {state.template.fontFace} /{' '}
-                  {state.template.fontSize}px）
-                </span>
-              ) : (
-                <span className="warn">未設定 — Basic Title になります</span>
-              )}
-            </div>
-            <label />
-            <div className="inline">
-              <button className="tiny" onClick={() => void pickTemplate()}>
-                見本を読み込む
-              </button>
-              {state.template && (
-                <button className="tiny" onClick={() => void dropTemplate()}>
-                  外す
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="hint">
-            いつも使っているテロップを1つ置いた状態で FCP から XML を書き出し、それを読み込んでください。
-            見た目（テンプレート・位置・縁取り）をそのまま写すので、FCP 上の仕上がりが完全に一致します。
-          </div>
+        {/* テロップの見本（畳んでおく） */}
+        <div className="section">
+          <button className="disclosure" onClick={() => setTemplateOpen((v) => !v)}>
+            <span className="disclosure-arrow">{templateOpen ? '▾' : '▸'}</span>
+            テロップの見本
+            <span className="spacer" />
+            <span className="disclosure-value">
+              {state.template ? state.template.effectName : '未設定'}
+            </span>
+          </button>
+          {templateOpen && (
+            <>
+              <div className="form">
+                <label>いまの見た目</label>
+                <div className="inline">
+                  {state.template ? (
+                    <span>
+                      {state.template.font} {state.template.fontFace} / {state.template.fontSize}px
+                    </span>
+                  ) : (
+                    <span className="warn">標準のタイトルになります</span>
+                  )}
+                </div>
+                <label />
+                <div className="inline">
+                  <button className="tiny" onClick={() => void pickTemplate()}>
+                    見本を読み込む
+                  </button>
+                  {state.template && (
+                    <button className="tiny" onClick={() => void dropTemplate()}>
+                      外す
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="hint">
+                いつも使っているテロップを1つ置いた状態で FCP から XML を書き出し、それを読み込んでください。
+              </div>
+            </>
+          )}
         </div>
 
-        {/* 既定スタイル */}
-        <div style={{ borderTop: '1px solid var(--line)' }}>
-          <div className="tabs" style={{ margin: '8px 10px 0' }}>
-            <button
-              className={`tab ${editingStyle === 'normal' ? 'active' : ''}`}
-              onClick={() => setEditingStyle('normal')}
-            >
-              通常
-            </button>
-            <button
-              className={`tab ${editingStyle === 'emphasis' ? 'active' : ''}`}
-              onClick={() => setEditingStyle('emphasis')}
-            >
-              強調
-            </button>
-          </div>
-          <StylePanel
-            name={editingStyle}
-            style={state.styles[editingStyle]}
-            fonts={state.fonts}
-            onChange={(patch) => updateStyle(editingStyle, patch)}
-          />
+        {/* 既定スタイル（畳んでおく） */}
+        <div className="section">
+          <button className="disclosure" onClick={() => setStyleOpen((v) => !v)}>
+            <span className="disclosure-arrow">{styleOpen ? '▾' : '▸'}</span>
+            既定のスタイル
+            <span className="spacer" />
+            <span className="disclosure-value">
+              {state.styles.normal.fontFamily} / {state.styles.normal.fontSize}px
+            </span>
+          </button>
+          {styleOpen && (
+            <>
+              <div className="tabs" style={{ margin: '8px 10px 0' }}>
+                <button
+                  className={`tab ${editingStyle === 'normal' ? 'active' : ''}`}
+                  onClick={() => setEditingStyle('normal')}
+                >
+                  通常
+                </button>
+                <button
+                  className={`tab ${editingStyle === 'emphasis' ? 'active' : ''}`}
+                  onClick={() => setEditingStyle('emphasis')}
+                >
+                  強調
+                </button>
+              </div>
+              <StylePanel
+                name={editingStyle}
+                style={state.styles[editingStyle]}
+                fonts={state.fonts}
+                onChange={(patch) => updateStyle(editingStyle, patch)}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>
