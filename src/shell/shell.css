@@ -1094,3 +1094,14 @@
   border: 1px solid var(--sel);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
 }
+
+/* 書き出す物の選択など、チェックの行 */
+.fcp :where(label.fcp-check) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px 0;
+}

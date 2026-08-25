@@ -1325,7 +1325,15 @@ export function App() {
           skipped={skippedShots}
           onBack={() => setPhase('telop')}
           onQuit={() => void quitEditing()}
-          onExport={() => void runExport(finalState.cards, finalState.styles, finalState.options)}
+          options={finalState.options ?? DEFAULT_EXPORT_OPTIONS}
+          onOptionsChange={(o) => setFinalState((f) => (f ? { ...f, options: o } : f))}
+          onExport={() =>
+            void runExport(
+              finalState.cards,
+              finalState.styles,
+              finalState.options ?? DEFAULT_EXPORT_OPTIONS,
+            )
+          }
         />
       </>
     );

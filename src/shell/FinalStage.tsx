@@ -21,6 +21,7 @@ import { buildSegments, toOutput, toSource } from './editedTime';
 import { isTyping, matchShortcut, nextShuttle } from './shortcuts';
 import { mediaUrl } from './media';
 import type { MusicTrack } from './TelopStage';
+import type { ExportOptions } from '../telop/TelopScreen';
 import { buildLines, drawTelop, type Frame } from '../telop/render';
 import { resolveStyle, type StyleMap } from '../telop/style';
 import type { TelopCard } from '../telop/split';
@@ -44,6 +45,16 @@ export interface FinalStageProps {
   onQuit?(): void;
   onExport(): void;
   exporting?: boolean;
+  /**
+   * 何を書き出すか。
+   *
+   * 🔴 画面から変えられるようにしておくこと。
+   *    既定のまま隠していたので、**Final Cut 用のタイムラインを出す手段が
+   *    どこにも無かった**。このアプリは Final Cut へ渡すためのものなので、
+   *    それが出せないと存在意義ごと欠ける。
+   */
+  options: ExportOptions;
+  onOptionsChange(o: ExportOptions): void;
 }
 
 export function FinalStage({
@@ -61,6 +72,8 @@ export function FinalStage({
   onQuit,
   onExport,
   exporting,
+  options,
+  onOptionsChange,
 }: FinalStageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -297,6 +310,39 @@ export function FinalStage({
               ))}
             </div>
           )}
+
+          <div className="fcp-field">
+            <label>書き出すもの</label>
+            <label className="fcp-check">
+              <input
+                type="checkbox"
+                checked={options.burn}
+                onChange={(e) => onOptionsChange({ ...options, burn: e.target.checked })}
+              />{' '}
+              動画に文字を入れる
+            </label>
+            <label className="fcp-check">
+              <input
+                type="checkbox"
+                checked={options.srt}
+                onChange={(e) => onOptionsChange({ ...options, srt: e.target.checked })}
+              />{' '}
+              字幕ファイル（.srt）も作る
+            </label>
+            <label className="fcp-check">
+              <input
+                type="checkbox"
+                checked={options.fcpxml}
+                onChange={(e) => onOptionsChange({ ...options, fcpxml: e.target.checked })}
+              />{' '}
+              Final Cut 用（.fcpxml）も作る
+            </label>
+            <p className="fcp-dim">
+              Final Cut 用は、カットとテロップが入ったタイムラインです。
+              書き出したファイルの隣に「〜_フォント」のフォルダも作るので、
+              初回だけ中の書体を入れてください（入れないと別の書体で開きます）。
+            </p>
+          </div>
 
           <p className="fcp-dim">
             ここで見えているものが、そのまま書き出されます。
