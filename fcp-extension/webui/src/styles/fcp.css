@@ -452,8 +452,6 @@ button.big { padding: 8px 22px; font-size: 13px; }
 .tl-clips { background: #1d1d1d; }
 .tl-clip {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
   border-radius: 3px;
   border: 1px solid rgba(0, 0, 0, 0.6);
   display: flex;
@@ -512,4 +510,31 @@ button.big { padding: 8px 22px; font-size: 13px; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* テロップを掴んで動かせるようにする（位置の手動調整） */
+.telop-text.movable { pointer-events: auto; cursor: move; }
+.telop-text.movable:hover { outline: 1px dashed rgba(255,255,255,0.6); outline-offset: 6px; }
+
+/* ---- 選んだ文字だけの見た目 ---- */
+.span-editor {
+  padding: 8px 10px;
+  border-top: 1px solid var(--line-soft);
+  background: #1f1f1f;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.span-target { font-size: 12px; }
+.span-hint { font-size: 11px; color: var(--text-faint); line-height: 1.6; }
+textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+  resize: vertical;
 }

@@ -215,6 +215,30 @@ export function Timeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drag?.id, drag?.edge, pxPerSec, duration])
 
+  /**
+   * 重なるクリップは段を下げて並べる。
+   * 同じ段に重ねて描くと、後ろのものが隠れて掴めなくなる。
+   */
+  const rowOf = useMemo(() => {
+    const map = new Map<string, number>()
+    const lastEnd: number[] = []
+    for (const c of [...clips].sort((a, b) => a.start - b.start)) {
+      let row = lastEnd.findIndex((end) => end <= c.start + 0.001)
+      if (row === -1) {
+        row = lastEnd.length
+        lastEnd.push(c.end)
+      } else {
+        lastEnd[row] = c.end
+      }
+      map.set(c.id, row)
+    }
+    return map
+  }, [clips])
+
+  const rowCount = Math.max(1, Math.max(0, ...Array.from(rowOf.values())) + 1)
+  const CLIP_H = 22
+  const clipsLaneHeight = rowCount * CLIP_H + (rowCount - 1) * 2 + 6
+
   const shown = useMemo(
     () =>
       clips.map((c) =>
@@ -329,7 +353,11 @@ export function Timeline({
           </div>
 
           {/* クリップ */}
-          <div className="tl-lane tl-clips" style={{ height: 30 }} onMouseDown={seekFromEvent}>
+          <div
+            className="tl-lane tl-clips"
+            style={{ height: clipsLaneHeight }}
+            onMouseDown={seekFromEvent}
+          >
             {shown.map((c) => {
               const left = c.start * pxPerSec
               const width = Math.max(2, (c.end - c.start) * pxPerSec)
@@ -338,7 +366,13 @@ export function Timeline({
                 <div
                   key={c.id}
                   className={`tl-clip ${c.dim ? 'dim' : ''} ${selected ? 'selected' : ''}`}
-                  style={{ left, width, background: CLIP_COLOR[c.kind] }}
+                  style={{
+                    left,
+                    width,
+                    background: CLIP_COLOR[c.kind],
+                    top: 3 + (rowOf.get(c.id) ?? 0) * (CLIP_H + 2),
+                    height: CLIP_H,
+                  }}
                   title={c.label}
                   onMouseDown={(e) => e.stopPropagation()}
                   onPointerDown={(e) => {

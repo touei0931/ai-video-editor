@@ -2,7 +2,7 @@
 //
 // 友達のペインは「1本30〜60分のカット作業」なので、
 // 見て押すだけで進むこと（レビュー速度）を最優先にしている。
-// Enter で承認すると、次の未判断へ飛んで**その1秒前から再生**する。
+// Enter で承認すると、次の未判断へ飛んで**その少し手前から再生**する。
 // 判断に必要なのは「切ったあとどう繋がるか」なので、手前から流して見せる。
 
 import { useEffect, useState } from 'react'
@@ -15,7 +15,7 @@ import type { Store } from '../lib/store'
 import { fmtTime } from '../lib/format'
 
 /** 承認したあと、次の候補の何秒前から再生するか */
-const LEAD_IN = 1.0
+const LEAD_IN = 0.5
 
 export function CutScreen({ store, onNext }: { store: Store; onNext: () => void }) {
   const { state, decideCut, decideAllCuts, updateCut } = store
@@ -23,7 +23,8 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const duration = state?.durationSec ?? 0
-  const { time, playing, seek, toggle, play } = usePlayback(duration, videoEl)
+  // 承認したカットは飛ばして再生する。切ると決めた区間を流しても確認にならない
+  const { time, playing, seek, toggle, play } = usePlayback(duration, videoEl, store.approvedCuts)
 
   /** 次の「未判断」へ飛んで、その少し手前から流す */
   const goNextPending = (fromId: string | null) => {

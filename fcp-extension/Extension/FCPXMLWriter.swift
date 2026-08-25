@@ -176,8 +176,14 @@ enum FCPXMLWriter {
     ) -> String {
         let text = (telop["text"] as? String) ?? ""
         let styleName = (telop["style"] as? String) ?? "normal"
-        let style = (styles[styleName] as? [String: Any]) ?? [:]
-        let styleId = "ts\(abs(text.hashValue % 100000))_\(Int(offsetSec * 1000))"
+        let baseStyle = (styles[styleName] as? [String: Any]) ?? [:]
+        let overrides = (telop["overrides"] as? [String: Any]) ?? [:]
+        var style = baseStyle
+        for (k, v) in overrides { style[k] = v }
+
+        let spans = (telop["spans"] as? [[String: Any]]) ?? []
+        let runs = splitRuns(text: text, spans: spans)
+        let idBase = "ts\(abs(text.hashValue % 100000))_\(Int(offsetSec * 1000))"
 
         // テンプレがある場合、title の内部 start はテンプレのものに合わせる
         // （Motion テンプレは 3600s のことが多く、ここを変えると表示が壊れる）
@@ -195,17 +201,86 @@ enum FCPXMLWriter {
             }
         }
 
-        s += """
-        \(indent)  <text>
-        \(indent)    <text-style ref="\(styleId)">\(escape(text))</text-style>
-        \(indent)  </text>
-        \(indent)  <text-style-def id="\(styleId)">
-        \(indent)    <text-style \(textStyleAttributes(style: style, template: template))/>
-        \(indent)  </text-style-def>
-        \(indent)</title>
+        // 本文。一部だけ見た目を変えている場合は、その範囲ごとに分けて書く
+        s += "\(indent)  <text>\n"
+        for (i, run) in runs.enumerated() {
+            s += "\(indent)    <text-style ref=\"\(idBase)_\(i)\">\(escape(run.text))</text-style>\n"
+        }
+        s += "\(indent)  </text>\n"
 
-        """
+        for (i, run) in runs.enumerated() {
+            var runStyle = style
+            if let size = run.fontSize { runStyle["fontSize"] = size }
+            if let color = run.color { runStyle["color"] = color }
+            if let bold = run.bold { runStyle["bold"] = bold }
+            s += "\(indent)  <text-style-def id=\"\(idBase)_\(i)\">\n"
+            s += "\(indent)    <text-style \(textStyleAttributes(style: runStyle, template: template))/>\n"
+            s += "\(indent)  </text-style-def>\n"
+        }
+
+        // 位置を動かしている場合だけ、既定からのずれ分を足す。
+        // テンプレ自身の位置指定を壊さないよう、絶対位置ではなく差分で書く。
+        if let transform = positionOffset(base: baseStyle, overrides: overrides) {
+            s += "\(indent)  <adjust-transform position=\"\(transform)\"/>\n"
+        }
+
+        s += "\(indent)</title>\n"
         return s
+    }
+
+    /// 一部だけ見た目を変える指定を、書き出せる「連なり」に分ける
+    struct Run {
+        var text: String
+        var fontSize: Double?
+        var color: String?
+        var bold: Bool?
+    }
+
+    static func splitRuns(text: String, spans: [[String: Any]]) -> [Run] {
+        let chars = Array(text)
+        guard !chars.isEmpty else { return [Run(text: "", fontSize: nil, color: nil, bold: nil)] }
+        if spans.isEmpty { return [Run(text: text, fontSize: nil, color: nil, bold: nil)] }
+
+        let sorted = spans.compactMap { s -> (Int, Int, [String: Any])? in
+            guard let a = s["start"] as? Int ?? (s["start"] as? Double).map({ Int($0) }),
+                  let b = s["end"] as? Int ?? (s["end"] as? Double).map({ Int($0) })
+            else { return nil }
+            return (max(0, a), min(chars.count, b), s)
+        }
+        .filter { $0.1 > $0.0 }
+        .sorted { $0.0 < $1.0 }
+
+        var runs: [Run] = []
+        var cursor = 0
+        for (a, b, s) in sorted {
+            if a > cursor {
+                runs.append(Run(text: String(chars[cursor..<a]), fontSize: nil, color: nil, bold: nil))
+            }
+            runs.append(Run(
+                text: String(chars[a..<b]),
+                fontSize: (s["fontSize"] as? Double) ?? (s["fontSize"] as? Int).map(Double.init),
+                color: s["color"] as? String,
+                bold: s["bold"] as? Bool
+            ))
+            cursor = b
+        }
+        if cursor < chars.count {
+            runs.append(Run(text: String(chars[cursor...]), fontSize: nil, color: nil, bold: nil))
+        }
+        return runs
+    }
+
+    /// 既定の位置からどれだけ動かしたか。1920x1080 の画素で返す（中心が原点・上が+）
+    static func positionOffset(base: [String: Any], overrides: [String: Any]) -> String? {
+        let baseLeft = (base["leftPercent"] as? Double) ?? 50
+        let baseBottom = (base["bottomPercent"] as? Double) ?? 12
+        guard overrides["leftPercent"] != nil || overrides["bottomPercent"] != nil else { return nil }
+        let left = (overrides["leftPercent"] as? Double) ?? baseLeft
+        let bottom = (overrides["bottomPercent"] as? Double) ?? baseBottom
+        let dx = (left - baseLeft) / 100 * 1920
+        let dy = (bottom - baseBottom) / 100 * 1080
+        if abs(dx) < 0.5 && abs(dy) < 0.5 { return nil }
+        return String(format: "%.1f %.1f", dx, dy)
     }
 
     /// テンプレの text-style を土台に、パネルで変えた分（フォント・大きさ・色・太字）だけ上書きする。

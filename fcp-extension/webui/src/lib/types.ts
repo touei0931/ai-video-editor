@@ -32,6 +32,22 @@ export interface TelopStyle {
   bold: boolean
   /** 画面下からの位置(%)。FCP の座標ではなくプレビュー用 */
   bottomPercent: number
+  /** 画面左からの位置(%)。50 で中央 */
+  leftPercent: number
+}
+
+/**
+ * テロップの一部だけ見た目を変えるための指定。
+ * 日本語テロップの作法として「その語だけ目立たせる」ことが多いので、
+ * 文字の範囲ごとに大きさ・色・太さを持てるようにしておく。
+ */
+export interface TelopSpan {
+  /** 本文の何文字目から何文字目か（終わりは含まない） */
+  start: number
+  end: number
+  fontSize?: number
+  color?: string
+  bold?: boolean
 }
 
 /** 通常 / 強調 の2種類を既定で持つ */
@@ -45,6 +61,8 @@ export interface Telop {
   style: StyleName
   /** そのテロップだけ既定から変えたいとき */
   overrides?: Partial<TelopStyle>
+  /** 一部の文字だけ見た目を変えたいとき */
+  spans?: TelopSpan[]
 }
 
 /** 友達のテロップ見本（FCPXML から取り込んだもの）の要約 */

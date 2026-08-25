@@ -149,7 +149,12 @@ export function useStore(): Store {
  * 動画がある時は video 要素が時計、無い時（開発中）は requestAnimationFrame が時計。
  * どちらでも同じように playhead が動くようにしておく。
  */
-export function usePlayback(durationSec: number, videoEl: HTMLVideoElement | null) {
+export function usePlayback(
+  durationSec: number,
+  videoEl: HTMLVideoElement | null,
+  /** 承認したカット。再生中はここを飛ばす（切ったあとの繋がりを確かめるため） */
+  skips: { start: number; end: number }[] = [],
+) {
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const raf = useRef<number | null>(null)
@@ -197,6 +202,20 @@ export function usePlayback(durationSec: number, videoEl: HTMLVideoElement | nul
     }
   }, [playing, durationSec, videoEl])
 
+  // 承認したカットに入ったら、その終わりまで飛ばす。
+  // 「切ったあとどう繋がるか」を確かめるのがレビューの目的なので、
+  // 切ると決めた区間を再生してしまうと確認にならない。
+  const skipRef = useRef(skips)
+  skipRef.current = skips
+  useEffect(() => {
+    if (!playing) return
+    const hit = skipRef.current.find((c) => time >= c.start && time < c.end - 0.02)
+    if (!hit) return
+    const to = Math.min(durationSec, hit.end)
+    setTime(to)
+    if (videoEl) videoEl.currentTime = to
+  }, [time, playing, videoEl, durationSec])
+
   const seek = useCallback(
     (t: number) => {
       const clamped = Math.max(0, Math.min(durationSec, t))
@@ -206,18 +225,34 @@ export function usePlayback(durationSec: number, videoEl: HTMLVideoElement | nul
     [durationSec, videoEl],
   )
 
+  /** 終わりまで再生し切っていたら、頭から流し直す */
+  const rewindIfEnded = useCallback(() => {
+    if (time < durationSec - 0.05) return
+    setTime(0)
+    if (videoEl) videoEl.currentTime = 0
+  }, [time, durationSec, videoEl])
+
   const play = useCallback(() => {
+    rewindIfEnded()
     if (videoEl) void videoEl.play()
     else setPlaying(true)
-  }, [videoEl])
+  }, [videoEl, rewindIfEnded])
 
   const toggle = useCallback(() => {
     if (videoEl) {
-      videoEl.paused ? void videoEl.play() : videoEl.pause()
+      if (videoEl.paused) {
+        rewindIfEnded()
+        void videoEl.play()
+      } else {
+        videoEl.pause()
+      }
     } else {
-      setPlaying((p) => !p)
+      setPlaying((p) => {
+        if (!p) rewindIfEnded()
+        return !p
+      })
     }
-  }, [videoEl])
+  }, [videoEl, rewindIfEnded])
 
   return { time, playing, seek, toggle, play }
 }

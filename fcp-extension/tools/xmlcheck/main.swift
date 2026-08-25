@@ -16,6 +16,7 @@
 import Foundation
 
 var failures: [String] = []
+let quote = String(UnicodeScalar(34))
 
 func check(_ label: String, _ condition: Bool, _ detail: String = "") {
     if condition {
@@ -79,6 +80,16 @@ let cuts: [[String: Any]] = [
 let telops: [[String: Any]] = [
     ["id": "t1", "start": 1.0, "end": 2.5, "text": "ふつうのテロップ", "style": "normal"],
     ["id": "t2", "start": 6.0, "end": 8.0, "text": "強調＆記号 <>& のテスト", "style": "emphasis"],
+    // 一部の文字だけ見た目を変えたもの
+    [
+        "id": "t3", "start": 12.0, "end": 14.0, "text": "ここだけ大きく赤く", "style": "normal",
+        "spans": [["start": 0, "end": 4, "fontSize": 200.0, "color": "#ff0000", "bold": true]],
+    ],
+    // 位置を動かしたもの
+    [
+        "id": "t4", "start": 16.0, "end": 17.0, "text": "位置を変えた", "style": "normal",
+        "overrides": ["leftPercent": 70.0, "bottomPercent": 40.0],
+    ],
 ]
 
 // MARK: - 検査
@@ -128,6 +139,24 @@ if let re = try? NSRegularExpression(pattern: "(?:offset|duration|start)=\"([0-9
     }
 }
 check("時刻がフレーム境界に乗っている", offGrid == 0, "外れ \(offGrid) 件")
+
+print("")
+print("=== 一部の文字だけ見た目を変える ===")
+check("文字の範囲ごとに分けて書いている", xml.contains("ここだけ") && xml.contains("大きく赤く"))
+check("範囲ごとに別の text-style-def を作っている", xml.components(separatedBy: "<text-style-def").count - 1 >= 5,
+      "実際 " + String(xml.components(separatedBy: "<text-style-def").count - 1))
+check("その範囲だけ大きさが変わっている", xml.contains("fontSize=" + quote + "200" + quote))
+check("その範囲だけ色が変わっている", xml.contains("1.0000 0.0000 0.0000 1"))
+
+print("")
+print("=== 位置の手動調整 ===")
+check("動かしたものだけ位置指定が付く", xml.components(separatedBy: "<adjust-transform").count - 1 == 1)
+check("既定からのずれ分で書いている", xml.contains("position=" + quote + "384.0 302.4" + quote),
+      "実際: " + (xml.range(of: "position=" + quote + "[^" + quote + "]+" + quote, options: .regularExpression).map { String(xml[$0]) } ?? "無し"))
+
+print("")
+print("=== カットの区切りをまたぐ確認 ===")
+check("カットした分だけ後ろのテロップがずれる", xml.contains("<title"))
 
 print("\n=== 生成（テンプレなし・素材なし） ===")
 let xml2 = FCPXMLWriter.build(cuts: [], telops: telops, styles: styles, mediaPath: nil, fps: 29.97)

@@ -14,6 +14,7 @@ import type { Store } from '../lib/store'
 import { STYLE_LABEL } from '../lib/types'
 import type { StyleName, Telop, TelopStyle } from '../lib/types'
 import { fmtTime } from '../lib/format'
+import { applySpan, clampSpans, clearSpan, spanAt } from '../lib/spans'
 
 /**
  * 新しいテロップの ID を作る。
@@ -38,9 +39,13 @@ export function TelopScreen({ store }: { store: Store }) {
   const [templateOpen, setTemplateOpen] = useState(false)
   const clipboard = useRef<Telop | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+  /** 本文のどこを選んでいるか（一部だけ見た目を変えるのに使う） */
+  const [sel, setSel] = useState<{ start: number; end: number } | null>(null)
 
   const duration = state?.durationSec ?? 0
-  const { time, playing, seek, toggle } = usePlayback(duration, videoEl)
+  // 承認したカットは飛ばして再生する（切ったあとの繋がりを確かめるため）
+  const { time, playing, seek, toggle } = usePlayback(duration, videoEl, store.approvedCuts)
 
   const selected = state?.telops.find((t) => t.id === selectedId) ?? null
 
@@ -125,6 +130,16 @@ export function TelopScreen({ store }: { store: Store }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, selectedId, selected, time, toggle, seek, removeTelop])
 
+  /** 本文のどこを選んでいるかを読む */
+  function readSelection(e: { currentTarget: HTMLTextAreaElement }) {
+    const el = e.currentTarget
+    setSel(
+      el.selectionStart === el.selectionEnd
+        ? null
+        : { start: el.selectionStart, end: el.selectionEnd },
+    )
+  }
+
   /** コピー元の見た目と長さを保ったまま、指定時刻に置く */
   function pasteAt(src: Telop, at: number) {
     const len = src.end - src.start
@@ -167,6 +182,11 @@ export function TelopScreen({ store }: { store: Store }) {
           telop={shown}
           style={shownStyle}
           videoRef={setVideoEl}
+          onMoveTelop={(id, leftPercent, bottomPercent) => {
+            const t = state.telops.find((x) => x.id === id)
+            if (!t) return
+            updateTelop(id, { overrides: { ...(t.overrides ?? {}), leftPercent, bottomPercent } })
+          }}
         />
         <div style={{ padding: '0 8px 8px' }}>
           <Timeline
@@ -244,13 +264,27 @@ export function TelopScreen({ store }: { store: Store }) {
         {/* 選択中のテロップの編集 */}
         {selected && (
           <div className="section">
-            <div className="panel-title">選択中のテロップ</div>
+            <div className="panel-title">
+              選択中のテロップ
+              <span className="spacer" />
+              <span style={{ color: 'var(--text-faint)' }}>本文の一部を選ぶとそこだけ変えられます</span>
+            </div>
             <div className="form">
               <label>本文</label>
-              <input
-                type="text"
+              <textarea
+                ref={textRef}
+                rows={2}
                 value={selected.text}
-                onChange={(e) => updateTelop(selected.id, { text: e.target.value })}
+                onChange={(e) => {
+                  const text = e.target.value
+                  updateTelop(selected.id, { text, spans: clampSpans(selected.spans, text.length) })
+                }}
+                // 選択の取り方は1つに頼らない。onSelect だけだと
+                // 環境によってキーボード操作での選択を取りこぼす
+                onSelect={readSelection}
+                onKeyUp={readSelection}
+                onMouseUp={readSelection}
+                onFocus={readSelection}
               />
 
               <label>スタイル</label>
@@ -278,6 +312,115 @@ export function TelopScreen({ store }: { store: Store }) {
                   onChange={(e) => updateTelop(selected.id, { end: Number(e.target.value) })}
                 />
               </div>
+
+              <label>位置</label>
+              <div className="inline">
+                <span style={{ color: 'var(--text-faint)' }}>左</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={Math.round(shownStyle?.leftPercent ?? 50)}
+                  onChange={(e) =>
+                    updateTelop(selected.id, {
+                      overrides: {
+                        ...(selected.overrides ?? {}),
+                        leftPercent: Number(e.target.value),
+                      },
+                    })
+                  }
+                />
+                <span style={{ color: 'var(--text-faint)' }}>下</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={90}
+                  value={Math.round(shownStyle?.bottomPercent ?? 12)}
+                  onChange={(e) =>
+                    updateTelop(selected.id, {
+                      overrides: {
+                        ...(selected.overrides ?? {}),
+                        bottomPercent: Number(e.target.value),
+                      },
+                    })
+                  }
+                />
+                <span style={{ color: 'var(--text-faint)' }}>%（プレビューで掴んでも動かせます）</span>
+              </div>
+            </div>
+
+            {/* 選んだ文字だけの見た目 */}
+            <div className="span-editor">
+              {sel ? (
+                <>
+                  <div className="span-target">「{selected.text.slice(sel.start, sel.end)}」だけ変える</div>
+                  <div className="inline">
+                    <span style={{ color: 'var(--text-faint)' }}>大きさ</span>
+                    <input
+                      type="number"
+                      style={{ width: 70 }}
+                      value={
+                        spanAt(selected.spans, sel.start, sel.end)?.fontSize ??
+                        Math.round(shownStyle?.fontSize ?? 48)
+                      }
+                      onChange={(e) =>
+                        updateTelop(selected.id, {
+                          spans: applySpan(selected.spans, sel.start, sel.end, {
+                            ...spanAt(selected.spans, sel.start, sel.end),
+                            fontSize: Number(e.target.value),
+                          }),
+                        })
+                      }
+                    />
+                    <input
+                      type="color"
+                      value={
+                        spanAt(selected.spans, sel.start, sel.end)?.color ??
+                        shownStyle?.color ??
+                        '#ffffff'
+                      }
+                      onChange={(e) =>
+                        updateTelop(selected.id, {
+                          spans: applySpan(selected.spans, sel.start, sel.end, {
+                            ...spanAt(selected.spans, sel.start, sel.end),
+                            color: e.target.value,
+                          }),
+                        })
+                      }
+                    />
+                    <label style={{ color: 'var(--text-faint)' }}>
+                      <input
+                        type="checkbox"
+                        checked={spanAt(selected.spans, sel.start, sel.end)?.bold ?? false}
+                        onChange={(e) =>
+                          updateTelop(selected.id, {
+                            spans: applySpan(selected.spans, sel.start, sel.end, {
+                              ...spanAt(selected.spans, sel.start, sel.end),
+                              bold: e.target.checked,
+                            }),
+                          })
+                        }
+                      />
+                      太字
+                    </label>
+                    <button
+                      className="tiny"
+                      onClick={() =>
+                        updateTelop(selected.id, {
+                          spans: clearSpan(selected.spans, sel.start, sel.end),
+                        })
+                      }
+                    >
+                      解除
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="span-hint">
+                  本文の中で文字を選ぶと、そこだけ大きさ・色・太さを変えられます
+                  {selected.spans?.length ? `（設定済み ${selected.spans.length} か所）` : ''}
+                </div>
+              )}
             </div>
           </div>
         )}
