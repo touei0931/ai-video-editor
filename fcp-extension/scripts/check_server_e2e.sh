@@ -12,7 +12,7 @@ PORT=47829
 WORK="$(mktemp -d)"
 
 cleanup() {
-  osascript -e 'quit app "PAC"' >/dev/null 2>&1 || true
+  [ -n "${APP_PID:-}" ] && kill "$APP_PID" >/dev/null 2>&1 || true
   pkill -f "PAC.app/Contents/MacOS/PAC" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -22,7 +22,10 @@ echo "--- 検証用の日本語音声を作る ---"
 say -v Kyoko -o "$WORK/voice.aiff" "サーバー経由の確認です。えー、これで通るはずです。"
 
 echo "--- アプリを起動 ---"
-open -a "$APP" || { echo "⚠ アプリを起動できませんでした（画面の無い環境かもしれません）"; exit 0; }
+# open -a だと出力が見えないので、実行ファイルを直に起動して記録する
+"$APP/Contents/MacOS/PAC" > "$WORK/app.log" 2>&1 &
+APP_PID=$!
+echo "起動した pid=$APP_PID"
 
 echo "--- 待ち受けが始まるのを待つ ---"
 for i in $(seq 1 30); do
@@ -35,6 +38,12 @@ for i in $(seq 1 30); do
 done
 if [ "${READY:-0}" != "1" ]; then
   echo "❌ 待ち受けに繋がらない（アプリ側のサーバーが上がっていない）"
+  echo "--- アプリの出力 ---"
+  cat "$WORK/app.log" || true
+  echo "--- 生きているか ---"
+  ps -p "$APP_PID" > /dev/null 2>&1 && echo "プロセスは生きている" || echo "プロセスが落ちている"
+  echo "--- ポートの状態 ---"
+  lsof -nP -iTCP:$PORT || echo "誰も掴んでいない"
   exit 1
 fi
 

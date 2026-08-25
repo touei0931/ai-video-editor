@@ -48,19 +48,38 @@ final class EngineServer {
 
     func start() {
         guard listener == nil else { return }
+
+        // 自分の Mac の中だけで待つ。外からは繋がらない。
+        // 🔴 requiredLocalEndpoint と NWListener(on:) を両方指定すると食い違う。
+        //    どちらか一方にすること。
+        let params = NWParameters.tcp
+        params.allowLocalEndpointReuse = true
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: port)
+
         do {
-            let params = NWParameters.tcp
-            // 自分の Mac の中だけで待つ。外からは繋がらない
-            params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: port)
-            let listener = try NWListener(using: params, on: port)
+            let listener = try NWListener(using: params)
+            listener.stateUpdateHandler = { [weak self] state in
+                switch state {
+                case .ready:
+                    self?.lastMessage = "待機中（ポート \(self?.port.rawValue ?? 0)）"
+                    NSLog("PAC: 待ち受け開始 127.0.0.1:\(self?.port.rawValue ?? 0)")
+                case .failed(let error):
+                    self?.lastMessage = "待ち受けに失敗：\(error.localizedDescription)"
+                    NSLog("PAC: 待ち受け失敗 \(error)")
+                case .cancelled:
+                    self?.lastMessage = "待ち受けを終了しました"
+                default:
+                    break
+                }
+            }
             listener.newConnectionHandler = { [weak self] connection in
                 self?.handle(connection)
             }
             listener.start(queue: queue)
             self.listener = listener
-            lastMessage = "待機中（ポート \(port)）"
         } catch {
             lastMessage = "待ち受けを開始できませんでした：\(error.localizedDescription)"
+            NSLog("PAC: 待ち受けを開始できません \(error)")
         }
     }
 
