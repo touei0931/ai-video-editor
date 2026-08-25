@@ -21,6 +21,7 @@
     "test:fcpxml": "python scripts/test_fcpxml.py",
     "test:music": "python scripts/test_music_mix.py",
     "test:time": "node scripts/test-edited-time.mjs",
+    "test:rows": "node scripts/test-timeline-rows.mjs",
     "smoke": "electron . --smoke-test",
     "t1": "electron . --t1-wysiwyg",
     "t2": "electron . --t2-budoux",

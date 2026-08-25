@@ -346,10 +346,100 @@ export function TelopStage({
     [patch, fromAxis, music, onMusicChange, onCutsChange, cutRegions],
   );
 
-  const remove = useCallback((id: string) => {
-    setCards((cs) => cs.filter((c) => c.id !== id));
-    setSelected(null);
+  /* ---------- ひとつ戻す ---------- */
+
+  /**
+   * 直前の状態。
+   * 🔴 消す・貼る・複製は取り返しがつかないので、必ず戻せるようにすること。
+   * 🔴 文字入力の取り消しは入力欄自身に任せる。1文字ごとに積むと
+   *    「ひとつ戻す」が1文字ずつしか戻らず、使いものにならない。
+   */
+  const cardsRef = useRef(cards);
+  cardsRef.current = cards;
+  const past = useRef<TelopCard[][]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const remember = useCallback(() => {
+    past.current = [...past.current.slice(-19), cardsRef.current];
+    setCanUndo(true);
   }, []);
+  const undo = useCallback(() => {
+    const prev = past.current.pop();
+    if (!prev) return;
+    setCards(prev);
+    setCanUndo(past.current.length > 0);
+  }, []);
+
+  const remove = useCallback(
+    (id: string) => {
+      remember();
+      setCards((cs) => cs.filter((c) => c.id !== id));
+      setSelected(null);
+    },
+    [remember],
+  );
+
+  /* ---------- コピー・貼り付け・複製（プラグイン版と同じ操作）---------- */
+
+  /**
+   * 覚えておいたテロップ。
+   * 🔴 状態ではなく ref で持つ。覚えただけで画面が描き直る必要はない。
+   */
+  const clipboard = useRef<TelopCard | null>(null);
+  const [hasCopy, setHasCopy] = useState(false);
+
+  const copy = useCallback(() => {
+    if (!cur) return;
+    clipboard.current = cur;
+    setHasCopy(true);
+  }, [cur]);
+
+  /**
+   * 見た目と長さを保ったまま、指定した時刻（元素材）へ置く。
+   *
+   * 🔴 置いたあとは必ず resolveOverlaps を通すこと。
+   *    書き出しのテロップ列は1本の帯なので、重なったまま持つと
+   *    **画面と書き出しが食い違う**（後ろのテロップが軒並みずれる）。
+   *    重なったときは前を切り上げる。開始時刻は声の時刻なので動かさない。
+   *
+   * 🔴 manual を立てること。作り直し（onRebuildTelops）で消えないようにする。
+   */
+  const pasteAt = useCallback(
+    (src: TelopCard, at: number) => {
+      remember();
+      const len = Math.max(0.1, src.srcEnd - src.srcStart);
+      const start = Math.max(0, Math.min(duration - len, at));
+      const copyCard: TelopCard = {
+        ...src,
+        id: `paste-${Date.now()}-${Math.round(Math.random() * 1e4)}`,
+        srcStart: Number(start.toFixed(3)),
+        srcEnd: Number((start + len).toFixed(3)),
+        needsCheck: false,
+        edited: true,
+        manual: true,
+      };
+      setCards((cs) => resolveOverlaps([...cs, copyCard]));
+      setSelected(copyCard.id);
+    },
+    [duration, remember],
+  );
+
+  /** いま再生位置にあるところへ貼る */
+  const paste = useCallback(() => {
+    if (clipboard.current) pasteAt(clipboard.current, fromAxis(time));
+  }, [pasteAt, fromAxis, time]);
+
+  /**
+   * 選んでいるものを、その直後に複製する。
+   *
+   * 🔴 「直後」は**見ている目盛りの上での直後**にすること。
+   *    元素材の時刻で 0.2 秒後に置くと、そこが切られた範囲だった場合、
+   *    複製したテロップは出来上がりに一度も出ない。作った本人には
+   *    「複製したのに出てこない」としか見えない。
+   */
+  const duplicate = useCallback(() => {
+    if (cur) pasteAt(cur, fromAxis(toAxis(cur.srcEnd) + 0.2));
+  }, [cur, pasteAt, toAxis, fromAxis]);
+
 
   /**
    * 雛形（その枠を使うテロップ全部）の見た目を変える。
@@ -528,6 +618,31 @@ export function TelopStage({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e.target)) return;
+
+      /*
+        コピー・貼り付け・複製。プラグイン版と同じ割り当てにする。
+        🔴 matchShortcut より先に見ること。C / V / D は単独では別の意味を持つ。
+      */
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && !e.shiftKey && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === 'c' && cur) {
+          e.preventDefault();
+          copy();
+          return;
+        }
+        if (k === 'v' && clipboard.current) {
+          e.preventDefault();
+          paste();
+          return;
+        }
+        if (k === 'd' && cur) {
+          e.preventDefault();
+          duplicate();
+          return;
+        }
+      }
+
       const action = matchShortcut(e);
       if (!action) {
         // 1〜9 で雛形を切り替える（このアプリ固有）
@@ -573,6 +688,9 @@ export function TelopStage({
         case 'delete':
           if (cur) remove(cur.id);
           break;
+        case 'undo':
+          undo();
+          break;
         case 'toggleSnap':
           setSnapEnabled((v) => !v);
           break;
@@ -582,7 +700,7 @@ export function TelopStage({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cur, styleNames, restyle, player, fps, remove]);
+  }, [cur, styleNames, restyle, player, fps, remove, copy, paste, duplicate, undo]);
 
   return (
     <EditorShell
@@ -596,6 +714,9 @@ export function TelopStage({
               編集をやめる
             </button>
           )}
+          <button onClick={undo} disabled={!canUndo} title="Ctrl+Z / ⌘Z">
+            元に戻す
+          </button>
           <button
             className={onlyCheck ? 'on' : ''}
             onClick={() => setOnlyCheck((v) => !v)}
@@ -767,6 +888,31 @@ export function TelopStage({
                 実際の改行: {cur.lines.join(' / ')}
                 {cur.fontScale < 1 && `（収めるため ${Math.round(cur.fontScale * 100)}% に縮小）`}
               </div>
+            </div>
+
+            <div className="fcp-field">
+              <label>コピー・貼り付け</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <button onClick={copy} title="Ctrl+C（Mac は ⌘C）">
+                  コピー
+                </button>
+                <button onClick={paste} disabled={!hasCopy} title="Ctrl+V（Mac は ⌘V）">
+                  再生位置に貼り付け
+                </button>
+                <button onClick={duplicate} title="Ctrl+D（Mac は ⌘D）">
+                  複製
+                </button>
+              </div>
+              <p className="fcp-dim">
+                <strong>Ctrl+C / Ctrl+V</strong> コピー・貼り付け ・{' '}
+                <strong>Ctrl+D</strong> 複製 ・ <strong>Delete</strong> 削除 ・{' '}
+                <strong>Ctrl+Z</strong> ひとつ戻す（Mac は ⌘）。
+                貼り付けは<strong>いまの再生位置</strong>に置きます。
+              </p>
+              <p className="fcp-dim">
+                テロップは同時に1枚しか出せません（書き出しが1本の帯のため）。
+                重なったときは前のテロップを、次が出るまでで打ち切ります。
+              </p>
             </div>
 
             <div className="fcp-field">
@@ -1117,7 +1263,8 @@ export function TelopStage({
                 />
               ),
             },
-            { id: 'telop', label: 'テロップ', regions: telopRegions, height: 44 },
+            // 🔴 重なったテロップは下の段へ。同じ段だと下の1枚が隠れて見えなくなる
+            { id: 'telop', label: 'テロップ', regions: telopRegions, height: 44, stack: true },
             { id: 'cut', label: 'カット', regions: cutTrack, showSource: true, height: 30 },
             {
               id: 'wave',

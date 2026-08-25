@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { assignRows, rowCount as countRows } from './rows';
 
 export type RegionKind = 'cut' | 'keep' | 'hold' | 'telop' | 'music';
 
@@ -44,6 +45,14 @@ export interface TimelineTrack {
    *    コマの取り出しは重いので、見えている分だけ作る。
    */
   render?(view: TimelineView): ReactNode;
+  /**
+   * 重なった区間を下の段へずらして並べるか。
+   *
+   * 🔴 重なったまま同じ段に描かないこと。
+   *    上に載ったほうしか見えず、下の1枚は**存在ごと隠れる**。
+   *    消したつもりのテロップが書き出しに出てくる、という形で後から気づく。
+   */
+  stack?: boolean;
 }
 
 export interface TimelineView {
@@ -505,10 +514,24 @@ export function Timeline({
     [all, scrollTo],
   );
 
-  // 外から選び直されたら、そこへ寄る（インスペクタや「次へ」からの操作）
+  /*
+    外から選び直されたら、そこへ寄る（インスペクタや「次へ」からの操作）。
+
+    🔴 focus を依存に入れないこと。
+
+       focus は tracks から作られ、tracks は呼び出し側が毎描画で組み立てる配列なので、
+       **描画のたびに中身が同じでも別物**になる。依存に入れると描画のたびに寄り直し、
+       拡大率とスクロール位置が固定されてしまう。友達には別々の症状として見えていた:
+         - 「全体」を押しても戻せない（押した直後に寄り直しが上書きする）
+         - 余白ドラッグで動かせない（動かした先から引き戻される）
+         - 一時停止から再開すると勝手に拡大される（再生で描画が続くため）
+       寄るのは focusId が変わったときだけ。
+  */
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
   useEffect(() => {
-    if (focusId) focus(focusId);
-  }, [focusId, focus]);
+    if (focusId) focusRef.current(focusId);
+  }, [focusId]);
 
   // ctrl + ホイールで拡大縮小（編集ソフトの慣習）
   const onWheel = useCallback(
@@ -667,12 +690,17 @@ export function Timeline({
             ))}
           </div>
 
-          {tracks.map((track) => (
+          {tracks.map((track) => {
+            const rowH = track.height ?? 56;
+            // 重なりがあるときだけ段を増やす。重なっていなければ今までと同じ高さ
+            const rows = track.stack ? assignRows(track.regions) : null;
+            const rowCount = countRows(rows);
+            return (
             <div className="fcp-track" key={track.id}>
               <span className="fcp-track-label">{track.label}</span>
               <div
                 className="fcp-track-body"
-                style={{ ['--track-h' as string]: `${track.height ?? 56}px` }}
+                style={{ ['--track-h' as string]: `${rowH * rowCount}px` }}
 
               >
                 {track.showSource && <div className="fcp-source" />}
@@ -681,12 +709,13 @@ export function Timeline({
                   scale,
                   from: view.left / scale,
                   to: (view.left + view.width) / scale,
-                  height: track.height ?? 56,
+                  height: rowH * rowCount,
                   duration,
                 })}
 
                 {track.regions.map((r) => {
                   const v = shown(r);
+                  const row = rows?.get(r.id) ?? 0;
                   const left = v.start * scale;
                   const w = Math.max(3, (v.end - v.start) * scale);
                   const isDragging = drag?.id === r.id;
@@ -706,7 +735,11 @@ export function Timeline({
                       ]
                         .filter(Boolean)
                         .join(' ')}
-                      style={{ left, width: w }}
+                      style={
+                        rowCount > 1
+                          ? { left, width: w, top: row * rowH + 4, height: rowH - 8 }
+                          : { left, width: w }
+                      }
                       onPointerDown={(e) => {
                         onSelect(r.id);
                         // 掴める大きさに足りないなら、その場で寄る。
@@ -760,7 +793,8 @@ export function Timeline({
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {/*
             再生位置。線そのものは 1px なので掴めない。

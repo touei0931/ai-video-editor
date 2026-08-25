@@ -32,7 +32,7 @@ import type { PacePreset, ReviewState } from '../review/ReviewScreen';
 import { mediaUrl } from './media';
 import { Transport } from './Transport';
 import { useEditedPlayer } from './useEditedPlayer';
-import { buildSegments, toOutput } from './editedTime';
+import { buildSegments, toOutput, toSource } from './editedTime';
 import { isTyping, matchShortcut, nextShuttle } from './shortcuts';
 
 const PACE_LABEL: Record<PacePreset, string> = {
@@ -437,14 +437,40 @@ export function CutStage({
   /** 吸着の入り切り。Final Cut と同じく N キーで切り替える */
   const [snapEnabled, setSnapEnabled] = useState(true);
 
+  /** 一言の知らせ。キーを押したのに何も起きないとき、その理由を出す */
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 2800);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  /**
+   * 元素材の時刻を、いま再生している目盛りの時刻に直す。
+   *
+   * 🔴 seek に渡す時刻は**再生している時間軸**でなければならない。
+   *    regions は元素材の時刻で持っているので、そのまま渡すと
+   *    「カット後」で見ているときだけ、切った分だけ先へ飛んでしまう。
+   *    ↓ を押しても目当ての保留に着かない、として現れる。
+   */
+  const toPlayTime = useCallback(
+    (t: number) => (axis === 'edited' && segments.length ? toOutput(segments, t) : t),
+    [axis, segments],
+  );
+  /** 逆向き。再生している目盛りの時刻 → 元素材の時刻 */
+  const fromPlayTime = useCallback(
+    (t: number) => (axis === 'edited' && segments.length ? toSource(segments, t) : t),
+    [axis, segments],
+  );
+
   /** 選んだ区間の少し手前から流す。繋ぎ目は前後を見ないと判断できない */
   const playAround = useCallback(
     (id: string) => {
       const r = regions.find((x) => x.id === id);
-      if (r) seek(Math.max(0, r.start - 1.2));
+      if (r) seek(Math.max(0, toPlayTime(r.start) - 1.2));
       player.play();
     },
-    [regions, seek, player],
+    [regions, seek, player, toPlayTime],
   );
 
   const select = useCallback((id: string | null) => {
@@ -529,7 +555,17 @@ export function CutStage({
       const pending = regions
         .filter((r) => r.kind === 'hold')
         .sort((a, b) => a.start - b.start);
-      if (pending.length === 0) return;
+      /*
+        🔴 黙って何もしないことがないようにする。
+
+           保留が無くなると ↑↓ は行き先が無くなる。以前はそこで
+           何も起きなかったので、**キーが効かなくなった**ようにしか見えなかった。
+           片づけ終わったのなら、そう言う。
+      */
+      if (pending.length === 0) {
+        setNotice('保留はもうありません（↑↓ で移る先がありません）');
+        return;
+      }
 
       /*
         🔴 基準は「いま選んでいる箇所」にすること。再生位置ではない。
@@ -539,7 +575,8 @@ export function CutStage({
         ↓ を何度押しても同じところから動かない（実際にそうなった）。
       */
       const current = regions.find((r) => r.id === selected);
-      const ref = current ? current.start : player.time;
+      // 🔴 比べる相手も元素材の時刻に揃える。player.time は目盛り側の時刻
+      const ref = current ? current.start : fromPlayTime(player.time);
       const next =
         dir === 1
           ? (pending.find((r) => r.start > ref + 0.01) ?? pending[0])
@@ -548,10 +585,10 @@ export function CutStage({
       setSelected(next.id);
       setFocusId(next.id);
       // 前後の繋がりを見たいので、少し手前から
-      player.seek(Math.max(0, next.start - 1.2));
+      player.seek(Math.max(0, toPlayTime(next.start) - 1.2));
       player.play();
     },
-    [regions, player, selected],
+    [regions, player, selected, toPlayTime, fromPlayTime],
   );
 
   /* ---------- キー操作（Final Cut と同じ割り当て。shortcuts.ts 参照）---------- */
@@ -708,6 +745,11 @@ export function CutStage({
                 保留 {held.length}
               </span>
               <span className="fcp-chip">−{removedSec.toFixed(1)}秒</span>
+              {notice && (
+                <span className="fcp-chip" style={{ color: 'var(--sel)' }}>
+                  {notice}
+                </span>
+              )}
             </>
           }
         >
