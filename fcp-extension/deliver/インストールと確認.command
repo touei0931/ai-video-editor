@@ -41,8 +41,17 @@ xattr -dr com.apple.quarantine "/Applications/PAC.app" 2>/dev/null
 
 # 4) 一度起動して macOS に拡張を登録させる
 echo "▶ 起動して登録..."
-open "/Applications/PAC.app"
-sleep 4
+open "/Applications/PAC.app" 2>&1
+sleep 5
+
+# 本当に起動したか。ここで落ちていると、拡張も登録されない
+if pgrep -f "PAC.app/Contents/MacOS/PAC" > /dev/null; then
+  echo "  ✅ PAC が起動しました"
+else
+  echo "  ⚠️ PAC が起動していません"
+  echo "     システム設定 →「プライバシーとセキュリティ」を開き、"
+  echo "     下のほうにある「このまま開く」を押してから、もう一度お試しください。"
+fi
 
 echo
 echo "===== ここから下は開発者(touei)向けの情報です ====="
@@ -50,6 +59,7 @@ echo
 echo "--- macOS / ハード ---"
 sw_vers
 uname -m
+echo "Gatekeeper: $(spctl --status 2>&1)"
 echo
 echo "--- Final Cut Pro ---"
 mdls -name kMDItemVersion "/Applications/Final Cut Pro.app" 2>/dev/null || echo "FCP が /Applications にありません"
@@ -78,6 +88,7 @@ echo "  1. Final Cut Pro を起動"
 echo "  2. 上のメニュー「ウィンドウ」→「エクステンション」を開く"
 echo "  3. 「PAC」があるか見る（あれば押して、出てきた画面を撮影）"
 echo "  4. デスクトップの「PAC診断結果.txt」を touei に送る"
+echo "     （見つからないときは、この画面の文字をコピーして送っても大丈夫です）"
 echo ""
 echo " ※「テロップ作成開始」を押しても、まだ解析は動きません（想定どおりです）"
 echo "==================================="
