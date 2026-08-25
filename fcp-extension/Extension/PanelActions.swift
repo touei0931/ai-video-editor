@@ -93,7 +93,8 @@ extension WorkflowExtensionViewController {
                     telops: telops,
                     styles: styles,
                     mediaPath: media,
-                    fps: fps
+                    fps: fps,
+                    template: TitleTemplate.load()
                 )
                 try xml.write(to: url, atomically: true, encoding: .utf8)
                 completion(
@@ -102,6 +103,35 @@ extension WorkflowExtensionViewController {
                 )
             } catch {
                 completion(false, "書き出しに失敗しました：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 友達が FCP から書き出した .fcpxml を「テロップの見本」として取り込む。
+    /// effect の uid・param・text-style を丸写しして、以後のテロップに適用する。
+    func loadTitleTemplate(completion: @escaping (Bool, Any) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if let type = UTType(filenameExtension: "fcpxml") {
+            panel.allowedContentTypes = [type]
+        }
+        panel.prompt = "見本にする"
+        panel.message = "いつも使っているテロップが1つ入った XML を選んでください（FCP で書き出したもの）"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else {
+                completion(false, ["message": "中止しました"])
+                return
+            }
+            do {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                let template = try TitleTemplate.parse(fcpxml: text)
+                template.save()
+                completion(true, template.summary)
+            } catch {
+                completion(false, ["message": "読み込めませんでした：\(error.localizedDescription)"])
             }
         }
     }

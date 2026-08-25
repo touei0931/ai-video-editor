@@ -15,7 +15,7 @@ import { fmtTime } from '../lib/format'
 let telopSeq = 1000
 
 export function TelopScreen({ store }: { store: Store }) {
-  const { state, updateTelop, addTelop, removeTelop, updateStyle } = store
+  const { state, updateTelop, addTelop, removeTelop, updateStyle, pickTemplate, dropTemplate } = store
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingStyle, setEditingStyle] = useState<StyleName>('normal')
@@ -107,7 +107,11 @@ export function TelopScreen({ store }: { store: Store }) {
         <div className="panel-title">
           プレビュー
           <span className="spacer" />
-          <span className="warn">※ 実際の見た目は FCP のテンプレが描画するため細部が異なります</span>
+          <span className="warn">
+            {state.template
+              ? `※ 見本「${state.template.effectName}」を使用。プレビューは近似です`
+              : '※ 実際の見た目は FCP のテンプレが描画するため細部が異なります'}
+          </span>
         </div>
         <Preview
           videoUrl={state.videoUrl}
@@ -218,6 +222,39 @@ export function TelopScreen({ store }: { store: Store }) {
             </div>
           </div>
         )}
+
+        {/* テロップの見本（テンプレート） */}
+        <div style={{ borderTop: '1px solid var(--line)' }}>
+          <div className="panel-title">テロップの見本</div>
+          <div className="form">
+            <label>いまの見た目</label>
+            <div className="inline">
+              {state.template ? (
+                <span>
+                  {state.template.effectName}（{state.template.font} {state.template.fontFace} /{' '}
+                  {state.template.fontSize}px）
+                </span>
+              ) : (
+                <span className="warn">未設定 — Basic Title になります</span>
+              )}
+            </div>
+            <label />
+            <div className="inline">
+              <button className="tiny" onClick={() => void pickTemplate()}>
+                見本を読み込む
+              </button>
+              {state.template && (
+                <button className="tiny" onClick={() => void dropTemplate()}>
+                  外す
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="hint">
+            いつも使っているテロップを1つ置いた状態で FCP から XML を書き出し、それを読み込んでください。
+            見た目（テンプレート・位置・縁取り）をそのまま写すので、FCP 上の仕上がりが完全に一致します。
+          </div>
+        </div>
 
         {/* 既定スタイル */}
         <div style={{ borderTop: '1px solid var(--line)' }}>

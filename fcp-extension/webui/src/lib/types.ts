@@ -47,6 +47,16 @@ export interface Telop {
   overrides?: Partial<TelopStyle>
 }
 
+/** 友達のテロップ見本（FCPXML から取り込んだもの）の要約 */
+export interface TitleTemplateSummary {
+  effectName: string
+  font: string
+  fontFace: string
+  fontSize: number
+  bold: boolean
+  paramCount: number
+}
+
 export interface ProjectState {
   /** プレビューする動画。dev ではローカルの mp4、パネル内では FCP から渡されたパス */
   videoUrl: string | null
@@ -58,6 +68,10 @@ export interface ProjectState {
   styles: Record<StyleName, TelopStyle>
   /** 選べるフォント（Swift 側が macOS から取ってきて渡す） */
   fonts: string[]
+  /** 取り込み済みのテロップ見本。無ければ null */
+  template?: TitleTemplateSummary | null
+  /** FCP から読めた情報（アプリ名・バージョン・シーケンス名など） */
+  host?: Record<string, unknown>
 }
 
 export const CUT_LABEL: Record<CutKind, string> = {

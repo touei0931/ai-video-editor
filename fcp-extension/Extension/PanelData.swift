@@ -50,6 +50,8 @@ enum PanelData {
             "styles": defaultStyles(),
             "fonts": fontFamilies(),
             "host": info,
+            // 取り込み済みのテロップ見本（無ければ null）
+            "template": TitleTemplate.load()?.summary ?? NSNull(),
         ]
     }
 

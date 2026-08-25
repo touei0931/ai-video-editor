@@ -5,7 +5,7 @@
 // 「同じ UI が両方で動く」ことを保つのがこの層の役目。
 
 import { MOCK } from './mock'
-import type { ProjectState, Telop, CutCandidate } from './types'
+import type { ProjectState, Telop, CutCandidate, TitleTemplateSummary } from './types'
 
 type Resolver = { resolve: (v: unknown) => void; reject: (e: unknown) => void }
 
@@ -68,10 +68,28 @@ export async function grantMediaFolder(): Promise<string | null> {
   return callSwift<string | null>('grantMediaFolder')
 }
 
-/** 承認したカットとテロップを FCPXML にして FCP のタイムラインへ送る */
+/**
+ * 友達が FCP から書き出した .fcpxml を「テロップの見本」として取り込む。
+ * effect の uid と text-style を丸写しするので、FCP 上の見た目が完全に一致する。
+ */
+export async function loadTitleTemplate(): Promise<TitleTemplateSummary> {
+  if (!isInFCP) {
+    // 開発中は見本を選べないので、それらしいものを返す
+    return { effectName: '基本01_10', font: 'Hiragino Sans', fontFace: 'W8', fontSize: 146, bold: true, paramCount: 3 }
+  }
+  return callSwift<TitleTemplateSummary>('loadTitleTemplate')
+}
+
+export async function clearTitleTemplate(): Promise<void> {
+  if (!isInFCP) return
+  await callSwift('clearTitleTemplate')
+}
+
+/** 承認したカットとテロップを FCPXML にして書き出す */
 export async function sendToFCP(payload: {
   cuts: CutCandidate[]
   telops: Telop[]
+  styles?: unknown
 }): Promise<{ ok: boolean; message: string }> {
   if (!isInFCP) {
     // 開発中は送らずに中身だけ確認できるようにする

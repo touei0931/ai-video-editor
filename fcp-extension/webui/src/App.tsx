@@ -17,7 +17,11 @@ export function App() {
     setSending(true)
     setMessage(null)
     try {
-      const res = await sendToFCP({ cuts: store.approvedCuts, telops: store.state.telops })
+      const res = await sendToFCP({
+        cuts: store.approvedCuts,
+        telops: store.state.telops,
+        styles: store.state.styles,
+      })
       setMessage(res.message)
     } catch (e) {
       setMessage(`失敗しました: ${String(e)}`)

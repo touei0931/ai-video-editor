@@ -97,6 +97,13 @@ extension WorkflowExtensionViewController: WKScriptMessageHandler {
             grantMediaFolder { path in
                 self.reply(id: id, ok: true, payload: path as Any)
             }
+        case "loadTitleTemplate":
+            loadTitleTemplate { ok, payload in
+                self.reply(id: id, ok: ok, payload: payload)
+            }
+        case "clearTitleTemplate":
+            TitleTemplate.clear()
+            reply(id: id, ok: true, payload: NSNull())
         case "sendToFCP":
             exportToFCP(params: params) { ok, message in
                 self.reply(id: id, ok: ok, payload: ["ok": ok, "message": message])

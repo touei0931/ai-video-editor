@@ -87,6 +87,9 @@ jobs:
       - name: ビルド
         run: ./fcp-extension/scripts/build.sh
 
+      - name: FCPXML の検査
+        run: ./fcp-extension/scripts/check_fcpxml.sh
+
       - name: アドホック署名
         run: ./fcp-extension/scripts/adhoc-sign.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
 

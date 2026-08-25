@@ -3,7 +3,7 @@
 // Swift とのやり取り（bridge.ts）に直接触らせない。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { loadProject } from './bridge'
+import { clearTitleTemplate, loadProject, loadTitleTemplate } from './bridge'
 import type { CutCandidate, Decision, ProjectState, StyleName, Telop, TelopStyle } from './types'
 
 export interface Store {
@@ -19,6 +19,9 @@ export interface Store {
   updateStyle: (name: StyleName, patch: Partial<TelopStyle>) => void
   /** 承認済みのカットだけ */
   approvedCuts: CutCandidate[]
+  /** テロップの見本を取り込む / 外す */
+  pickTemplate: () => Promise<string | null>
+  dropTemplate: () => Promise<void>
 }
 
 export function useStore(): Store {
@@ -66,12 +69,50 @@ export function useStore(): Store {
     )
   }, [])
 
+  /** 見本を取り込むと、既定スタイルも見本の見た目に合わせる（通常はそのまま、強調は色だけ変える） */
+  const pickTemplate = useCallback(async () => {
+    try {
+      const t = await loadTitleTemplate()
+      setState((s) => {
+        if (!s) return s
+        const face = t.fontFace ? `${t.font} ${t.fontFace}` : t.font
+        return {
+          ...s,
+          template: t,
+          styles: {
+            normal: { ...s.styles.normal, fontFamily: face, fontSize: t.fontSize, bold: t.bold, color: '#ffffff' },
+            emphasis: { ...s.styles.emphasis, fontFamily: face, fontSize: t.fontSize, bold: t.bold },
+          },
+        }
+      })
+      return t.effectName
+    } catch (e) {
+      return null
+    }
+  }, [])
+
+  const dropTemplate = useCallback(async () => {
+    await clearTitleTemplate()
+    setState((s) => (s ? { ...s, template: null } : s))
+  }, [])
+
   const approvedCuts = useMemo(
     () => (state ? state.cuts.filter((c) => c.decision === 'approved') : []),
     [state],
   )
 
-  return { state, decideCut, decideAllCuts, updateTelop, addTelop, removeTelop, updateStyle, approvedCuts }
+  return {
+    state,
+    decideCut,
+    decideAllCuts,
+    updateTelop,
+    addTelop,
+    removeTelop,
+    updateStyle,
+    approvedCuts,
+    pickTemplate,
+    dropTemplate,
+  }
 }
 
 /**
