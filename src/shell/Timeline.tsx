@@ -145,6 +145,14 @@ interface Dragging {
 
 const MIN_LEN = 0.04; // 区間の下限（秒）。潰れると掴めなくなる
 
+/**
+ * 段組みのレーンで、区間の上下に空ける隙間（px）。
+ *
+ * 🔴 段の高さそのものを詰めても、ここが広いと帯が細くならない。
+ *    段の高さと合わせて詰めること。
+ */
+const ROW_INSET = 3;
+
 export function Timeline({
   duration,
   fps,
@@ -753,8 +761,13 @@ export function Timeline({
                         .filter(Boolean)
                         .join(' ')}
                       style={
-                        rowCount > 1
-                          ? { left, width: w, top: row * rowH + 4, height: rowH - 8 }
+                        /*
+                          段組みのレーンは、段の高さから直に置く。
+                          🔴 1段のときも同じ計算にすること。段が増えたときだけ
+                             別の計算にすると、1段目の見た目が段数で変わる。
+                        */
+                        rows
+                          ? { left, width: w, top: row * rowH + ROW_INSET, height: rowH - ROW_INSET * 2 }
                           : { left, width: w }
                       }
                       onPointerDown={(e) => {
@@ -811,7 +824,7 @@ export function Timeline({
                         className="fcp-flag"
                         style={{
                           left: left + w + 6,
-                          top: rowCount > 1 ? row * rowH + 6 : 8,
+                          top: rows ? row * rowH + ROW_INSET : 8,
                         }}
                       >
                         {r.label}

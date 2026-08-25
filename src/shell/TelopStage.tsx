@@ -1278,8 +1278,12 @@ export function TelopStage({
                 />
               ),
             },
-            // 🔴 重なったテロップは下の段へ。同じ段だと下の1枚が隠れて見えなくなる
-            { id: 'telop', label: 'テロップ', regions: telopRegions, height: 44, stack: true },
+            /*
+              🔴 重なったテロップは下の段へ。同じ段だと下の1枚が隠れて見えなくなる。
+              🔴 段の高さは詰める。重なると段の数だけ縦に伸びるので、
+                 1段が厚いと2〜3枚重ねただけでタイムラインが埋まる。
+            */
+            { id: 'telop', label: 'テロップ', regions: telopRegions, height: 26, stack: true },
             { id: 'cut', label: 'カット', regions: cutTrack, showSource: true, height: 30 },
             {
               id: 'wave',
