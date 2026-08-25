@@ -26,10 +26,41 @@ export interface Store {
   dropTemplate: () => Promise<void>
   /** 解析の結果で中身を入れ替える（スタイル・フォント・見本は保つ） */
   applyAnalysis: (result: Partial<ProjectState>) => void
+  /** ひとつ前に戻す（Cmd+Z） */
+  undo: () => void
+  canUndo: boolean
 }
 
 export function useStore(): Store {
   const [state, setState] = useState<ProjectState | null>(null)
+
+  /**
+   * ひとつ前に戻すための控え。
+   *
+   * 直前の状態だけでなく少し遡れるようにしておく。テロップの手直しは
+   * 「色を変えて、位置も動かして、やっぱり戻したい」と続くことが多い。
+   */
+  const history = useRef<ProjectState[]>([])
+  const [canUndo, setCanUndo] = useState(false)
+
+  /** 変更を加える前に、いまの状態を控えておく */
+  const edit = useCallback((fn: (s: ProjectState) => ProjectState) => {
+    setState((s) => {
+      if (!s) return s
+      history.current = [...history.current.slice(-49), s]
+      setCanUndo(true)
+      return fn(s)
+    })
+  }, [])
+
+  const undo = useCallback(() => {
+    setState((s) => {
+      const prev = history.current.pop()
+      if (!prev) return s
+      setCanUndo(history.current.length > 0)
+      return prev
+    })
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -41,43 +72,54 @@ export function useStore(): Store {
     }
   }, [])
 
-  const decideCut = useCallback((id: string, decision: Decision) => {
-    setState((s) =>
-      s ? { ...s, cuts: s.cuts.map((c) => (c.id === id ? { ...c, decision } : c)) } : s,
-    )
-  }, [])
+  const decideCut = useCallback(
+    (id: string, decision: Decision) => {
+      edit((s) => ({ ...s, cuts: s.cuts.map((c) => (c.id === id ? { ...c, decision } : c)) }))
+    },
+    [edit],
+  )
 
-  const decideAllCuts = useCallback((decision: Decision) => {
-    setState((s) => (s ? { ...s, cuts: s.cuts.map((c) => ({ ...c, decision })) } : s))
-  }, [])
+  const decideAllCuts = useCallback(
+    (decision: Decision) => {
+      edit((s) => ({ ...s, cuts: s.cuts.map((c) => ({ ...c, decision })) }))
+    },
+    [edit],
+  )
 
-  const updateCut = useCallback((id: string, patch: Partial<CutCandidate>) => {
-    setState((s) =>
-      s ? { ...s, cuts: s.cuts.map((c) => (c.id === id ? { ...c, ...patch } : c)) } : s,
-    )
-  }, [])
+  const updateCut = useCallback(
+    (id: string, patch: Partial<CutCandidate>) => {
+      edit((s) => ({ ...s, cuts: s.cuts.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
+    },
+    [edit],
+  )
 
-  const updateTelop = useCallback((id: string, patch: Partial<Telop>) => {
-    setState((s) =>
-      s ? { ...s, telops: s.telops.map((t) => (t.id === id ? { ...t, ...patch } : t)) } : s,
-    )
-  }, [])
+  const updateTelop = useCallback(
+    (id: string, patch: Partial<Telop>) => {
+      edit((s) => ({ ...s, telops: s.telops.map((t) => (t.id === id ? { ...t, ...patch } : t)) }))
+    },
+    [edit],
+  )
 
-  const addTelop = useCallback((telop: Telop) => {
-    setState((s) =>
-      s ? { ...s, telops: [...s.telops, telop].sort((a, b) => a.start - b.start) } : s,
-    )
-  }, [])
+  const addTelop = useCallback(
+    (telop: Telop) => {
+      edit((s) => ({ ...s, telops: [...s.telops, telop].sort((a, b) => a.start - b.start) }))
+    },
+    [edit],
+  )
 
-  const removeTelop = useCallback((id: string) => {
-    setState((s) => (s ? { ...s, telops: s.telops.filter((t) => t.id !== id) } : s))
-  }, [])
+  const removeTelop = useCallback(
+    (id: string) => {
+      edit((s) => ({ ...s, telops: s.telops.filter((t) => t.id !== id) }))
+    },
+    [edit],
+  )
 
-  const updateStyle = useCallback((name: StyleName, patch: Partial<TelopStyle>) => {
-    setState((s) =>
-      s ? { ...s, styles: { ...s.styles, [name]: { ...s.styles[name], ...patch } } } : s,
-    )
-  }, [])
+  const updateStyle = useCallback(
+    (name: StyleName, patch: Partial<TelopStyle>) => {
+      edit((s) => ({ ...s, styles: { ...s.styles, [name]: { ...s.styles[name], ...patch } } }))
+    },
+    [edit],
+  )
 
   /** 見本を取り込むと、既定スタイルも見本の見た目に合わせる（通常はそのまま、強調は色だけ変える） */
   const pickTemplate = useCallback(async () => {
@@ -141,6 +183,8 @@ export function useStore(): Store {
     pickTemplate,
     dropTemplate,
     applyAnalysis,
+    undo,
+    canUndo,
   }
 }
 

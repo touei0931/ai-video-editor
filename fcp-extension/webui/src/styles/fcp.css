@@ -166,10 +166,9 @@ button.tiny { padding: 2px 6px; font-size: 11px; }
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  white-space: pre-wrap;
   text-align: center;
   line-height: 1.25;
-  max-width: 92%;
+  /* 折り返しと幅は Preview 側で指定する（位置によって変わってはいけないため） */
 }
 
 .transport { display: flex; align-items: center; gap: 8px; }

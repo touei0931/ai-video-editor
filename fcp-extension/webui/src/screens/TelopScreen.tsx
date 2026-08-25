@@ -30,7 +30,8 @@ function newTelopId(): string {
 }
 
 export function TelopScreen({ store }: { store: Store }) {
-  const { state, updateTelop, addTelop, removeTelop, updateStyle, pickTemplate, dropTemplate } = store
+  const { state, updateTelop, addTelop, removeTelop, updateStyle, pickTemplate, dropTemplate, undo } =
+    store
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingStyle, setEditingStyle] = useState<StyleName>('normal')
@@ -55,8 +56,14 @@ export function TelopScreen({ store }: { store: Store }) {
     [state, time],
   )
 
-  /** プレビューに出すもの。選択中があればそれを優先（見た目を確かめるため） */
-  const shown = selected ?? playingTelop
+  /**
+   * プレビューに出すもの。
+   *
+   * 再生中は「その時刻に出るテロップ」を優先する。選択したものを出し続けると、
+   * 再生しても他のテロップが一切出てこなくなる。
+   * 止めているときは選択中を優先する（見た目を確かめるため）。
+   */
+  const shown = playing ? (playingTelop ?? selected) : (selected ?? playingTelop)
 
   const shownStyle: TelopStyle | null = useMemo(() => {
     if (!state || !shown) return null
@@ -93,7 +100,11 @@ export function TelopScreen({ store }: { store: Store }) {
       const mod = e.metaKey || e.ctrlKey
       const idx = state.telops.findIndex((t) => t.id === selectedId)
 
-      if (e.code === 'Space' && !mod) {
+      if (mod && e.key.toLowerCase() === 'z') {
+        // 文字入力中の取り消しは、入力欄自身に任せる
+        e.preventDefault()
+        undo()
+      } else if (e.code === 'Space' && !mod) {
         e.preventDefault()
         toggle()
       } else if (mod && e.key.toLowerCase() === 'c' && selected) {
@@ -128,7 +139,7 @@ export function TelopScreen({ store }: { store: Store }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, selectedId, selected, time, toggle, seek, removeTelop])
+  }, [state, selectedId, selected, time, toggle, seek, removeTelop, undo])
 
   /** 本文のどこを選んでいるかを読む */
   function readSelection(e: { currentTarget: HTMLTextAreaElement }) {
@@ -207,7 +218,7 @@ export function TelopScreen({ store }: { store: Store }) {
         <div className="hint">
           クリップを掴むと移動、端を掴むと表示時間の変更 ・ スペース = 再生/停止 ・ ↑↓ = 移動
           <br />
-          Cmd+C / Cmd+V = コピー・貼り付け ・ Cmd+D = 複製 ・ Delete = 削除
+          Cmd+C / Cmd+V = コピー・貼り付け ・ Cmd+D = 複製 ・ Delete = 削除 ・ Cmd+Z = ひとつ戻す
         </div>
       </div>
 
@@ -346,6 +357,24 @@ export function TelopScreen({ store }: { store: Store }) {
                   }
                 />
                 <span style={{ color: 'var(--text-faint)' }}>%（プレビューで掴んでも動かせます）</span>
+              </div>
+
+              <label>自動改行</label>
+              <div className="inline">
+                <input
+                  type="checkbox"
+                  checked={shownStyle?.autoWrap ?? true}
+                  onChange={(e) =>
+                    updateTelop(selected.id, {
+                      overrides: { ...(selected.overrides ?? {}), autoWrap: e.target.checked },
+                    })
+                  }
+                />
+                <span style={{ color: 'var(--text-faint)' }}>
+                  切ると画面からはみ出せます。手で入れた改行は常に効きます
+                  <br />
+                  （FCP 側の折り返し幅はテンプレートが決めるため、ここはプレビューの確認用）
+                </span>
               </div>
             </div>
 

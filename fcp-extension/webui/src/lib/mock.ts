@@ -50,6 +50,7 @@ export const MOCK: ProjectState = {
       bold: false,
       bottomPercent: 12,
       leftPercent: 50,
+      autoWrap: true,
     },
     emphasis: {
       fontFamily: 'ヒラギノ角ゴシック W8',
@@ -61,6 +62,7 @@ export const MOCK: ProjectState = {
       bold: true,
       bottomPercent: 12,
       leftPercent: 50,
+      autoWrap: true,
     },
   },
   fonts: [

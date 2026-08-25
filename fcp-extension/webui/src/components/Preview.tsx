@@ -78,8 +78,9 @@ export function Preview({
       const stage = stageRef.current
       if (!d || !stage) return
       const box = stage.getBoundingClientRect()
-      const left = Math.max(2, Math.min(98, d.left + ((e.clientX - d.startX) / box.width) * 100))
-      const bottom = Math.max(0, Math.min(90, d.bottom - ((e.clientY - d.startY) / box.height) * 100))
+      // 画面の外にも少しはみ出せるようにしておく（端で切れるテロップも作れる）
+      const left = Math.max(-15, Math.min(115, d.left + ((e.clientX - d.startX) / box.width) * 100))
+      const bottom = Math.max(-10, Math.min(95, d.bottom - ((e.clientY - d.startY) / box.height) * 100))
       onMoveTelop?.(d.id, Math.round(left * 10) / 10, Math.round(bottom * 10) / 10)
     }
     const up = () => {
@@ -115,6 +116,13 @@ export function Preview({
               style={{
                 bottom: `${style.bottomPercent}%`,
                 left: `${style.leftPercent ?? 50}%`,
+                // 🔴 位置で折り返し方が変わってはいけない。
+                //    left だけ指定した絶対配置は「右端までの残り幅」に合わせて
+                //    箱が縮むので、右に動かすほど早く折り返してしまう。
+                //    内容の幅を基準にして、折り返しは max-width だけで決める。
+                width: 'max-content',
+                maxWidth: (style.autoWrap ?? true) ? `${stageWidth * 0.96}px` : 'none',
+                whiteSpace: (style.autoWrap ?? true) ? 'pre-wrap' : 'pre',
                 fontFamily: `"${style.fontFamily}", sans-serif`,
                 fontSize: `${Math.max(8, style.fontSize * scale)}px`,
                 fontWeight: style.bold ? 700 : 400,

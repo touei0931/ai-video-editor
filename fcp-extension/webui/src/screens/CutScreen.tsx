@@ -18,7 +18,7 @@ import { fmtTime } from '../lib/format'
 const LEAD_IN = 0.5
 
 export function CutScreen({ store, onNext }: { store: Store; onNext: () => void }) {
-  const { state, decideCut, decideAllCuts, updateCut } = store
+  const { state, decideCut, decideAllCuts, updateCut, undo } = store
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -51,7 +51,10 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
 
       const idx = state.cuts.findIndex((c) => c.id === selectedId)
-      if (e.code === 'Space') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        undo()
+      } else if (e.code === 'Space') {
         e.preventDefault()
         toggle()
       } else if (e.key === 'ArrowDown') {
@@ -81,7 +84,7 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, selectedId, toggle, seek, decideCut])
+  }, [state, selectedId, toggle, seek, decideCut, undo])
 
   if (!state) return <div className="empty">読み込み中…</div>
 
@@ -138,7 +141,7 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
           />
         </div>
         <div className="hint">
-          スペース = 再生/停止 ・ ↑↓ = 候補を移動 ・ Enter = 切る ・ Delete = 残す
+          スペース = 再生/停止 ・ ↑↓ = 候補を移動 ・ Enter = 切る ・ Delete = 残す ・ Cmd+Z = ひとつ戻す
           <br />
           判断すると、次の未判断へ飛んで {LEAD_IN} 秒前から再生します。
         </div>

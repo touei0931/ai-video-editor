@@ -78,6 +78,16 @@ export function StylePanel({ name, style, fonts, onChange }: Props) {
           <span style={{ color: 'var(--text-faint)' }}>つける</span>
         </div>
 
+        <label>自動改行</label>
+        <div className="inline">
+          <input
+            type="checkbox"
+            checked={style.autoWrap ?? true}
+            onChange={(e) => onChange({ autoWrap: e.target.checked })}
+          />
+          <span style={{ color: 'var(--text-faint)' }}>画面端で折り返す</span>
+        </div>
+
         <label>下からの位置</label>
         <div className="inline">
           <input

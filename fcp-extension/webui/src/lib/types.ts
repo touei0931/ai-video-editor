@@ -34,6 +34,11 @@ export interface TelopStyle {
   bottomPercent: number
   /** 画面左からの位置(%)。50 で中央 */
   leftPercent: number
+  /**
+   * 画面端で自動的に折り返すか。
+   * 切ると画面からはみ出すテロップも作れる（手で入れた改行は常に効く）。
+   */
+  autoWrap: boolean
 }
 
 /**
