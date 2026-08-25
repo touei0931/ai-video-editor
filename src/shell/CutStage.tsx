@@ -32,7 +32,7 @@ import type { PacePreset, ReviewState } from '../review/ReviewScreen';
 import { mediaUrl } from './media';
 import { Transport } from './Transport';
 import { useEditedPlayer } from './useEditedPlayer';
-import { buildSegments } from './editedTime';
+import { buildSegments, toOutput } from './editedTime';
 import { isTyping, matchShortcut, nextShuttle } from './shortcuts';
 
 const PACE_LABEL: Record<PacePreset, string> = {
@@ -119,18 +119,10 @@ export function CutStage({
 }: CutStageProps) {
   const { low: LOW, high: HIGH } = band;
 
-  // 確信度で3分割（§3.3.1）。人が1件ずつ見るのは中間層だけ、という考え方は変えない。
-  const { autoApproved, toReview, autoRejected, fillers } = useMemo(() => {
-    const fillerList = candidates.filter((c) => c.kind === 'filler' && c.confidence >= LOW);
-    const rest = candidates.filter((c) => !(c.kind === 'filler' && c.confidence >= LOW));
-    return {
-      autoApproved: rest.filter((c) => c.confidence >= HIGH),
-      toReview: rest.filter((c) => c.confidence >= LOW && c.confidence < HIGH),
-      autoRejected: rest.filter((c) => c.confidence < LOW),
-      fillers: fillerList,
-    };
-  }, [candidates, LOW, HIGH]);
-
+  /*
+    確信度の3分割（§3.3.1）。人が1件ずつ見るのは中間層だけ、という考え方は変えない。
+    どの層に入るかは effective() と decide() の中で見る。
+  */
   const [decisions, setDecisions] = useState<Record<string, 'approved' | 'rejected' | 'held'>>(
     initialState?.decisions ?? {},
   );
@@ -138,7 +130,7 @@ export function CutStage({
   const [excludedFillers, setExcludedFillers] = useState<Set<string>>(
     () => new Set(initialState?.excludedFillers ?? []),
   );
-  const [autoOverride, setAutoOverride] = useState<Record<string, 'cut' | 'keep'>>(
+  const [autoOverride, setAutoOverride] = useState<Record<string, 'cut' | 'keep' | 'hold'>>(
     initialState?.autoOverride ?? {},
   );
   const [manualCuts, setManualCuts] = useState(initialState?.manualCuts ?? []);
@@ -162,14 +154,25 @@ export function CutStage({
     return m;
   }, [candidates]);
 
-  /** その候補が結局どうなるか。表示も書き出しもこの判定に従う */
+  /**
+   * その候補が結局どうなるか。表示も書き出しもこの判定に従う。
+   *
+   * 🔴 人が指定した分を最初に見ること。
+   *    以前は「自動で決まった箇所」を先に判定していたので、
+   *    そこで G（保留）を押しても保留にならず「残す」になっていた。
+   *    保留は**どの箇所にも付けられる**べき状態（あとで見直す、の意味）。
+   */
   const effective = useCallback(
     (c: CutCandidate): Effective => {
+      const ov = autoOverride[c.id];
+      if (ov === 'cut' || ov === 'keep' || ov === 'hold') return ov;
+
+      // 指定が無いときの既定
       if (c.kind === 'filler' && c.confidence >= LOW) {
         return excludedFillers.has(c.id) ? 'keep' : 'cut';
       }
-      if (c.confidence >= HIGH) return autoOverride[c.id] === 'keep' ? 'keep' : 'cut';
-      if (c.confidence < LOW) return autoOverride[c.id] === 'cut' ? 'cut' : 'keep';
+      if (c.confidence >= HIGH) return 'cut';
+      if (c.confidence < LOW) return 'keep';
       const d = decisions[c.id];
       if (d === 'approved') return 'cut';
       if (d === 'rejected') return 'keep';
@@ -207,23 +210,24 @@ export function CutStage({
         return;
       }
       setHistory((h) => [...h, id]);
-      if (c.kind === 'filler' && c.confidence >= LOW) {
-        setExcludedFillers((s) => {
-          const n = new Set(s);
-          if (next === 'cut') n.delete(id);
-          else n.add(id);
-          return n;
-        });
+
+      /*
+        人が1件ずつ見る中間層だけ decisions に書く。
+        「何件を人が確認したか」「1件あたり何秒か」の数字がここから出るので、
+        自動で決まった分の直しを混ぜると意味を失う。
+      */
+      const inReviewBand =
+        !(c.kind === 'filler' && c.confidence >= LOW) && c.confidence >= LOW && c.confidence < HIGH;
+
+      if (inReviewBand) {
+        setDecisions((d) => ({
+          ...d,
+          [id]: next === 'cut' ? 'approved' : next === 'keep' ? 'rejected' : 'held',
+        }));
         return;
       }
-      if (c.confidence >= HIGH || c.confidence < LOW) {
-        setAutoOverride((o) => ({ ...o, [id]: next === 'cut' ? 'cut' : 'keep' }));
-        return;
-      }
-      setDecisions((d) => ({
-        ...d,
-        [id]: next === 'cut' ? 'approved' : next === 'keep' ? 'rejected' : 'held',
-      }));
+      // それ以外（自動で決まった分・フィラー）は上書きとして持つ。保留も付けられる
+      setAutoOverride((o) => ({ ...o, [id]: next }));
     },
     [byId, LOW, HIGH],
   );
@@ -315,13 +319,20 @@ export function CutStage({
 
   /* ---------- 書き出すカット ---------- */
 
+  /**
+   * 実際に書き出すカット。
+   *
+   * 🔴 画面に出している判定（effective）と同じ関数から作ること。
+   *    別々に組み立てると、赤く見えているのに切られない（逆も）が起きる。
+   *    しかも書き出すまで気づけない。
+   *
+   * 🔴 保留は「まだ決めていない」なので切らない。
+   *    自動で切る判断だったものを保留にした場合も、ここでは切らずに残す。
+   */
   const approvedCuts = useMemo(
     () =>
       [
-        ...autoApproved.filter((c) => autoOverride[c.id] !== 'keep'),
-        ...fillers.filter((c) => !excludedFillers.has(c.id)),
-        ...toReview.filter((c) => decisions[c.id] === 'approved'),
-        ...autoRejected.filter((c) => autoOverride[c.id] === 'cut'),
+        ...candidates.filter((c) => effective(c) === 'cut'),
         ...manualCuts.map((m) => ({
           id: m.id,
           kind: 'manual' as CutKind,
@@ -334,21 +345,10 @@ export function CutStage({
       ]
         .sort((a, b) => a.srcStart - b.srcStart)
         .map((c) => withTrim(c, adjust[c.id], fps)),
-    [
-      autoApproved,
-      autoRejected,
-      autoOverride,
-      fillers,
-      excludedFillers,
-      toReview,
-      decisions,
-      adjust,
-      fps,
-      manualCuts,
-    ],
+    [candidates, effective, manualCuts, adjust, fps],
   );
 
-  const held = toReview.filter((c) => effective(c) === 'hold');
+  const held = candidates.filter((c) => effective(c) === 'hold');
   const removedSec = approvedCuts.reduce((a, c) => a + (c.srcEnd - c.srcStart), 0);
 
   /* ---------- 再生 ---------- */
@@ -366,7 +366,7 @@ export function CutStage({
   /**
    * 「カット後」で流すときに取り除く区間。
    *
-   * 🔴 赤（切る）だけでなく黄色（判断待ち）も外す。
+   * 🔴 赤（切る）だけでなく保留も外す。
    *    まだ決めていない箇所は「切ったらこうなる」を見るためのものなので、
    *    出来上がりを確かめる側では外れていたほうが判断しやすい。
    *    ただし**書き出しに乗るのは赤だけ**。黄色は決まっていないので出力には残る。
@@ -394,14 +394,31 @@ export function CutStage({
     reverseAudioPath: audioPath ? mediaUrl(audioPath) : null,
   });
   const { videoRef, seek } = player;
-  const segments = useMemo(
-    () =>
-      buildSegments(
-        duration,
-        approvedCuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
-      ),
-    [duration, approvedCuts],
-  );
+  /** 「カット後」で見るときの残る区間。プレビューと同じ区切りを使う */
+  const segments = useMemo(() => buildSegments(duration, previewCuts), [duration, previewCuts]);
+
+  /**
+   * タイムラインに置く区間を、いま見ている目盛りに合わせる。
+   *
+   * 🔴 白い線と帯は必ず同じ時刻で描くこと。
+   *    以前は白い線だけ出来上がりの時刻、帯は元素材の時刻のままだった。
+   *    再生するほど両者がずれていき、どこを見ているのか分からなくなる。
+   *
+   * 「カット後」では、外した箇所そのものは出来上がりに存在しない。
+   * 消してしまうと「どこで切ったか」が分からなくなるので、
+   * 繋ぎ目の細い印として残す（掴んで伸縮はできない）。
+   */
+  const displayRegions = useMemo<TimelineRegion[]>(() => {
+    if (axis === 'source' || segments.length === 0) return regions;
+    const mark = 6 / 40; // 拡大率に依らず細く見える程度の長さ
+    return regions.map((r) => {
+      const at = toOutput(segments, r.start);
+      if (r.kind === 'cut' || r.kind === 'hold') {
+        return { ...r, start: at, end: at + mark, fixed: true, label: '' };
+      }
+      return { ...r, start: at, end: toOutput(segments, r.end) };
+    });
+  }, [regions, axis, segments]);
 
   /** 選んだ区間の少し手前から流す。繋ぎ目は前後を見ないと判断できない */
   const playAround = useCallback(
@@ -483,7 +500,7 @@ export function CutStage({
   }, [markIn, markOut]);
 
   /**
-   * 次（前）の判断待ちへ移る。
+   * 次（前）の保留へ移る。
    *
    * 🔴 移った先を「選んで・寄って・その少し手前から流す」までやること。
    *    選ぶだけだと、結局そこまで自分でスクロールして再生し直すことになり、
@@ -668,7 +685,7 @@ export function CutStage({
               </span>
               <span className="fcp-chip">
                 <span className="dot" style={{ background: 'var(--hold)' }} />
-                判断待ち {held.length}
+                保留 {held.length}
               </span>
               <span className="fcp-chip">−{removedSec.toFixed(1)}秒</span>
             </>
@@ -722,7 +739,7 @@ export function CutStage({
                   onClick={() => decide(curRegion.id, 'hold')}
                   title="G キー"
                 >
-                  あとで
+                  保留
                 </button>
               </div>
             </div>
@@ -802,7 +819,7 @@ export function CutStage({
             </div>
 
             <div className="fcp-field">
-              <label>判断待ちを片づける</label>
+              <label>保留を片づける</label>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button onClick={() => goPending(-1)} disabled={held.length === 0} title="↑ キー">
                   ↑ 前へ
@@ -812,8 +829,8 @@ export function CutStage({
                 </button>
               </div>
               <p className="fcp-dim">
-                <strong>↓</strong> で次の判断待ちへ移り、その少し手前から流します。
-                <strong>D</strong> 切る / <strong>F</strong> 残す / <strong>G</strong> あとで。
+                <strong>↓</strong> で次の保留へ移り、その少し手前から流します。
+                <strong>D</strong> 切る / <strong>F</strong> 残す / <strong>G</strong> 保留。
               </p>
             </div>
 
@@ -821,7 +838,7 @@ export function CutStage({
               <label>いまの見込み</label>
               <div>切るところ {approvedCuts.length} 箇所</div>
               <div>短くなる分 {removedSec.toFixed(1)} 秒</div>
-              <div>判断待ち {held.length} 箇所</div>
+              <div>保留 {held.length} 箇所</div>
             </div>
 
             <div className="fcp-field">
@@ -881,7 +898,7 @@ export function CutStage({
                 />
               ),
             },
-            { id: 'cut', label: 'カット', regions, showSource: true, height: 60 },
+            { id: 'cut', label: 'カット', regions: displayRegions, showSource: true, height: 60 },
             {
               id: 'wave',
               label: '音',

@@ -47,11 +47,11 @@ export type ShortcutAction =
   | 'markCut'
   /** 残す（却下） */
   | 'markKeep'
-  /** あとで見る（保留） */
+  /** 保留 */
   | 'markHold'
-  /** 次の判断待ちへ */
+  /** 次の保留へ */
   | 'nextPending'
-  /** 前の判断待ちへ */
+  /** 前の保留へ */
   | 'prevPending';
 
 /** 画面に出す一覧。ヘルプと同じ言葉にする */
@@ -71,8 +71,8 @@ export const SHORTCUT_HELP: { keys: string; label: string }[] = [
   { keys: 'Delete', label: '選んだものを消す' },
   { keys: 'D', label: 'ここを切る' },
   { keys: 'F', label: 'ここは残す' },
-  { keys: 'G', label: 'あとで見る' },
-  { keys: '↓ / ↑', label: '次 / 前の判断待ちへ' },
+  { keys: 'G', label: '保留にする' },
+  { keys: '↓ / ↑', label: '次 / 前の保留へ' },
 ];
 
 /** 文字を打っている最中か。打っているならキーを奪わない */
@@ -130,9 +130,9 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
     case 'ArrowRight':
       return 'frameForward';
     /*
-      🔴 上下は「判断待ちへ移る」に割り当てる。
+      🔴 上下は「保留へ移る」に割り当てる。
          Final Cut では上下が編集点の移動で、ここでの編集点にあたるのが
-         判断待ちの箇所。指の動きが同じになるので覚え直しが要らない。
+         保留の箇所。指の動きが同じになるので覚え直しが要らない。
     */
     case 'ArrowDown':
       return 'nextPending';
@@ -165,7 +165,7 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
     /*
       判定は D / F / G。ホームポジションで**隣り合った3つ**にする。
 
-      🔴 左から順に「切る・残す・あとで」。インスペクタのボタンの並びと同じ。
+      🔴 左から順に「切る・残す・保留」。インスペクタのボタンの並びと同じ。
          3つが離れていると、押すたびに指を探すことになり、
          1件あたりの手数が減らない（この画面の目的はレビュー速度）。
 

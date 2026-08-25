@@ -230,6 +230,24 @@ export function Timeline({
   const PAN_THRESHOLD = 4;
   const pan = useRef<{ x: number; scrollLeft: number; moved: boolean } | null>(null);
 
+  /**
+   * ここを押したら横に流してよいか。
+   *
+   * 🔴 「トラックの余白そのもの」に限定しないこと。
+   *    素材の帯（.fcp-source）やコマ・波形がレーンを覆っているので、
+   *    余白に見える場所でも押下は子要素が受け取る。
+   *    その結果「最初の数回だけ動く」「レーンによって動いたり動かなかったり」に見える。
+   *    掴めないのは**掴むと別の意味になるもの**（クリップ・つまみ・目盛り）だけにする。
+   */
+  const canPan = useCallback((target: EventTarget | null) => {
+    const el = target as HTMLElement | null;
+    if (!el || !el.closest) return false;
+    if (el.closest('.fcp-clip')) return false; // クリップは選択・移動
+    if (el.closest('.fcp-handle')) return false; // つまみは伸縮
+    if (el.closest('.fcp-ruler')) return false; // 目盛りは再生位置
+    return true;
+  }, []);
+
   const startPan = useCallback(
     (e: React.PointerEvent) => {
       const el = scrollRef.current;
@@ -453,7 +471,23 @@ export function Timeline({
           setView({ left: e.currentTarget.scrollLeft, width: e.currentTarget.clientWidth })
         }
       >
-        <div className="fcp-tl-canvas" style={{ width }} ref={canvasRef}>
+        <div
+          className="fcp-tl-canvas"
+          style={{ width }}
+          ref={canvasRef}
+          onPointerDown={(e) => {
+            if (!canPan(e.target)) return;
+            startPan(e);
+          }}
+          onPointerUp={(e) => {
+            if (!canPan(e.target)) return;
+            // 掴んで流したのでなければ、その位置へ再生位置を移す
+            if (!panned()) {
+              onSelect(null);
+              if (canvasRef.current) seekFromEvent(e.clientX, canvasRef.current);
+            }
+          }}
+        >
           <div
             className="fcp-ruler"
             onPointerDown={(e) => {
@@ -484,18 +518,7 @@ export function Timeline({
               <div
                 className="fcp-track-body"
                 style={{ ['--track-h' as string]: `${track.height ?? 56}px` }}
-                onPointerDown={(e) => {
-                  if (e.target !== e.currentTarget) return;
-                  startPan(e);
-                }}
-                onPointerUp={(e) => {
-                  if (e.target !== e.currentTarget) return;
-                  // 掴んで流したのでなければ、その位置へ再生位置を移す
-                  if (!panned()) {
-                    onSelect(null);
-                    seekFromEvent(e.clientX, e.currentTarget);
-                  }
-                }}
+
               >
                 {track.showSource && <div className="fcp-source" />}
 

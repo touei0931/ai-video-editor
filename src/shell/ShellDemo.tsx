@@ -26,7 +26,7 @@ function seed(): TimelineRegion[] {
       start: Number(t.toFixed(2)),
       end: Number((t + len).toFixed(2)),
       kind,
-      label: kind === 'hold' ? 'あとで見る' : ['無音', 'えー', 'あの', '言い直し'][i % 4],
+      label: kind === 'hold' ? '保留' : ['無音', 'えー', 'あの', '言い直し'][i % 4],
     });
     t += len + [6, 11, 4, 18, 9][i % 5];
     i += 1;

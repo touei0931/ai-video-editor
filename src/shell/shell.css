@@ -37,8 +37,14 @@
   --keep-top: #5d8cc4;
   --cut: #8e3f4c;
   --cut-top: #bd5666;
-  --hold: #8a6a2f;
-  --hold-top: #c09a4a;
+  /*
+    保留。
+    🔴 選択の枠（--sel の黄色）と近い色にしないこと。
+       以前は琥珀色にしていたので、「保留の帯」なのか「選択されている帯」なのか
+       一目で見分けられなかった。紫は他のどの色とも当たらない。
+  */
+  --hold: #5b4b9e;
+  --hold-top: #8172c9;
   --telop: #3f8a72;
   --telop-top: #5cb79a;
 
@@ -352,6 +358,18 @@
   font-size: 13px;
 }
 
+/*
+  余白を掴んで横に流せることを、カーソルで示す。
+  クリップやつまみの上では、それぞれの意味のカーソルが勝つ。
+*/
+.fcp-tl-canvas {
+  cursor: grab;
+}
+
+.fcp-tl-canvas:active {
+  cursor: grabbing;
+}
+
 /* 横スクロールする領域。縦は溢れさせない */
 .fcp-tl-scroll {
   flex: 1;
@@ -430,8 +448,13 @@
   height: var(--track-h, 56px);
 }
 
-/* 素材そのもの（残る部分の地） */
+/*
+  素材そのもの（残る部分の地）。
+  🔴 押下を受け取らせないこと。これがレーンを覆っているせいで、
+     余白を掴んだつもりが横スクロールにならないことがあった。
+*/
 .fcp-source {
+  pointer-events: none;
   position: absolute;
   inset: 6px 0;
   border-radius: 4px;

@@ -170,8 +170,15 @@ export interface ManualCut {
   srcEnd: number;
 }
 
-/** 'cut' = 自動では見送ったが切る / 'keep' = 自動では切ったが残す */
-type AutoOverride = 'cut' | 'keep';
+/**
+ * 自動で決まった箇所を人がひっくり返した分。
+ * 'cut' = 切る / 'keep' = 残す / 'hold' = 保留（あとで見直す）
+ *
+ * 🔴 'hold' を足しても書き出しの結果は変わらない。
+ *    保留は「まだ決めていない」なので、書き出しでは自動の判断のままにする。
+ *    古い下書き（'cut' | 'keep' しか入っていない）もそのまま開ける。
+ */
+type AutoOverride = 'cut' | 'keep' | 'hold';
 
 /** 自動判定分のプレビュー。必要になった時点で作るので、状態を持つ */
 type ClipState =
