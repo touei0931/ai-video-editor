@@ -35,6 +35,14 @@ else
   ng "UI が同梱されていない: $WEBUI"
 fi
 
+# 3b. UI が二重に入っていないか（Resources 直下にも同じ物が並ぶと、
+#     どちらが使われているか分からなくなる）
+if [ -f "$APPEX/Contents/Resources/index.html" ]; then
+  ng "UI が Resources 直下にも入っている（二重同梱）"
+else
+  ok "UI の同梱は1か所だけ"
+fi
+
 # 4. サンドボックス entitlement（無いと Gatekeeper が plug-ins must be sandboxed で弾く）
 ENTS=$(codesign -d --entitlements :- "$APPEX" 2>/dev/null || echo "")
 echo "$ENTS" | grep -q "com.apple.security.app-sandbox" \

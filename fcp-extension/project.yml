@@ -44,7 +44,12 @@ targets:
     type: app-extension
     platform: macOS
     sources:
+      # webui は下のフォルダ参照で入れるので、ここでは拾わない。
+      # 両方から拾うと Resources の直下にも同じ物が並び、二重になる。
       - path: Extension
+        excludes:
+          - "webui"
+          - "webui/**"
       # webui をビルドしたものを Resources/webui として同梱する。
       # 実体は scripts/build.sh が webui/dist からコピーする。
       - path: Extension/webui
