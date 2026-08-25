@@ -34,14 +34,17 @@ jobs:
       # 🔴 手元で流し忘れても、配る前には必ず通す。
       #    guard を CI で回していなかったため、プラットフォーム分岐の混入に
       #    push したあとまで気づけなかったことがある。
-      - name: 型と検査
+      # 🔴 ffmpeg が要る検査をここに入れないこと。
+      #    ffmpeg を取ってくるのはこの下の工程なので、ここで動かすと
+      #    「ffmpeg が見つかりません」で必ず落ちる（実際に配る直前で踏んだ）。
+      - name: 型と検査（ffmpeg が要らないもの）
         run: |
           npm run typecheck
           npm run guard
           npm run test:drafts
           npm run test:telop
-          npm run test:music
           npm run test:time
+          npm run test:rows
 
       - name: Python の依存をそろえる
         run: |
@@ -53,6 +56,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/fetch_ffmpeg.py
+
+      # ここから下は同梱 ffmpeg を使う。用意し終わってから走らせる
+      - name: ffmpeg が要る検査
+        run: |
+          npm run test:track
+          npm run test:cut
+          npm run test:fcpxml
+          npm run test:graph
+          npm run test:music
+          npm run test:lanes
 
       - name: 顔のモデルを取得
         run: python scripts/fetch_models.py
