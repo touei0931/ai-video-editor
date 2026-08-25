@@ -232,11 +232,20 @@ export function CutStage({
     [byId, LOW, HIGH],
   );
 
-  /** 直前の操作を取り消す */
+  /**
+   * 直前の操作を取り消す。
+   *
+   * 🔴 戻したことを言葉で出すこと。
+   *    黙って状態だけ戻すと、**本当に1つ戻ったのか**が分からない。
+   *    どこを戻したのかも選び直して見せる。
+   */
   const undo = useCallback(() => {
     setHistory((h) => {
       const last = h[h.length - 1];
-      if (!last) return h;
+      if (!last) {
+        setNotice('これ以上戻せません');
+        return h;
+      }
       setDecisions((d) => {
         const n = { ...d };
         delete n[last];
@@ -254,9 +263,13 @@ export function CutStage({
       });
       setSelected(last);
       setFocusId(last);
+      const c = byId.get(last);
+      setNotice(
+        `1つ戻しました：${c ? (c.word ? `${KIND_LABEL[c.kind]}「${c.word}」` : KIND_LABEL[c.kind]) : '手動のカット'}`,
+      );
       return h.slice(0, -1);
     });
-  }, []);
+  }, [byId]);
 
   /* ---------- タイムラインの区間 ---------- */
 
@@ -415,7 +428,13 @@ export function CutStage({
     return regions.map((r) => {
       const at = toOutput(segments, r.start);
       if (r.kind === 'cut' || r.kind === 'hold') {
-        return { ...r, start: at, end: at + mark, fixed: true, label: '' };
+        /*
+          🔴 印にしても中身（何を切ったのか）は消さないこと。
+             以前はここで label を空にしていたので、切る・保留にした箇所は
+             **ただの色の四角**になり、選んでも何だったのか分からなかった。
+             幅が足りないときは、タイムライン側が名札として横に出す。
+        */
+        return { ...r, start: at, end: at + mark, fixed: true };
       }
       return { ...r, start: at, end: toOutput(segments, r.end) };
     });

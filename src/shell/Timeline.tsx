@@ -13,7 +13,7 @@
  *   - 掴んでいる間、動かした量を数値でその場に出す（何フレーム伸ばしたか分からないと戻せない）
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { assignRows, rowCount as countRows } from './rows';
 
 export type RegionKind = 'cut' | 'keep' | 'hold' | 'telop' | 'music';
@@ -504,14 +504,23 @@ export function Timeline({
       if (!r || !el) return;
       const len = Math.max(0.05, r.end - r.start);
       const view = el.clientWidth || 900;
-      // 区間が画面の約35%を占める倍率。前後に約1.8倍の余白が残る
-      const want = Math.min(300, Math.max(4, (view * 0.35) / len));
-      setPxPerSec(want);
+      /*
+        🔴 いまの拡大率で足りているなら、拡大率は変えないこと。
+
+           以前は寄るたびに必ず倍率を計算し直していた。そのため
+           Ctrl+Z（元に戻す）のたびにタイムラインが勝手に拡大され、
+           **1つ前の操作が戻ったのかどうかが分からなくなっていた**。
+           倍率を変えるのは、その区間が小さすぎて掴めないときだけでよい。
+      */
+      const now = pxPerSec || 10;
+      const want =
+        len * now >= GRABBABLE ? now : Math.min(300, Math.max(4, (view * 0.35) / len));
+      if (want !== now) setPxPerSec(want);
       requestAnimationFrame(() => {
         scrollTo(((r.start + r.end) / 2) * want - view / 2);
       });
     },
-    [all, scrollTo],
+    [all, scrollTo, pxPerSec],
   );
 
   /*
@@ -723,9 +732,17 @@ export function Timeline({
                     ? Math.round((v.start - drag.originStart) * fps)
                     : 0;
                   const movedEnd = isDragging ? Math.round((v.end - drag.originEnd) * fps) : 0;
+                  /*
+                    名札を出すか。
+                    🔴 幅が足りない区間は、中の文字が切れて読めない。
+                       「カット後」では切った箇所が細い印になるので、
+                       選んでも赤や紫の四角にしか見えなかった。
+                       選んでいるものだけ、区間の外に名札を出して中身を見せる。
+                  */
+                  const flag = selectedId === r.id && !!r.label && w < 120;
                   return (
+                    <Fragment key={r.id}>
                     <div
-                      key={r.id}
                       className={[
                         'fcp-clip',
                         `kind-${r.kind}`,
@@ -756,10 +773,10 @@ export function Timeline({
                         */
                         if (!r.fixed) startDrag(e, r, 'move');
                       }}
-                      title={`${clock(v.start)} 〜 ${clock(v.end)}（${(v.end - v.start).toFixed(2)}秒）`}
+                      title={`${r.label ? `${r.label}\n` : ''}${clock(v.start)} 〜 ${clock(v.end)}（${(v.end - v.start).toFixed(2)}秒）`}
                     >
                       <span className="cap" />
-                      {w > 44 && <span className="name">{r.label ?? ''}</span>}
+                      {w > 44 && !flag && <span className="name">{r.label ?? ''}</span>}
                       {!r.fixed && (
                         <>
                           <span
@@ -789,6 +806,18 @@ export function Timeline({
                         </span>
                       )}
                     </div>
+                    {flag && (
+                      <span
+                        className="fcp-flag"
+                        style={{
+                          left: left + w + 6,
+                          top: rowCount > 1 ? row * rowH + 6 : 8,
+                        }}
+                      >
+                        {r.label}
+                      </span>
+                    )}
+                    </Fragment>
                   );
                 })}
               </div>

@@ -1074,3 +1074,23 @@
   color: var(--sel);
   font-weight: 700;
 }
+
+/*
+  細い区間の名札。
+  🔴 区間の中に書くと切れて読めない（「カット後」の印は 0.15 秒しかない）。
+     区間の外に、選んでいるものだけ出す。
+*/
+.fcp-flag {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(18, 18, 22, 0.92);
+  border: 1px solid var(--sel);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}

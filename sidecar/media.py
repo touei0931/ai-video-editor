@@ -527,7 +527,7 @@ def export_cut_video(
     video_path: str,
     out_path: str,
     keeps: list[tuple[float, float]],
-    telop_track: str | None = None,
+    telop_tracks: list[str] | None = None,
     fps: float = 30.0,
     framing: list[dict[str, Any]] | None = None,
     on_progress: ProgressFn | None = None,
@@ -543,6 +543,9 @@ def export_cut_video(
     """
     if not keeps:
         raise ValueError("残す区間がありません（全部カットされています）")
+
+    # 空文字や None を落として、段の順に重ねる
+    tracks = [t for t in (telop_tracks or []) if t]
 
     ffmpeg = find_ffmpeg()
     # 解像度に見合ったビットレートを選ぶ。1080p 用の固定値のままだと 4K で破綻する。
@@ -626,7 +629,7 @@ def export_cut_video(
     music_graph = ""
     music_index = None
     if music and music.get("path"):
-        music_index = 1 + (1 if telop_track else 0)
+        music_index = 1 + len(tracks)
         kept_total = sum(e - s for s, e in keeps)
         gain = float(music.get("volume", 0.18))
         fade = min(3.0, max(0.5, kept_total * 0.05))
@@ -642,15 +645,24 @@ def export_cut_video(
         )
     else:
         music_graph = "[avoice]anull[aout];"
-    if telop_track:
-        inputs += ["-f", "concat", "-safe", "0", "-i", telop_track]
-        filter_complex = (
-            "".join(parts) + joined + music_graph
+    if tracks:
+        # 🔴 段ごとに1本の帯にする。
+        #    同じ時間に2枚以上のテロップを出すには、帯を分けて重ねるしかない。
+        #    1本にまとめると、後の1枚は「前を短くする」形でしか置けない。
+        #    段の数は上限4なので、入力が青天井に増えることはない。
+        for t in tracks:
+            inputs += ["-f", "concat", "-safe", "0", "-i", t]
+        steps: list[str] = []
+        for i in range(len(tracks)):
             # 静止画のままだとタイムスタンプが疎なので、動画と同じ fps に揃える
-            + f"[1:v]format=rgba,fps={fps:.5g},setpts=PTS-STARTPTS[ov];"
+            steps.append(f"[{i + 1}:v]format=rgba,fps={fps:.5g},setpts=PTS-STARTPTS[ov{i}]")
+        src = "[vcat]"
+        for i in range(len(tracks)):
+            dst = "[vout]" if i == len(tracks) - 1 else f"[vmix{i}]"
             # repeatlast=0 にしないと、テロップ列が尽きた後も最後の1枚が残り続ける
-            "[vcat][ov]overlay=0:0:eof_action=pass:repeatlast=0[vout]"
-        )
+            steps.append(f"{src}[ov{i}]overlay=0:0:eof_action=pass:repeatlast=0{dst}")
+            src = dst
+        filter_complex = "".join(parts) + joined + music_graph + ";".join(steps)
     else:
         filter_complex = "".join(parts) + joined + music_graph + "[vcat]null[vout]"
 

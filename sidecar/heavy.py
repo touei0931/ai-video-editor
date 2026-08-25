@@ -426,7 +426,7 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     work_dir = Path(params.get("work_dir") or default_work_dir(video_path))
 
     # ── テロップを編集後タイムラインへ写す ──
-    telop_track = None
+    telop_tracks: list[str] = []
     burned = 0
     srt_path = None
     telops = params.get("telops") or []
@@ -461,25 +461,37 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
                 "out_end": out_end,
                 "png": t.get("png"),
                 "text": t.get("text", ""),
+                # 何段目か。同じ時間に重なるテロップは段ごとに別の帯にする
+                "lane": int(t.get("lane") or 0),
             })
 
         if placed:
             if params.get("write_srt", True):
                 srt_path = write_srt(str(Path(out_path).with_suffix(".srt")), placed)
             if burn:
-                telop_track = write_telop_track(
-                    str(work_dir / "telops" / "track.txt"),
-                    params["blank_png"],
-                    placed,
-                    kept_total,
-                )
+                """
+                🔴 段ごとに帯を分ける。
+                   1本の帯は「同時に1枚」しか出せない（前を切り上げるしかない）。
+                   同じ時間に2枚以上出すには、段の数だけ帯を作って重ねる。
+                """
+                lanes = sorted({int(p.get("lane") or 0) for p in placed})
+                for lane in lanes:
+                    same = [p for p in placed if int(p.get("lane") or 0) == lane]
+                    telop_tracks.append(
+                        write_telop_track(
+                            str(work_dir / "telops" / f"track-{lane}.txt"),
+                            params["blank_png"],
+                            same,
+                            kept_total,
+                        )
+                    )
                 burned = len(placed)
 
     result = export_cut_video(
         video_path,
         out_path,
         keeps,
-        telop_track=telop_track,
+        telop_tracks=telop_tracks,
         fps=float(params.get("fps") or 30.0),
         framing=params.get("framing") or None,
         on_progress=on_progress,

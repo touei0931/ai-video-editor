@@ -27,10 +27,10 @@ const DEFAULT_EXPORT_OPTIONS: ExportOptions = { burn: true, srt: true, fcpxml: f
 import { loadTelopFonts, macFontOf } from './telop/fonts';
 import { fcpLook, type FcpLook } from './telop/render';
 import { renderBlank, renderTelopPngs } from './telop/rasterize';
+import { telopLanes } from './telop/lanes';
 import {
   buildCards,
   makeMeasure,
-  resolveOverlaps,
   rewrapCard,
   type Frame,
   type TelopCard,
@@ -264,9 +264,13 @@ function mergeEdits(fresh: TelopCard[], previous: TelopCard[], removed: TelopCar
 
   // 手で足したテロップは作り直しても出てこない。必ず持ち越す。
   const manual = previous.filter((p) => p.manual);
-  // 🔴 引き継いだ時刻と新しい時刻が混ざるので、重なりはここで解消しておく。
-  //    重なったまま渡すと、書き出しで後ろのテロップが軒並みずれる。
-  return resolveOverlaps([...carried, ...manual]);
+  /*
+    🔴 ここで重なりを潰さないこと。
+       テロップは同時に何枚でも出せる。手で重ねて置いたものを
+       作り直しのたびに勝手に短くすると、直した意図が消える。
+       重なったぶんは段を分けて描く（telop/lanes.ts）。
+  */
+  return [...carried, ...manual].sort((a, b) => a.srcStart - b.srcStart);
 }
 
 function formatDuration(sec: number): string {
@@ -484,7 +488,8 @@ export function App() {
     setShots(draft.shots ?? []);
     // 🔴 重なりはここでも直す。この直しより前に保存された下書きには、
     //    重なったままのテロップが入っている（そのまま書き出すと後半がずれる）。
-    const saved = resolveOverlaps(draft.cards ?? []);
+    // 🔴 開き直しただけで重なりを潰さない。手で重ねたものが消えてしまう
+    const saved = [...(draft.cards ?? [])].sort((a, b) => a.srcStart - b.srcStart);
     setCards(saved);
     setPace(draft.pace ?? 'talk');
     setCuts(
@@ -1071,6 +1076,7 @@ export function App() {
           src_end: number;
           text: string;
           png: string;
+          lane?: number;
           look?: FcpLook;
         }[] = [];
         let blankPng = '';
@@ -1112,15 +1118,19 @@ export function App() {
             src_end: c.srcEnd,
             text: c.lines.join(NEWLINE),
             png: saved[rendered[i].name],
+            // 何段目か。同じ時間に重なるテロップは、書き出しでも別の帯として重ねる
+            lane: rendered[i].lane,
             look: lookOf(c),
           }));
         } else if (finalCards.length > 0) {
           // 焼き込まない場合でも、字幕ファイルを出すために時刻と文言は渡す
+          const lanes = telopLanes(finalCards);
           telops = finalCards.map((c) => ({
             src_start: c.srcStart,
             src_end: c.srcEnd,
             text: c.lines.join(NEWLINE),
             png: '',
+            lane: lanes.get(c.id) ?? 0,
             look: lookOf(c),
           }));
         }

@@ -10,6 +10,7 @@
 import { buildLines, drawTelop } from './render';
 import { DEFAULT_STYLES, resolveStyle, type TelopStyle, type TelopStyleName } from './style';
 import type { Frame, TelopCard } from './split';
+import { laneOffsetY, laneStep, telopLanes } from './lanes';
 
 type AnyCanvas = HTMLCanvasElement;
 
@@ -34,6 +35,12 @@ export interface RasterizedTelop {
   id: string;
   name: string;
   base64: string;
+  /**
+   * 何段目か。同じ時間に重なるテロップは段を分ける。
+   * 🔴 書き出し側では段ごとに別の帯として重ねる。1本にまとめると、
+   *    重なった2枚目が「前を短くする」形でしか出せない。
+   */
+  lane: number;
 }
 
 /** 何も描かれていない透過 PNG。テロップとテロップの間を埋めるのに使う。 */
@@ -59,6 +66,14 @@ export async function renderTelopPngs(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas を使えません');
 
+  /*
+    段の割り当て。
+    🔴 プレビューと同じ telopLanes / laneStep を通すこと。
+       ここで別に計算したら、画面で重なっていないのに書き出しで重なる。
+  */
+  const lanes = telopLanes(cards);
+  const step = laneStep(cards, styles, frame);
+
   const out: RasterizedTelop[] = [];
   for (let i = 0; i < cards.length; i++) {
     const card = cards[i];
@@ -74,12 +89,17 @@ export async function renderTelopPngs(
         style: resolved,
         position: card.positionOverride ?? resolved.position,
         offsetX: card.offsetX,
-        offsetY: card.offsetY,
+        offsetY: card.offsetY + laneOffsetY(card, lanes.get(card.id) ?? 0, styles, step),
       },
       frame,
     );
 
-    out.push({ id: card.id, name: `${card.id}.png`, base64: toPngBase64(canvas) });
+    out.push({
+      id: card.id,
+      name: `${card.id}.png`,
+      base64: toPngBase64(canvas),
+      lane: lanes.get(card.id) ?? 0,
+    });
 
     // 描画をブロックし続けると進捗が出ないので、たまに手放す
     if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));

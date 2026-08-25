@@ -227,8 +227,11 @@ def write_fcpxml(
             style_ids[key] = sid
             style_defs.append(_text_style_def(sid, look))
 
+        # 🔴 同じ時間に重なるテロップは別のレーンに置くこと。
+        #    同じレーンに重ねると、Final Cut では後の1枚が前を押しのける。
+        lane = 1 + int(tel.get("lane") or 0)
         lines.append(
-            f'            <title name="telop{i + 1}" lane="1"'
+            f'            <title name="telop{i + 1}" lane="{lane}"'
             f' offset="{start * den}/{num}s"'
             f' duration="{(end - start) * den}/{num}s"'
             ' ref="r2" role="titles">'

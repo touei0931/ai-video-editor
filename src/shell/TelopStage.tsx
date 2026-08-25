@@ -16,7 +16,8 @@ import { Timeline, clock, type TimelineRegion } from './Timeline';
 import { Waveform } from './Waveform';
 import { Filmstrip } from './Filmstrip';
 import { buildLines, drawTelop, type Frame } from '../telop/render';
-import { resolveOverlaps, type TelopCard } from '../telop/split';
+import { type TelopCard } from '../telop/split';
+import { activeAt, laneOffsetY, laneStep, telopLanes } from '../telop/lanes';
 import {
   DEFAULT_STYLES,
   resolveStyle,
@@ -179,10 +180,15 @@ export function TelopStage({
    *    テロップの時刻は元素材で持っているので、カット後の時刻で比べると
    *    切った分だけずれて、別のテロップが出る。
    */
-  const showing = useMemo(
-    () => cards.find((c) => srcTime >= c.srcStart && srcTime < c.srcEnd) ?? null,
-    [cards, srcTime],
-  );
+  const showing = useMemo(() => activeAt(cards, srcTime), [cards, srcTime]);
+
+  /**
+   * 段の割り当てと、1段ぶんの高さ。
+   * 🔴 書き出し（rasterize）と同じ関数から出すこと。別々に計算した瞬間に
+   *    「画面では重なっていないのに書き出すと重なる」が起きる。
+   */
+  const lanes = useMemo(() => telopLanes(cards), [cards]);
+  const step = useMemo(() => laneStep(cards, styles, frame), [cards, styles, frame]);
 
   /* ---------- プレビュー ---------- */
 
@@ -211,21 +217,27 @@ export function TelopStage({
       ctx.fillRect(0, 0, cv.width, cv.height);
     }
 
-    const card = showing ?? cur;
-    if (!card) return;
-    const style = resolveStyle(styles, card.style, card.override, card.fontScale);
-    drawTelop(
-      ctx,
-      {
-        lines: buildLines(card.lines, card.highlight ?? undefined, style),
-        style,
-        position: card.positionOverride ?? style.position,
-        offsetX: card.offsetX,
-        offsetY: card.offsetY,
-      },
-      frame,
-    );
-  }, [showing, cur, styles, frame]);
+    /*
+      🔴 その瞬間に出るテロップを**全部**描くこと。
+         1枚しか描かないと、2枚重ねたときに画面では1枚しか見えないのに
+         書き出しには2枚出る。どちらが正しいのか確かめようがなくなる。
+    */
+    const list = showing.length > 0 ? showing : cur ? [cur] : [];
+    for (const card of list) {
+      const style = resolveStyle(styles, card.style, card.override, card.fontScale);
+      drawTelop(
+        ctx,
+        {
+          lines: buildLines(card.lines, card.highlight ?? undefined, style),
+          style,
+          position: card.positionOverride ?? style.position,
+          offsetX: card.offsetX,
+          offsetY: card.offsetY + laneOffsetY(card, lanes.get(card.id) ?? 0, styles, step),
+        },
+        frame,
+      );
+    }
+  }, [showing, cur, styles, frame, lanes, step]);
 
   // 直したら描き直す
   useEffect(() => {
@@ -278,13 +290,16 @@ export function TelopStage({
 
   /* ---------- 直す ---------- */
 
+  /*
+    🔴 ここで重なりを潰さないこと（以前は resolveOverlaps を通していた）。
+
+       テロップは同時に何枚でも出せるようにした。重なりを勝手に直すと、
+       2枚目を置いた瞬間に1枚目が短くされ、**置いたつもりのものが消える**。
+       重なったものは段を分けて描く（telop/lanes.ts）。
+  */
   const patch = useCallback(
     (id: string, next: Partial<TelopCard>) => {
-      setCards((cs) =>
-        resolveOverlaps(
-          cs.map((c) => (c.id === id ? { ...c, ...next, edited: true } : c)),
-        ),
-      );
+      setCards((cs) => cs.map((c) => (c.id === id ? { ...c, ...next, edited: true } : c)));
     },
     [],
   );
@@ -396,10 +411,9 @@ export function TelopStage({
   /**
    * 見た目と長さを保ったまま、指定した時刻（元素材）へ置く。
    *
-   * 🔴 置いたあとは必ず resolveOverlaps を通すこと。
-   *    書き出しのテロップ列は1本の帯なので、重なったまま持つと
-   *    **画面と書き出しが食い違う**（後ろのテロップが軒並みずれる）。
-   *    重なったときは前を切り上げる。開始時刻は声の時刻なので動かさない。
+   * 🔴 重なってもそのまま置くこと。
+   *    貼り付け先に別のテロップがあっても短くしない。重なったぶんは
+   *    段を分けて描く（telop/lanes.ts）。
    *
    * 🔴 manual を立てること。作り直し（onRebuildTelops）で消えないようにする。
    */
@@ -417,7 +431,7 @@ export function TelopStage({
         edited: true,
         manual: true,
       };
-      setCards((cs) => resolveOverlaps([...cs, copyCard]));
+      setCards((cs) => [...cs, copyCard].sort((a, b) => a.srcStart - b.srcStart));
       setSelected(copyCard.id);
     },
     [duration, remember],
@@ -910,8 +924,9 @@ export function TelopStage({
                 貼り付けは<strong>いまの再生位置</strong>に置きます。
               </p>
               <p className="fcp-dim">
-                テロップは同時に1枚しか出せません（書き出しが1本の帯のため）。
-                重なったときは前のテロップを、次が出るまでで打ち切ります。
+                同じ時間に何枚でも置けます。重なったぶんは
+                {(cur.positionOverride ?? styles[cur.style]?.position) === 'bottom' ? '上' : '下'}
+                へ段をずらして出します（書き出しも同じ並びです）。
               </p>
             </div>
 
