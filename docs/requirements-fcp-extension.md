@@ -270,3 +270,36 @@ macOS 15 ランナー + Xcode 16.4 + XcodeGen で **BUILD SUCCEEDED**（一発�
 → **コンテナアプリ側でエンジンを常駐させ、パネルとはローカルソケット(127.0.0.1)で通信**する。
 App Groups / XPC は Team ID を要求するのでアドホック署名では使えない。
 `com.apple.security.network.client` は entitlement に追加済み。
+
+---
+
+# 🔴 重大な判明事項 (2026-08-25): 拡張から FCP のタイムラインへ書き込む API は無い
+
+SDK のヘッダに宣言されている API を CI で確認した結果、**書き込み系は再生ヘッドの移動だけ**だった。
+
+| 型 | できること |
+|---|---|
+| `FCPXHost` | `timeline` / `versionString` / `bundleIdentifier` / `name` を**読む**だけ |
+| `FCPXTimeline` | `movePlayheadTo:` / `playheadTime` / `activeSequence` / `sequenceTimeRange` / 変化の監視 |
+| `FCPXLibrary` `FCPXEvent` `FCPXProject` `FCPXSequence` | 名前・UID・url・`startTime`・`duration`・`frameDuration`・`timecodeFormat` を**読む**だけ |
+
+`sendFCPXML` に相当するメソッドは存在しない。したがってカット結果やテロップを
+タイムラインに入れる方法は次の2つしかない。
+
+1. **ドラッグ&ドロップ** — パネルから FCPXML を載せたドラッグを開始し、
+   利用者がタイムラインに落とす（市販の拡張がやっている方法）。
+   ただし WKWebView の HTML5 ドラッグでは NSPasteboard の型を指定できないので、
+   ネイティブ(AppKit)のドラッグ元をパネル内に置く必要がある。
+2. **.fcpxml を書き出して FCP に開かせる** — `NSWorkspace` で FCP に渡すと
+   FCP の読み込みダイアログが出る。利用者の操作は「読み込み」を1回押すだけ。
+   entitlements の `automation.apple-events` と `scripting-targets` は取得済み。
+
+**当面は 2 を実装する**（確実で、AutoTelop で実績のある FCPXML 生成をそのまま使えるため）。
+1 は後から足せる。
+
+## これがパネル型の価値に与える影響
+
+「レビューはパネル内で完結、反映は1クリック」までは実現できる。
+**完全自動でタイムラインが書き換わる形にはできない**（Apple の制約であり、実装の問題ではない）。
+なお、この制約は案A（PAC 本体 + FCPXML 読み込み）でも同じなので、
+パネル型の優位性（FCP から離れずにレビューできる）は保たれる。
