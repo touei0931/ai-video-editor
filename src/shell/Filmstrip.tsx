@@ -46,8 +46,15 @@ function stepFor(scale: number, thumbW: number): number {
   return steps.find((s) => s >= sec) ?? steps[steps.length - 1];
 }
 
-/** 覚えておくコマの上限。増やしすぎると画像でメモリを食う */
-const CACHE_MAX = 240;
+/**
+ * 覚えておくコマの上限。増やしすぎると画像でメモリを食う。
+ *
+ * 🔴 捨てるときは「入れた順」ではなく「いま見ている場所から遠い順」にすること。
+ *    入れた順で捨てると、拡大して作業しているあいだに
+ *    **画面に見えているコマが捨てられ、すぐ取り直される**。
+ *    これが「コマ割りが点滅する」の正体だった。
+ */
+const CACHE_MAX = 400;
 
 /** 拡大やスクロールが落ち着くまで待つ時間（ミリ秒） */
 const SETTLE_MS = 220;
@@ -70,6 +77,8 @@ export function Filmstrip({
   const running = useRef(false);
   /** いま欲しい時刻。落ち着いたらこれを見に行く */
   const wanted = useRef<number[]>([]);
+  /** いま見えている範囲（元素材の秒）。捨てる順を決めるのに使う */
+  const window0 = useRef({ from: 0, to: 0 });
   const shotsRef = useRef(shots);
   shotsRef.current = shots;
 
@@ -126,6 +135,9 @@ export function Filmstrip({
   useEffect(() => {
     if (!videoPath || failed) return;
     wanted.current = slots.map((s) => s.src);
+    if (slots.length > 0) {
+      window0.current = { from: slots[0].src, to: slots[slots.length - 1].src };
+    }
 
     /*
       🔴 少し待ってから始める。
@@ -165,9 +177,17 @@ export function Filmstrip({
               miss = 0;
               setShots((m) => {
                 const n = new Map(m).set(next, url);
-                // 古いものから捨てる。画像を持ちすぎない
                 if (n.size > CACHE_MAX) {
-                  const drop = [...n.keys()].slice(0, n.size - CACHE_MAX);
+                  /*
+                    いま見えている範囲の**外側**から、遠い順に捨てる。
+                    見えているものは絶対に捨てない（捨てると取り直しになり点滅する）。
+                  */
+                  const { from: vf, to: vt } = window0.current;
+                  const dist = (t: number) => (t < vf ? vf - t : t > vt ? t - vt : 0);
+                  const drop = [...n.keys()]
+                    .filter((t) => dist(t) > 0)
+                    .sort((a, b) => dist(b) - dist(a))
+                    .slice(0, n.size - CACHE_MAX);
                   for (const k of drop) {
                     URL.revokeObjectURL(n.get(k)!);
                     n.delete(k);

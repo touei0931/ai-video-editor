@@ -1254,6 +1254,24 @@ export function App() {
             start: c.srcStart,
             end: c.srcEnd,
           }))}
+          onCutsChange={(next) =>
+            setCuts((prev) => {
+              const byId = new Map(next.map((n) => [n.id, n]));
+              return prev
+                .filter((c) => byId.has(c.id))
+                .map((c) => {
+                  const n = byId.get(c.id)!;
+                  return { ...c, srcStart: n.start, srcEnd: n.end };
+                });
+            })
+          }
+          /*
+            🔴 テロップは「作られた時点のカット」を元にしている。
+               カットを広げると、切ったはずの言葉がテロップに残る。
+               変わったことを画面に出して、作り直せるようにする。
+          */
+          cutsChanged={cutsKey(cuts) !== builtForRef.current}
+          onRebuildTelops={() => void buildTelops(cuts)}
           onChange={(next) => {
             /*
               🔴 直すたびに受け取って保存すること。

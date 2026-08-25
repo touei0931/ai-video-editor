@@ -905,14 +905,14 @@
   border-right: 1px solid rgba(0, 0, 0, 0.5);
 }
 
+/*
+  まだ取り出せていないコマ。
+  🔴 目立つ模様にしないこと。取り出しが追いつかない場所が
+     次々に現れると、模様が出たり消えたりして点滅に見える。
+     落ち着いた無地にして、埋まったことだけが分かるようにする。
+*/
 .fcp-frame.empty {
-  background: repeating-linear-gradient(
-    45deg,
-    rgba(255, 255, 255, 0.03),
-    rgba(255, 255, 255, 0.03) 6px,
-    transparent 6px,
-    transparent 12px
-  );
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .fcp-frame img {
@@ -1059,5 +1059,18 @@
   background: var(--accent);
   border-color: #2f6fb0;
   color: #061320;
+  font-weight: 700;
+}
+
+/* 注意を促す欄。読み飛ばされると書き出しで気づくことになる */
+.fcp-warn {
+  border: 1px solid var(--sel);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: rgba(242, 193, 78, 0.08);
+}
+
+.fcp-warn > label {
+  color: var(--sel);
   font-weight: 700;
 }

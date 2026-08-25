@@ -59,6 +59,19 @@ export interface TelopStageProps {
   exporting?: boolean;
   /** カットの結果。テロップの下に並べて、どこを切ったかが見えるようにする */
   cutRegions?: { id: string; start: number; end: number }[];
+  /**
+   * カットを直したときに呼ばれる。時刻は**元素材**で渡す。
+   *
+   * 🔴 直しただけではテロップの文言は変わらない。
+   *    テロップはカット後の文字起こしから作っているので、
+   *    カットを広げると「切ったはずの言葉」がテロップに残る。
+   *    呼び出し側が作り直しの導線を出すこと（onRebuildTelops）。
+   */
+  onCutsChange?(cuts: { id: string; start: number; end: number }[]): void;
+  /** テロップを作られた時点からカットが変わっているか */
+  cutsChanged?: boolean;
+  /** テロップを作り直す。文言を今のカットに合わせる */
+  onRebuildTelops?(): void;
   duration: number;
   fps?: number;
   /** 解析で作った audio.wav。音の波を出すのに使う */
@@ -99,6 +112,9 @@ export function TelopStage({
   onBack,
   exporting,
   cutRegions = [],
+  onCutsChange,
+  cutsChanged,
+  onRebuildTelops,
   duration,
   fps = 30,
   audioPath,
@@ -151,6 +167,11 @@ export function TelopStage({
   const playing = player.playing;
 
   const cur = useMemo(() => cards.find((c) => c.id === selected) ?? null, [cards, selected]);
+  /** カットの帯を選んでいるか */
+  const curCut = useMemo(
+    () => (selected?.startsWith('cut-') ? (cutRegions.find((c) => `cut-${c.id}` === selected) ?? null) : null),
+    [selected, cutRegions],
+  );
 
   /**
    * いま画面に出ているべきテロップ。
@@ -299,6 +320,18 @@ export function TelopStage({
   /** タイムラインで端を引いたとき */
   const onTrim = useCallback(
     (id: string, start: number, end: number) => {
+      if (id.startsWith('cut-')) {
+        // 🔴 保存は元素材の時刻に戻してから
+        const raw = id.slice(4);
+        onCutsChange?.(
+          cutRegions.map((c) =>
+            c.id === raw
+              ? { ...c, start: Number(fromAxis(start).toFixed(3)), end: Number(fromAxis(end).toFixed(3)) }
+              : c,
+          ),
+        );
+        return;
+      }
       if (id === 'music') {
         // BGM は開始位置だけ動かす。終わりは動画の終わりに合わせる
         if (music) onMusicChange?.({ ...music, start: Math.max(0, Number(start.toFixed(3))) });
@@ -310,7 +343,7 @@ export function TelopStage({
         srcEnd: Number(fromAxis(end).toFixed(3)),
       });
     },
-    [patch, fromAxis, music, onMusicChange],
+    [patch, fromAxis, music, onMusicChange, onCutsChange, cutRegions],
   );
 
   const remove = useCallback((id: string) => {
@@ -425,7 +458,13 @@ export function TelopStage({
           end,
           kind: 'cut' as const,
           label: '',
-          fixed: true, // ここでは触らせない。カットの段階で決めたもの
+          /*
+            🔴 「カット後」では触らせない。
+               その目盛りでは区間が潰れて印になっているので、
+               掴んで伸ばしても何を変えているのか分からない。
+               直すのは「元の素材」の目盛りに切り替えてから。
+          */
+          fixed: applyCuts,
         };
       }),
     [cutRegions, applyCuts, toAxis],
@@ -617,9 +656,95 @@ export function TelopStage({
           <span style={{ width: 8 }} />
         </Transport>
       }
-      inspectorTitle={cur ? 'テロップ' : 'テロップ全体'}
+      inspectorTitle={curCut ? 'カット' : cur ? 'テロップ' : 'テロップ全体'}
       inspector={
-        cur ? (
+        curCut ? (
+          <>
+            <div className="fcp-field">
+              <label>切る範囲（元の素材の時刻）</label>
+              <div className="fcp-stepper">
+                <button
+                  onClick={() =>
+                    onCutsChange?.(
+                      cutRegions.map((c) =>
+                        c.id === curCut.id ? { ...c, start: Math.max(0, c.start - 1 / fps) } : c,
+                      ),
+                    )
+                  }
+                >
+                  −1f
+                </button>
+                <output>{clock(curCut.start)}</output>
+                <button
+                  onClick={() =>
+                    onCutsChange?.(
+                      cutRegions.map((c) =>
+                        c.id === curCut.id
+                          ? { ...c, start: Math.min(c.end - 0.05, c.start + 1 / fps) }
+                          : c,
+                      ),
+                    )
+                  }
+                >
+                  +1f
+                </button>
+              </div>
+              <div className="fcp-stepper">
+                <button
+                  onClick={() =>
+                    onCutsChange?.(
+                      cutRegions.map((c) =>
+                        c.id === curCut.id
+                          ? { ...c, end: Math.max(c.start + 0.05, c.end - 1 / fps) }
+                          : c,
+                      ),
+                    )
+                  }
+                >
+                  −1f
+                </button>
+                <output>{clock(curCut.end)}</output>
+                <button
+                  onClick={() =>
+                    onCutsChange?.(
+                      cutRegions.map((c) =>
+                        c.id === curCut.id ? { ...c, end: c.end + 1 / fps } : c,
+                      ),
+                    )
+                  }
+                >
+                  +1f
+                </button>
+              </div>
+              <div className="fcp-dim">
+                長さ {(curCut.end - curCut.start).toFixed(2)} 秒
+              </div>
+            </div>
+
+            {applyCuts ? (
+              <p className="fcp-dim">
+                「カット後」の目盛りでは区間が潰れて印になっています。
+                掴んで伸ばしたいときは <strong>元の素材</strong> に切り替えてください。
+              </p>
+            ) : (
+              <p className="fcp-dim">
+                タイムラインの<strong>端をドラッグ</strong>しても伸縮できます。
+              </p>
+            )}
+
+            <button
+              className="danger"
+              onClick={() => onCutsChange?.(cutRegions.filter((c) => c.id !== curCut.id))}
+            >
+              このカットをやめる（残す）
+            </button>
+
+            <p className="fcp-dim">
+              カットを変えても、テロップの文言はそのままです。
+              切った言葉がテロップに残っていないか確かめてください。
+            </p>
+          </>
+        ) : cur ? (
           <>
             <div className="fcp-field">
               <label>文言</label>
@@ -916,6 +1041,18 @@ export function TelopStage({
                     <p className="fcp-dim">mp3 / m4a / wav などを選べます。</p>
                   </>
                 )}
+              </div>
+            )}
+
+            {cutsChanged && onRebuildTelops && (
+              <div className="fcp-field fcp-warn">
+                <label>カットが変わっています</label>
+                <p className="fcp-dim">
+                  テロップは<strong>作られた時点のカット</strong>を元にしています。
+                  切った言葉がテロップに残っている可能性があります。
+                </p>
+                <button onClick={onRebuildTelops}>テロップを今のカットで作り直す</button>
+                <p className="fcp-dim">手で直した内容は引き継がれます。</p>
               </div>
             )}
 
