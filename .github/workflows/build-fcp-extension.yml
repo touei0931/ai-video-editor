@@ -67,6 +67,16 @@ jobs:
             || { echo "::error::SDK の設置に失敗"; exit 1; }
           find /Library/Developer/SDKs/WorkflowExtensionSDK.sdk -maxdepth 4 | head -40
 
+      - name: SDK の API 名を確認（ヘッダ全文は出さない）
+        run: |
+          set -euo pipefail
+          SDK=/Library/Developer/SDKs/WorkflowExtensionSDK.sdk
+          echo "=== 宣言されているクラス/プロトコル/メソッド名 ==="
+          find "$SDK" -name '*.h' -print0 | while IFS= read -r -d '' h; do
+            echo "--- $(basename "$h") ---"
+            grep -hE '^\s*(@interface|@protocol|@property|[-+]\s*\()' "$h" | sed 's/  */ /g' || true
+          done
+
       - name: 鍵を消す
         if: always()
         run: rm -f ~/.ssh/id_ed25519
