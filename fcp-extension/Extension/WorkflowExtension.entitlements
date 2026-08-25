@@ -6,6 +6,10 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- 一度許可したフォルダを覚えておくための鍵。
+	     これが無いと起動のたびに許可ダイアログが出る。 -->
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
 	<key>com.apple.security.assets.movies.read-write</key>
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>
