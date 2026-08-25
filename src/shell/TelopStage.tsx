@@ -136,7 +136,8 @@ export function TelopStage({
   const player = useEditedPlayer({
     duration,
     cuts: cutRegions.map((c) => ({ srcStart: c.start, srcEnd: c.end })),
-    applyCuts,
+    skipCuts: true,
+    timeBase: axis,
     music: music ?? null,
     musicUrl: music ? mediaUrl(music.path) : null,
     reverseAudioPath: audioPath ? mediaUrl(audioPath) : null,

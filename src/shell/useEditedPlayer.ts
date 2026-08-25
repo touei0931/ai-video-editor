@@ -29,8 +29,21 @@ export interface MusicForPlayback {
 export interface EditedPlayerOptions {
   duration: number;
   cuts: readonly Cut[];
-  /** カットを適用して再生するか。false なら元素材をそのまま流す */
-  applyCuts: boolean;
+  /**
+   * 切ると決めた場所を、再生中に飛ばすか。
+   *
+   * 🔴 表示の時間軸（timeBase）とは別にすること。
+   *    以前はひとまとめにしていたので、タイムラインを「元の素材」で見ている間は
+   *    カットを承認しても再生に反映されなかった。
+   *    「白い線が赤い場所に来たら飛ばす」は、どちらの目盛りで見ていても同じ。
+   */
+  skipCuts: boolean;
+  /**
+   * time / seek が扱う時刻の基準。
+   *   'source' = 元素材の時刻（タイムラインを「元の素材」で見ているとき）
+   *   'edited' = カット後の時刻（「カット後」で見ているとき）
+   */
+  timeBase: 'source' | 'edited';
   music?: MusicForPlayback | null;
   musicUrl?: string | null;
   /**
@@ -112,7 +125,9 @@ function loadPref(): { volume: number; muted: boolean } {
 }
 
 export function useEditedPlayer(opts: EditedPlayerOptions): EditedPlayer {
-  const { duration: srcDuration, cuts, applyCuts, music, musicUrl, reverseAudioPath } = opts;
+  const { duration: srcDuration, cuts, skipCuts, timeBase, music, musicUrl, reverseAudioPath } = opts;
+  /** 時刻を出来上がりの目盛りで扱うか */
+  const edited = timeBase === 'edited';
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -139,13 +154,14 @@ export function useEditedPlayer(opts: EditedPlayerOptions): EditedPlayer {
     中身を文字列にして比べる。ここは state ではなく計算で持つ。
   */
   const cutsKey = cuts.map((c) => `${c.srcStart.toFixed(3)}-${c.srcEnd.toFixed(3)}`).join(',');
+  /** 残る区間。飛ばすためにも、目盛りを変えるためにも要る */
   const segments = useMemo(
-    () => (applyCuts ? buildSegments(srcDuration, cuts) : []),
+    () => buildSegments(srcDuration, cuts),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [srcDuration, applyCuts, cutsKey],
+    [srcDuration, cutsKey],
   );
 
-  const outDuration = applyCuts && segments.length ? outputDuration(segments) : srcDuration;
+  const outDuration = edited && segments.length ? outputDuration(segments) : srcDuration;
 
   /* ---- 音量・速度 ---- */
 
@@ -178,7 +194,7 @@ export function useEditedPlayer(opts: EditedPlayerOptions): EditedPlayer {
       setTime(clamped);
       const v = videoRef.current;
       if (v) {
-        const src = applyCuts && segments.length ? toSource(segments, clamped) : clamped;
+        const src = edited && segments.length ? toSource(segments, clamped) : clamped;
         if (Number.isFinite(src)) v.currentTime = src;
       }
       const a = audioRef.current;
@@ -189,7 +205,7 @@ export function useEditedPlayer(opts: EditedPlayerOptions): EditedPlayer {
         }
       }
     },
-    [applyCuts, segments, outDuration, music],
+    [edited, segments, outDuration, music],
   );
 
   /**
@@ -204,30 +220,34 @@ export function useEditedPlayer(opts: EditedPlayerOptions): EditedPlayer {
     const v = videoRef.current;
     if (!v) return;
     const src = v.currentTime;
-    if (applyCuts && segments.length) {
+
+    /*
+      🔴 飛ばす判断は、目盛りの選び方と無関係に行うこと。
+         切ると決めた場所（タイムラインの赤い帯）に白い線が入ったら、
+         次の残る場所の頭へ移す。それだけ。
+    */
+    if (skipCuts && segments.length) {
       const jump = skipTarget(segments, src);
       if (jump !== null) v.currentTime = jump;
       else if (src >= segments[segments.length - 1].srcEnd - 0.02) {
         v.pause();
         setPlaying(false);
       }
-      setTime(toOutput(segments, v.currentTime));
-    } else {
-      setTime(src);
     }
+    setTime(edited && segments.length ? toOutput(segments, v.currentTime) : v.currentTime);
 
     // BGM のずれを直す。0.3秒以上ずれたときだけ合わせる
     const a = audioRef.current;
     if (a && music && !a.paused) {
       const want =
-        (applyCuts && segments.length ? toOutput(segments, v.currentTime) : v.currentTime) -
+        (edited && segments.length ? toOutput(segments, v.currentTime) : v.currentTime) -
         music.start;
       if (want >= 0) {
         const cur = music.loop && a.duration ? want % Math.max(0.05, a.duration) : want;
         if (Math.abs(a.currentTime - cur) > 0.3) a.currentTime = cur;
       }
     }
-  }, [applyCuts, segments, music]);
+  }, [skipCuts, edited, segments, music]);
 
   // 土台。ウインドウが前面でなくても鳴る
   useEffect(() => {
@@ -382,7 +402,7 @@ export function useEditedPlayer(opts: EditedPlayerOptions): EditedPlayer {
           const next = Math.max(0, t + v * dt);
           const vid = videoRef.current;
           if (vid) {
-            const src = applyCuts && segments.length ? toSource(segments, next) : next;
+            const src = edited && segments.length ? toSource(segments, next) : next;
             if (Number.isFinite(src)) vid.currentTime = src;
           }
           return next;
@@ -391,7 +411,7 @@ export function useEditedPlayer(opts: EditedPlayerOptions): EditedPlayer {
       };
       reverse.current = requestAnimationFrame(step);
     },
-    [play, pause, applyCuts, segments, ensureReverseAudio, startReverseAudio, stopReverseAudio],
+    [play, pause, edited, segments, ensureReverseAudio, startReverseAudio, stopReverseAudio],
   );
 
   useEffect(

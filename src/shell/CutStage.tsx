@@ -150,8 +150,6 @@ export function CutStage({
   const [markOut, setMarkOut] = useState<number | null>(null);
   const clipRef = useRef<HTMLVideoElement | null>(null);
   const [clips, setClips] = useState<Record<string, ClipState>>({});
-  /** 'joined' = 切って繋いだ結果 / 'source' = 元の映像 */
-  const [viewMode, setViewMode] = useState<'joined' | 'source'>('joined');
 
   const duration = useMemo(
     () => videoDuration ?? Math.max(60, Math.max(0, ...candidates.map((c) => c.srcEnd)) + 5),
@@ -368,7 +366,9 @@ export function CutStage({
   const player = useEditedPlayer({
     duration,
     cuts: approvedCuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
-    applyCuts,
+    // 🔴 承認したカットは常に飛ばす。目盛りをどちらで見ていても同じ。
+    skipCuts: true,
+    timeBase: axis,
     reverseAudioPath: audioPath ? mediaUrl(audioPath) : null,
   });
   const { videoRef, seek } = player;
@@ -424,8 +424,6 @@ export function CutStage({
   }, [selected, onNeedClip, byId, clips]);
 
   const clip = selected ? clips[selected] : undefined;
-  /** 繋いだ結果を前に出せる状態か。出せないときは元の映像を見せ続ける */
-  const showJoined = viewMode === 'joined' && clip?.status === 'ready';
 
   /*
     🔴 loop 属性は使わない。必ず 0 秒に戻ってしまい、繋ぎ目の手前から流し直せない。
@@ -462,21 +460,51 @@ export function CutStage({
     setSelected(id);
   }, [markIn, markOut]);
 
+  /**
+   * 次（前）の判断待ちへ移る。
+   *
+   * 🔴 移った先を「選んで・寄って・その少し手前から流す」までやること。
+   *    選ぶだけだと、結局そこまで自分でスクロールして再生し直すことになり、
+   *    1件あたりの手数が減らない。この画面の目的はレビュー速度なので、
+   *    1キーで「次を判断できる状態」まで持っていく。
+   */
+  const goPending = useCallback(
+    (dir: 1 | -1) => {
+      const pending = regions
+        .filter((r) => r.kind === 'hold')
+        .sort((a, b) => a.start - b.start);
+      if (pending.length === 0) return;
+
+      /*
+        🔴 基準は「いま選んでいる箇所」にすること。再生位置ではない。
+
+        移った先では前後の繋がりを見せるために 1.2 秒手前から流す。
+        その位置を基準に次を探すと、**さっき移った箇所がまた次に見える**ので、
+        ↓ を何度押しても同じところから動かない（実際にそうなった）。
+      */
+      const current = regions.find((r) => r.id === selected);
+      const ref = current ? current.start : player.time;
+      const next =
+        dir === 1
+          ? (pending.find((r) => r.start > ref + 0.01) ?? pending[0])
+          : ([...pending].reverse().find((r) => r.start < ref - 0.01) ?? pending[pending.length - 1]);
+
+      setSelected(next.id);
+      setFocusId(next.id);
+      // 前後の繋がりを見たいので、少し手前から
+      player.seek(Math.max(0, next.start - 1.2));
+      player.play();
+    },
+    [regions, player, selected],
+  );
+
   /* ---------- キー操作（Final Cut と同じ割り当て。shortcuts.ts 参照）---------- */
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e.target)) return;
       const action = matchShortcut(e);
-      if (!action) {
-        // Y / N / H は、このアプリ固有の判定キー
-        const k = e.key.toLowerCase();
-        if (selected && (k === 'y' || k === 'n' || k === 'h')) {
-          decide(selected, k === 'y' ? 'cut' : k === 'n' ? 'keep' : 'hold');
-          e.preventDefault();
-        }
-        return;
-      }
+      if (!action) return;
       e.preventDefault();
       switch (action) {
         case 'playPause':
@@ -519,7 +547,20 @@ export function CutStage({
           undo();
           break;
         case 'delete':
+        case 'markKeep':
           if (selected) decide(selected, 'keep');
+          break;
+        case 'markCut':
+          if (selected) decide(selected, 'cut');
+          break;
+        case 'markHold':
+          if (selected) decide(selected, 'hold');
+          break;
+        case 'nextPending':
+          goPending(1);
+          break;
+        case 'prevPending':
+          goPending(-1);
           break;
         default:
           break;
@@ -527,7 +568,7 @@ export function CutStage({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, decide, undo, player, fps]);
+  }, [selected, decide, undo, player, fps, goPending]);
 
   /* ---------- 手で範囲を足す（Enter / Esc）---------- */
 
@@ -579,34 +620,17 @@ export function CutStage({
           元の映像を display:none で隠していた。編集ソフトのビューアは
           常に映像が出ているものなので、「動画が表示されない」と受け取られる。
 
-          元の映像を土台として常に出し、繋いだ結果が用意できたときだけ
-          その上に差し替える。作成中や失敗は、映像を消さずに重ねて知らせる。
+          🔴 「繋いだ結果 / 元の映像」の切り替えは置かない。
+             タイムラインの「元の素材 / カット後」と役割が被るうえ、
+             承認したカットは常に飛ばすようになったので、本編を流せば
+             それがそのまま繋いだ結果になる。
         */
         <>
           <video
             ref={videoRef}
             src={videoPath ? mediaUrl(videoPath) : undefined}
-            style={{
-              width: '100%',
-              height: '100%',
-              display: showJoined ? 'none' : 'block',
-            }}
+            style={{ width: '100%', height: '100%' }}
           />
-          {clip?.status === 'ready' && (
-            <video
-              ref={clipRef}
-              src={mediaUrl(clip.path)}
-              style={{ width: '100%', height: '100%', display: showJoined ? 'block' : 'none' }}
-            />
-          )}
-          {viewMode === 'joined' && clip?.status === 'loading' && (
-            <div className="fcp-stage-note">繋いだ結果を作っています…</div>
-          )}
-          {viewMode === 'joined' && clip?.status === 'failed' && (
-            <div className="fcp-stage-note">
-              繋いだ結果を作れませんでした。元の映像で確認してください。
-            </div>
-          )}
           {!videoPath && <div className="fcp-stage-empty">映像はここに出ます</div>}
         </>
       }
@@ -628,22 +652,7 @@ export function CutStage({
             </>
           }
         >
-          <div className="fcp-viewmode" title="ビューアに何を映すか">
-            <button
-              className={viewMode === 'joined' ? 'on' : ''}
-              onClick={() => setViewMode('joined')}
-              title="切って繋いだ結果を繰り返し再生する"
-            >
-              繋いだ結果
-            </button>
-            <button
-              className={viewMode === 'source' ? 'on' : ''}
-              onClick={() => setViewMode('source')}
-              title="元の映像をそのまま見る"
-            >
-              元の映像
-            </button>
-          </div>
+
         </Transport>
       }
       inspectorTitle={curRegion ? '選んだところ' : 'カット全体'}
@@ -675,21 +684,21 @@ export function CutStage({
                 <button
                   className={curRegion.kind === 'cut' ? 'on' : ''}
                   onClick={() => decide(curRegion.id, 'cut')}
-                  title="Y"
+                  title="Y キー"
                 >
                   切る
                 </button>
                 <button
                   className={curRegion.kind === 'keep' ? 'on' : ''}
                   onClick={() => decide(curRegion.id, 'keep')}
-                  title="N"
+                  title="X キー"
                 >
                   残す
                 </button>
                 <button
                   className={curRegion.kind === 'hold' ? 'on' : ''}
                   onClick={() => decide(curRegion.id, 'hold')}
-                  title="H"
+                  title="H キー"
                 >
                   あとで
                 </button>
@@ -767,6 +776,22 @@ export function CutStage({
               <p className="fcp-dim">
                 変えると候補を作り直します（解析はやり直しません）。
                 それまでに押した「切る／残す」はやり直しになります。
+              </p>
+            </div>
+
+            <div className="fcp-field">
+              <label>判断待ちを片づける</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => goPending(-1)} disabled={held.length === 0} title="↑ キー">
+                  ↑ 前へ
+                </button>
+                <button onClick={() => goPending(1)} disabled={held.length === 0} title="↓ キー">
+                  ↓ 次へ
+                </button>
+              </div>
+              <p className="fcp-dim">
+                <strong>↓</strong> で次の判断待ちへ移り、その少し手前から流します。
+                <strong>Y</strong> 切る / <strong>X</strong> 残す / <strong>H</strong> あとで。
               </p>
             </div>
 

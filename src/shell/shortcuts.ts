@@ -41,7 +41,18 @@ export type ShortcutAction =
   | 'zoomIn'
   | 'zoomOut'
   | 'toggleSnap'
-  | 'delete';
+  | 'delete'
+  // ── ここから下はこのアプリ独自。Final Cut には対応するものが無い ──
+  /** 切る（承認） */
+  | 'markCut'
+  /** 残す（却下） */
+  | 'markKeep'
+  /** あとで見る（保留） */
+  | 'markHold'
+  /** 次の判断待ちへ */
+  | 'nextPending'
+  /** 前の判断待ちへ */
+  | 'prevPending';
 
 /** 画面に出す一覧。ヘルプと同じ言葉にする */
 export const SHORTCUT_HELP: { keys: string; label: string }[] = [
@@ -58,6 +69,10 @@ export const SHORTCUT_HELP: { keys: string; label: string }[] = [
   { keys: 'Ctrl + + / −', label: '拡大 / 縮小' },
   { keys: 'N', label: '吸着の切り替え' },
   { keys: 'Delete', label: '選んだものを消す' },
+  { keys: 'Y', label: 'ここを切る' },
+  { keys: 'X', label: 'ここは残す' },
+  { keys: 'H', label: 'あとで見る' },
+  { keys: '↓ / ↑', label: '次 / 前の判断待ちへ' },
 ];
 
 /** 文字を打っている最中か。打っているならキーを奪わない */
@@ -114,6 +129,15 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
       return 'frameBack';
     case 'ArrowRight':
       return 'frameForward';
+    /*
+      🔴 上下は「判断待ちへ移る」に割り当てる。
+         Final Cut では上下が編集点の移動で、ここでの編集点にあたるのが
+         判断待ちの箇所。指の動きが同じになるので覚え直しが要らない。
+    */
+    case 'ArrowDown':
+      return 'nextPending';
+    case 'ArrowUp':
+      return 'prevPending';
     case 'Home':
       return 'home';
     case 'End':
@@ -138,6 +162,16 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
       return 'markOut';
     case 'n':
       return 'toggleSnap';
+    /*
+      🔴 「残す」は X にする。N は Final Cut の吸着切り替えなので譲れない。
+         Y（切る）の隣で押しやすく、他と当たらない。
+    */
+    case 'y':
+      return 'markCut';
+    case 'x':
+      return 'markKeep';
+    case 'h':
+      return 'markHold';
     default:
       return null;
   }
@@ -149,11 +183,13 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
  * 🔴 いきなり2倍にしないこと。1回押しただけで2倍になると、
  *    「少しだけ速く見たい」ができない。細かい段から上げる。
  *
- * 🔴 16 を超えないこと。Chromium の playbackRate は 16 が上限で、
- *    超えると例外を投げ、**画面が真っ白になって操作を受け付けなくなる**
- *    （実際に 32 で起きた。useEditedPlayer の setRateSafely も参照）。
+ * 🔴 2倍で止めること。校正のための道具なので、それ以上速くしても
+ *    声が聞き取れず使い道がない。
+ *    （Chromium の playbackRate の上限は 16。超えると例外を投げ、
+ *      画面が真っ白になって操作を受け付けなくなる。実際に 32 で起きた。
+ *      useEditedPlayer の setRateSafely でも丸めている）
  */
-export const SHUTTLE_STEPS = [1, 1.25, 1.5, 1.75, 2, 4, 8, 16];
+export const SHUTTLE_STEPS = [1, 1.25, 1.5, 1.75, 2];
 
 export function nextShuttle(current: number, forward: boolean): number {
   const dir = forward ? 1 : -1;

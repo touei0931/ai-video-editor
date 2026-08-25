@@ -13,7 +13,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DraftEntry } from './global';
-import { PreviewScreen, type Shot } from './preview/PreviewScreen';
+import { type Shot } from './preview/PreviewScreen';
+import { FinalStage } from './shell/FinalStage';
 import { ShortcutHelp } from './ShortcutHelp';
 import { type PacePreset, type ReviewState } from './review/ReviewScreen';
 import { CutStage } from './shell/CutStage';
@@ -1283,16 +1284,17 @@ export function App() {
     return (
       <>
         {help}
-        <PreviewScreen
-        videoPath={analysis.video_path}
-        frame={frame}
-        duration={analysis.duration}
-        cuts={cuts}
+        <FinalStage
+          videoPath={analysis.video_path}
+          frame={frame}
+          duration={analysis.duration}
+          fps={analysis.video.fps}
+          cuts={cuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd }))}
           cards={finalState.cards}
           styles={finalState.styles}
-          shots={shots}
+          audioPath={analysis.wav_path}
+          music={music}
           skipped={skippedShots}
-          onShotsChange={setShots}
           onBack={() => setPhase('telop')}
           onQuit={() => void quitEditing()}
           onExport={() => void runExport(finalState.cards, finalState.styles, finalState.options)}
