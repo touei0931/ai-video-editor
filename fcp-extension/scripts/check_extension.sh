@@ -62,5 +62,35 @@ else
   ok "システムライブラリのみに依存"
 fi
 
+# 7. 解析エンジンと ffmpeg（同梱している場合）
+ENGINE="$APP/Contents/Resources/engine/pac-engine/pac-engine"
+FFMPEG_BIN="$APP/Contents/Resources/ffmpeg/ffmpeg"
+if [ -e "$ENGINE" ] || [ -e "$FFMPEG_BIN" ]; then
+  echo "--- 解析エンジン ---"
+  [ -x "$ENGINE" ] && ok "エンジンが入っていて実行できる" || ng "エンジンが無い/実行できない: $ENGINE"
+  [ -x "$FFMPEG_BIN" ] && ok "ffmpeg が入っていて実行できる" || ng "ffmpeg が無い/実行できない"
+
+  # 「動くか」ではなく「何に依存しているか」を見る。
+  # Homebrew のライブラリに繋がっていると、Homebrew の無い Mac では起動すらしない。
+  for bin in "$ENGINE" "$FFMPEG_BIN"; do
+    [ -f "$bin" ] || continue
+    OUTSIDE=$(otool -L "$bin" 2>/dev/null | tail -n +2 | awk '{print $1}' | grep -v "^/usr/lib/" | grep -v "^/System/" | grep -v "^@" || true)
+    if [ -n "$OUTSIDE" ]; then
+      ng "$(basename "$bin") がシステム外に依存している:"; echo "$OUTSIDE"
+    else
+      ok "$(basename "$bin") はシステムライブラリのみに依存"
+    fi
+  done
+
+  # 署名されていない Mach-O が残っていないか（残ると解析だけ動かない形で壊れる）
+  UNSIGNED=0
+  CHECKED=0
+  for f in $(find "$APP/Contents/Resources/engine" -type f -name "*.dylib" -o -type f -name "*.so" 2>/dev/null | head -60); do
+    CHECKED=$((CHECKED+1))
+    codesign -v "$f" >/dev/null 2>&1 || UNSIGNED=$((UNSIGNED+1))
+  done
+  [ "$UNSIGNED" -eq 0 ] && ok "同梱ライブラリの署名が通っている（$CHECKED 個を抜き取り検査）" || ng "署名されていないライブラリが $UNSIGNED 個ある"
+fi
+
 echo
 [ "$FAIL" -eq 0 ] && echo "🎉 関門すべて通過" || { echo "🚫 関門で不合格"; exit 1; }
