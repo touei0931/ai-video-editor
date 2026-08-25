@@ -103,12 +103,30 @@ jobs:
         run: |
           set -euo pipefail
           OUT="$GITHUB_WORKSPACE/out"
-          mkdir -p "$OUT"
-          cd fcp-extension/build/Build/Products/Release
-          # zip でなく ditto。拡張属性と署名を壊さないため
+          PACK="$GITHUB_WORKSPACE/pack/PAC-FCPプラグイン版"
+          mkdir -p "$OUT" "$PACK"
+
+          # 友達がそのまま開ける形にまとめる。
+          # 🔴 zip でなく ditto を使うこと。実行権限・拡張属性・署名を保つ。
+          #    Windows で固め直すと .command の実行権限が落ち、
+          #    ダブルクリックしても動かなくなる。
+          cp -R fcp-extension/build/Build/Products/Release/PAC.app "$PACK/"
+          cp "$GITHUB_WORKSPACE/fcp-extension/deliver/インストールと確認.command" "$PACK/"
+          cp "$GITHUB_WORKSPACE/fcp-extension/deliver/はじめに読んでね.md" "$PACK/はじめに読んでね.txt"
+          chmod +x "$PACK/インストールと確認.command"
+
+          cd "$GITHUB_WORKSPACE/pack"
+          ditto -c -k --sequesterRsrc --keepParent "PAC-FCPプラグイン版" "$OUT/PAC-FCPプラグイン版.zip"
+
+          # 中身の確認用（開発側で見るもの）
+          cd "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release"
           ditto -c -k --sequesterRsrc --keepParent PAC.app "$OUT/PAC-fcp-test.zip"
           cp "$GITHUB_WORKSPACE"/fcp-extension/deliver/* "$OUT/"
+
+          echo "--- 配布物 ---"
           ls -la "$OUT"
+          echo "--- 実行権限の確認 ---"
+          unzip -l "$OUT/PAC-FCPプラグイン版.zip" | head -20
 
       - uses: actions/upload-artifact@v4
         with:
