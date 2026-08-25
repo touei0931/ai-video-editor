@@ -1,0 +1,117 @@
+name: build-engine-mac
+
+# PAC の Final Cut Pro パネル用「解析エンジン」を macOS arm64 向けに固める。
+#
+# 🔴 固まったかどうかではなく、**固めたバイナリが実際に文字起こしを返すか**まで見る。
+#    PyInstaller は依存を取りこぼしても成功するので、動かして初めて壊れが分かる。
+#
+# 🔴 ffmpeg は PAC 本体のリリース（LGPL ビルド）を使う。
+#    Homebrew の ffmpeg を使うと、Homebrew の無い Mac で dyld エラーになる
+#    （2026-08-24 に友達の Mac で踏んだ）。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'fcp-extension/engine/**'
+      - '.github/workflows/build-engine-mac.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 依存をインストール
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r fcp-extension/engine/requirements.txt
+          python -m pip install pyinstaller
+
+      - name: 素の Python で動くことを先に確認
+        run: python -c "from pac_fcp_engine.analyze import analyze; print('import OK')"
+        working-directory: fcp-extension/engine
+
+      - name: エンジンの検査（モデル不要）
+        run: python3 fcp-extension/engine/tests/test_engine.py
+
+      - name: ffmpeg を用意（PAC 本体の LGPL ビルドを使う）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p tools
+          gh release download ffmpeg-lgpl-mac-arm64 --repo ${{ github.repository }} --dir tools --clobber
+          ls -la tools
+          # zip なら展開する
+          for f in tools/*.zip; do [ -e "$f" ] && unzip -o -q "$f" -d tools; done
+          FF=$(find tools -type f -name ffmpeg | head -1)
+          test -n "$FF" || { echo "::error::ffmpeg が見つからない"; exit 1; }
+          chmod +x "$FF"
+          echo "FFMPEG=$PWD/$FF" >> $GITHUB_ENV
+          "$FF" -version | head -2
+          echo "--- 何に依存しているか（Homebrew が混ざっていないこと）---"
+          otool -L "$FF" | tail -n +2 | awk '{print $1}' | grep -v '^/usr/lib/' | grep -v '^/System/' || echo "システムのみ ✅"
+
+      - name: PyInstaller で固める
+        working-directory: fcp-extension/engine/packaging
+        run: |
+          set -euo pipefail
+          pyinstaller engine.spec --noconfirm \
+            --distpath ../../../build-engine/dist \
+            --workpath ../../../build-engine/work
+
+      - name: 中身の確認
+        run: |
+          set -euo pipefail
+          ls -la build-engine/dist/pac-engine | head
+          du -sh build-engine/dist/pac-engine
+          test -x build-engine/dist/pac-engine/pac-engine
+
+      - name: 検証用の日本語音声を作る
+        run: |
+          set -euo pipefail
+          say -v Kyoko -o /tmp/voice.aiff \
+            "今日はテストです。えー、これは、これは自動カットの確認です。うまくいくといいですね。"
+          ls -la /tmp/voice.aiff
+
+      - name: 🔴 固めたバイナリが解析結果を返すこと
+        run: |
+          set -euo pipefail
+          ./build-engine/dist/pac-engine/pac-engine \
+            --video /tmp/voice.aiff \
+            --out /tmp/state.json \
+            --model base \
+            --ffmpeg "$FFMPEG"
+          echo "--- 結果 ---"
+          python3 - <<'PY'
+          import json, sys
+          s = json.load(open("/tmp/state.json", encoding="utf-8"))
+          print("尺:", s["durationSec"], "波形:", len(s["waveform"]))
+          print("カット:", len(s["cuts"]), "テロップ:", len(s["telops"]))
+          for t in s["telops"]:
+              print("  ", round(t["start"],2), t["text"])
+          assert s["durationSec"] > 0, "尺が取れていない"
+          assert len(s["waveform"]) > 100, "波形が作られていない"
+          assert s["telops"], "文字起こしが空（固めたバイナリで推論が動いていない）"
+          print("OK")
+          PY
+
+      - name: 配布用に固める
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cd build-engine/dist
+          ditto -c -k --sequesterRsrc --keepParent pac-engine "$GITHUB_WORKSPACE/out/pac-engine-macos-arm64.zip"
+          ls -lh "$GITHUB_WORKSPACE/out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pac-engine-macos-arm64
+          path: out/pac-engine-macos-arm64.zip
+          retention-days: 30

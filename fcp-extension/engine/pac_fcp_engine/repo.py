@@ -17,7 +17,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def ensure_importable() -> Path:
-    """sidecar パッケージを import できるようにする。"""
+    """sidecar パッケージを import できるようにする。
+
+    PyInstaller で固めたときは sidecar も一緒に入っているので、
+    ここで sys.path をいじると、固めた中身ではなく無い場所を見に行ってしまう。
+    """
+    if getattr(sys, "frozen", False):
+        return REPO_ROOT
     root = str(REPO_ROOT)
     if root not in sys.path:
         sys.path.insert(0, root)
