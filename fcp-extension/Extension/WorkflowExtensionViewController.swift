@@ -49,8 +49,11 @@ import ProExtensionHost
             showFallback("UI が見つかりません（webui が同梱されていません）")
             return
         }
-        let root = indexURL.deletingLastPathComponent()
-        webView.loadFileURL(indexURL, allowingReadAccessTo: root)
+        // 読み取りを許すのは UI のフォルダだけ…にしてはいけない。
+        // プレビューは利用者が選んだ動画（別の場所にある）を file:// で読むので、
+        // ここを狭めると映像が出ない。実際に読めるかはサンドボックスが決めるので、
+        // ここを広くしても許可していないファイルは読めない。
+        webView.loadFileURL(indexURL, allowingReadAccessTo: URL(fileURLWithPath: "/"))
     }
 
     /// UI が読めなかったときでも、何が起きているかは分かるようにしておく

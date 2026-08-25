@@ -180,7 +180,18 @@ extension WorkflowExtensionViewController {
             progress: { [weak self] stage, ratio in
                 self?.sendProgress(stage: stage, ratio: ratio)
             },
-            completion: completion
+            completion: { ok, payload in
+                // エンジンは素材の「パス」を返すが、プレビューの <video> は
+                // file:// でないと読めない。ここで直してから渡す。
+                guard ok, var result = payload as? [String: Any] else {
+                    completion(ok, payload)
+                    return
+                }
+                if let path = result["videoUrl"] as? String, !path.isEmpty {
+                    result["videoUrl"] = URL(fileURLWithPath: path).absoluteString
+                }
+                completion(true, result)
+            }
         )
     }
 }
