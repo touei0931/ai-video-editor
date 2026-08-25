@@ -24,16 +24,27 @@ POINT=$(/usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPointIdentifie
 VC=$(/usr/libexec/PlistBuddy -c "Print :NSExtension:ProExtensionPrincipalViewControllerClass" "$PLIST" 2>/dev/null || echo "")
 [ -n "$VC" ] && ok "主クラス: $VC" || ng "ProExtensionPrincipalViewControllerClass が無い"
 
-# 3. サンドボックス entitlement（無いと Gatekeeper が plug-ins must be sandboxed で弾く）
+# 3. UI が「配布した形で」同梱されているか
+#    PAC で2度踏んだ「CI は通るのに中身が入っていない」を防ぐ関門
+WEBUI="$APPEX/Contents/Resources/webui/index.html"
+if [ -f "$WEBUI" ]; then
+  ok "UI が同梱されている ($(ls "$APPEX/Contents/Resources/webui" | wc -l | tr -d ' ') ファイル)"
+  grep -q "<div id=\"root\"></div>" "$WEBUI" && ok "index.html が React の入れ物になっている"     || ng "index.html の中身が想定と違う"
+  test -d "$APPEX/Contents/Resources/webui/assets" && ok "JS/CSS が入っている" || ng "assets が無い"
+else
+  ng "UI が同梱されていない: $WEBUI"
+fi
+
+# 4. サンドボックス entitlement（無いと Gatekeeper が plug-ins must be sandboxed で弾く）
 ENTS=$(codesign -d --entitlements :- "$APPEX" 2>/dev/null || echo "")
 echo "$ENTS" | grep -q "com.apple.security.app-sandbox" \
   && ok "拡張がサンドボックス指定されている" || ng "app-sandbox entitlement が無い（FCP に出ない原因No.1）"
 
-# 4. 署名が壊れていないか
+# 5. 署名が壊れていないか
 codesign --verify --strict "$APPEX" 2>/dev/null && ok "拡張の署名が有効" || ng "拡張の署名が壊れている"
 codesign --verify --strict "$APP"   2>/dev/null && ok "アプリの署名が有効" || ng "アプリの署名が壊れている"
 
-# 5. 何に依存しているか（Homebrew 事件の教訓：動くかではなく何に繋がっているか）
+# 6. 何に依存しているか（Homebrew 事件の教訓：動くかではなく何に繋がっているか）
 echo "--- 依存ライブラリ ---"
 BAD=$(otool -L "$APPEX/Contents/MacOS/WorkflowExtension" | tail -n +2 | awk '{print $1}' \
       | grep -v '^/usr/lib/' | grep -v '^/System/' | grep -v '^@rpath/' || true)
