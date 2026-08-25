@@ -48,8 +48,12 @@ jobs:
           mkdir -p tools
           gh release download ffmpeg-lgpl-mac-arm64 --repo ${{ github.repository }} --dir tools --clobber
           ls -la tools
-          # zip なら展開する
-          for f in tools/*.zip; do [ -e "$f" ] && unzip -o -q "$f" -d tools; done
+          # 配布物が壊れていないか先に確かめる
+          if [ -f tools/*.sha256 ]; then
+            ( cd tools && shasum -a 256 -c *.sha256 )
+          fi
+          for f in tools/*.tar.gz; do [ -e "$f" ] && tar -xzf "$f" -C tools; done
+          for f in tools/*.zip;    do [ -e "$f" ] && unzip -o -q "$f" -d tools; done
           FF=$(find tools -type f -name ffmpeg | head -1)
           test -n "$FF" || { echo "::error::ffmpeg が見つからない"; exit 1; }
           chmod +x "$FF"
