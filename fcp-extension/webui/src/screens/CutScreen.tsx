@@ -5,7 +5,7 @@
 // Enter で承認すると、次の未判断へ飛んで**その少し手前から再生**する。
 // 判断に必要なのは「切ったあとどう繋がるか」なので、手前から流して見せる。
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Preview } from '../components/Preview'
 import { Timeline } from '../components/Timeline'
 import type { Clip } from '../components/Timeline'
@@ -21,10 +21,44 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
   const { state, decideCut, decideAllCuts, updateCut, undo } = store
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const duration = state?.durationSec ?? 0
   // 承認したカットは飛ばして再生する。切ると決めた区間を流しても確認にならない
   const { time, playing, seek, toggle, play } = usePlayback(duration, videoEl, store.approvedCuts)
+
+  /**
+   * いま再生位置がかかっているカット候補。
+   *
+   * 少し手前から当たりにする。「そろそろ来る」と分かった時点で
+   * 手が動かせないと、通り過ぎてから押すことになる。
+   */
+  const playingCut = useMemo(
+    () =>
+      state?.cuts.find((c) => time >= c.start - LEAD_IN && time <= c.end) ?? null,
+    [state, time],
+  )
+
+  // 再生しながら Enter / Delete だけで捌けるように、
+  // 通りかかった候補を自動で選ぶ。手で選んだものは、再生していない限り邪魔しない。
+  useEffect(() => {
+    if (!playing || !playingCut) return
+    if (playingCut.id !== selectedId) setSelectedId(playingCut.id)
+  }, [playing, playingCut, selectedId])
+
+  // 選ばれている候補が一覧から見えなくなったら追いかける
+  useEffect(() => {
+    const id = playingCut?.id ?? selectedId
+    if (!id || !listRef.current) return
+    const list = listRef.current
+    const row = list.querySelector<HTMLElement>(`[data-cut="${id}"]`)
+    if (!row) return
+    const listBox = list.getBoundingClientRect()
+    const rowBox = row.getBoundingClientRect()
+    if (rowBox.top >= listBox.top && rowBox.bottom <= listBox.bottom) return
+    const delta = rowBox.top - listBox.top - (list.clientHeight - rowBox.height) / 2
+    list.scrollTop = Math.max(0, list.scrollTop + delta)
+  }, [playingCut, selectedId])
 
   /** 次の「未判断」へ飛んで、その少し手前から流す */
   const goNextPending = (fromId: string | null) => {
@@ -143,7 +177,7 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
         <div className="hint">
           スペース = 再生/停止 ・ ↑↓ = 候補を移動 ・ Enter = 切る ・ Delete = 残す ・ Cmd+Z = ひとつ戻す
           <br />
-          判断すると、次の未判断へ飛んで {LEAD_IN} 秒前から再生します。
+          再生しておけば、通りかかった候補が自動で選ばれます。そのまま Enter か Delete で捌けます。
         </div>
       </div>
 
@@ -159,13 +193,15 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
           </button>
         </div>
 
-        <div className="list">
+        <div className="list" ref={listRef}>
           {state.cuts.map((c) => (
             <div
               key={c.id}
+              data-cut={c.id}
               className={[
                 'row',
                 selectedId === c.id ? 'selected' : '',
+                playingCut?.id === c.id ? 'playing' : '',
                 c.decision === 'rejected' ? 'rejected' : '',
               ].join(' ')}
               onClick={() => {

@@ -96,6 +96,19 @@ export function Preview({
 
   const parts = telop ? splitBySpans(telop.text, telop.spans) : []
 
+  /**
+   * 自動改行するときの折り返し幅。
+   *
+   * テロップは置いた位置を中心に描くので、端に寄せるほど画面に収まる幅は狭くなる。
+   * ここを画面幅で固定すると、右に寄せたテロップが画面からはみ出す。
+   * （はみ出させたいときは自動改行を切る）
+   */
+  const leftPercent = style?.leftPercent ?? 50
+  const wrapWidth = Math.max(
+    stageWidth * 0.08,
+    Math.min(stageWidth * 0.96, stageWidth * 2 * (Math.min(leftPercent, 100 - leftPercent) / 100)),
+  )
+
   return (
     <div className="preview-wrap">
       <div className="stage" ref={stageRef}>
@@ -116,12 +129,12 @@ export function Preview({
               style={{
                 bottom: `${style.bottomPercent}%`,
                 left: `${style.leftPercent ?? 50}%`,
-                // 🔴 位置で折り返し方が変わってはいけない。
+                // 🔴 幅は内容基準にすること。
                 //    left だけ指定した絶対配置は「右端までの残り幅」に合わせて
-                //    箱が縮むので、右に動かすほど早く折り返してしまう。
-                //    内容の幅を基準にして、折り返しは max-width だけで決める。
+                //    箱が勝手に縮むので、右に動かすほど早く折り返してしまう。
+                //    折り返すかどうかは max-width だけで決める。
                 width: 'max-content',
-                maxWidth: (style.autoWrap ?? true) ? `${stageWidth * 0.96}px` : 'none',
+                maxWidth: (style.autoWrap ?? true) ? `${wrapWidth}px` : 'none',
                 whiteSpace: (style.autoWrap ?? true) ? 'pre-wrap' : 'pre',
                 fontFamily: `"${style.fontFamily}", sans-serif`,
                 fontSize: `${Math.max(8, style.fontSize * scale)}px`,
