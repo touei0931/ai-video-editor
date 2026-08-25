@@ -67,21 +67,25 @@ fi
 echo "✅ 受け付けた: ${JOB}"
 
 echo "--- 進み具合を追う ---"
+# 🔴 パイプとヒアドキュメントで stdin を取り合わせないこと。
+#    echo ... | python3 - <<'PY' は、ヒアドキュメントが stdin を奪うので
+#    パイプ側が Broken pipe になる。受け渡しはファイルで行う。
 for i in $(seq 1 180); do
-  RES=$(curl -s --max-time 5 "http://127.0.0.1:$PORT/progress?job=$JOB")
-  echo "$RES" | python3 - "$WORK/done.json" <<'PY'
-import json, sys
-raw = sys.stdin.read()
+  curl -s --max-time 5 "http://127.0.0.1:$PORT/progress?job=$JOB" -o "$WORK/prog.json" || true
+  python3 - "$WORK/prog.json" "$WORK/done.json" <<'PYEOF'
+import json, sys, os
+
 try:
-    p = json.loads(raw)
+    p = json.load(open(sys.argv[1], encoding="utf-8"))
 except Exception:
     sys.exit(0)
+
 print(f"  {p.get('stage','?')} {round(float(p.get('ratio',0))*100)}%")
 if p.get("error"):
-    print("ERROR:" + p["error"])
+    print("  エラー: " + p["error"])
 if p.get("done"):
-    json.dump(p, open(sys.argv[1], "w", encoding="utf-8"), ensure_ascii=False)
-PY
+    json.dump(p, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
+PYEOF
   if [ -f "$WORK/done.json" ]; then break; fi
   sleep 2
 done
