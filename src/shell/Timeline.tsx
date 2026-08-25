@@ -283,6 +283,12 @@ export function Timeline({
   const PAN_THRESHOLD = 4;
   const pan = useRef<{ x: number; scrollLeft: number; moved: boolean } | null>(null);
 
+  /** 横に流す。負の値にならないようにここで揃える */
+  const scrollTo = useCallback((left: number) => {
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = Math.max(0, left);
+  }, []);
+
   /**
    * ここを押したら横に流してよいか。
    *
@@ -436,25 +442,43 @@ export function Timeline({
   const zoom = useCallback(
     (factor: number, anchorSec?: number) => {
       const el = scrollRef.current;
-      const before = anchorSec ?? currentTime;
+      /*
+        🔴 拡大の中心は「いま画面に映っている場所」にすること。
+           白線を中心にしていたので、余白で別の場所へ動かしてから ＋ を押すと
+           白線のところへ飛ばされ、**押しても効かないように見えていた**。
+      */
+      const center = el && el.clientWidth ? (el.scrollLeft + el.clientWidth / 2) / scale : currentTime;
+      const before = anchorSec ?? center;
       setPxPerSec((p) => {
         const next = Math.min(400, Math.max(1, (p || 10) * factor));
         if (el) {
           // 拡大の中心を保つ。ここを省くと拡大するたびに見ていた場所を見失う
           requestAnimationFrame(() => {
-            el.scrollLeft = Math.max(0, before * next - el.clientWidth / 2);
+            scrollTo(before * next - el.clientWidth / 2);
           });
         }
         return next;
       });
     },
-    [currentTime],
+    [currentTime, scale, scrollTo],
   );
 
   const fit = useCallback(() => {
     const w = scrollRef.current?.clientWidth ?? 900;
     if (duration > 0) setPxPerSec(Math.max(1, (w - 24) / duration));
   }, [duration]);
+
+  /**
+   * 再生位置まで戻る。
+   *
+   * 🔴 流れている白線を画面の外まで追いかけないことにした以上、
+   *    「見失ったときに戻る手段」を必ず置くこと。置かないと、
+   *    拡大して作業したあとに白線がどこにあるのか分からなくなる。
+   */
+  const toPlayhead = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) scrollTo(currentTime * scale - el.clientWidth / 2);
+  }, [currentTime, scale, scrollTo]);
 
   const all = useMemo(() => tracks.flatMap((t) => t.regions), [tracks]);
 
@@ -475,10 +499,10 @@ export function Timeline({
       const want = Math.min(300, Math.max(4, (view * 0.35) / len));
       setPxPerSec(want);
       requestAnimationFrame(() => {
-        el.scrollLeft = Math.max(0, ((r.start + r.end) / 2) * want - view / 2);
+        scrollTo(((r.start + r.end) / 2) * want - view / 2);
       });
     },
-    [all],
+    [all, scrollTo],
   );
 
   // 外から選び直されたら、そこへ寄る（インスペクタや「次へ」からの操作）
@@ -498,15 +522,48 @@ export function Timeline({
     [scale, zoom],
   );
 
+  /** 前回ここで見た再生位置。「時間が動いたのか」を見分けるために持つ */
+  const lastTime = useRef(currentTime);
+
   // 再生位置が画面の外に出たら追いかける
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || drag) return;
+    if (!el) return;
+    const prev = lastTime.current;
+    lastTime.current = currentTime;
+
+    /*
+      🔴 再生位置が動いていないなら、何もしないこと。
+
+         以前はここの依存に drag と scale が入っていたので、
+         **クリップを掴んで離しただけ・拡大しただけ**でもこの処理が走り、
+         そのたびに白線の位置へスクロールが戻っていた。
+         「余白で動かしてカット箇所を押すと戻る」「拡大が効かない」はこれが原因。
+    */
+    if (currentTime === prev || drag) return;
+
     const x = currentTime * scale;
-    if (x < el.scrollLeft + 40 || x > el.scrollLeft + el.clientWidth - 40) {
-      el.scrollLeft = Math.max(0, x - el.clientWidth / 2);
+    const left = el.scrollLeft;
+    const right = left + el.clientWidth;
+    const nearEdge = x < left + 40 || x > right - 40;
+
+    // 人が飛ばしたとき（頭出し・目盛りのクリック・次の保留へ）は、その場所を見せる
+    if (Math.abs(currentTime - prev) > 0.5) {
+      if (nearEdge) scrollTo(x - el.clientWidth / 2);
+      return;
     }
-  }, [currentTime, drag, scale]);
+
+    /*
+      🔴 再生で流れているときは、**白線が画面に見えている間だけ**追いかけること。
+
+         画面の外にある白線まで追いかけると、余白で動かした先や拡大した先から
+         毎回引き戻される。引き戻されるたびに映っている範囲が変わるので、
+         コマも取り直しになり、**点滅しているように見えていた**。
+         見失ったときは「全体」を押すか、目盛りを押せば戻れる。
+    */
+    if (x < left || x > right) return;
+    if (nearEdge) scrollTo(x - el.clientWidth / 2);
+  }, [currentTime, drag, scale, scrollTo]);
 
   const ticks = useMemo(() => {
     const out: { t: number; major: boolean }[] = [];
@@ -530,6 +587,9 @@ export function Timeline({
         <span className="fcp-dim" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {clock(currentTime)} / {clock(duration)}
         </span>
+        <button onClick={toPlayhead} title="再生位置が見える所まで戻ります">
+          白線へ
+        </button>
         <button className="icon" onClick={() => zoom(0.8)} title="縮小（Ctrl+ホイール）">
           −
         </button>

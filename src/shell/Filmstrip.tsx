@@ -59,6 +59,16 @@ const CACHE_MAX = 400;
 /** 拡大やスクロールが落ち着くまで待つ時間（ミリ秒） */
 const SETTLE_MS = 220;
 
+/**
+ * 見えている範囲の外側も、画面幅の何倍ぶんか先に取っておく。
+ *
+ * 🔴 見えている分しか取らないと、再生中に白線が端まで来て
+ *    **半画面ぶん飛ぶたびに、その先が全部空白になる**。
+ *    数秒おきにそれが繰り返されるので「点滅している」ように見える。
+ *    先に取ってあれば、飛んだ先はもう出来ている。
+ */
+const PREFETCH = 1;
+
 export function Filmstrip({
   videoPath,
   scale,
@@ -95,7 +105,58 @@ export function Filmstrip({
     return out;
   }, [from, to, step, duration, segments]);
 
-  const slotKey = slots.map((s) => s.src).join(',');
+  /**
+   * 取り出しておきたい時刻（元素材の秒）。
+   * 見えている分を先に、その外側をあとに並べる。順番がそのまま優先順位になる。
+   */
+  const wantList = useMemo(() => {
+    const seen = new Set<number>();
+    const out: number[] = [];
+    const push = (src: number) => {
+      if (seen.has(src)) return;
+      seen.add(src);
+      out.push(src);
+    };
+    for (const s of slots) push(s.src);
+
+    const span = Math.max(0, to - from) * PREFETCH;
+    const lo = Math.max(0, Math.floor((from - span) / step) * step);
+    const hi = Math.min(duration, to + span);
+    for (let t = lo; t < hi; t += step) {
+      const at = Number(t.toFixed(2));
+      push(Number((segments ? toSource(segments, at) : at).toFixed(2)));
+    }
+    return out;
+  }, [slots, from, to, step, duration, segments]);
+
+  const wantKey = wantList.join(',');
+
+  /**
+   * まだ取れていないコマの代わりに、いちばん近いコマを出す。
+   *
+   * 🔴 空白にしないこと。空白と絵が入れ替わるのが「点滅」の見え方そのもの。
+   * 🔴 代わりに出してよいのは **1コマ分より近いもの** だけ。
+   *    このレーンはもともと step 秒ごとにしか絵を持っていないので、
+   *    step 以内のずれは、このレーンが元から持っている粗さの範囲に収まる。
+   *    ここを広げると、遠くの場面を平気で出すようになり嘘になる。
+   */
+  const sortedKeys = useMemo(() => [...shots.keys()].sort((a, b) => a - b), [shots]);
+  const nearest = useCallback(
+    (t: number): string | undefined => {
+      if (sortedKeys.length === 0) return undefined;
+      let lo = 0;
+      let hi = sortedKeys.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (sortedKeys[mid] < t) lo = mid + 1;
+        else hi = mid;
+      }
+      let best = sortedKeys[lo];
+      if (lo > 0 && Math.abs(sortedKeys[lo - 1] - t) < Math.abs(best - t)) best = sortedKeys[lo - 1];
+      return Math.abs(best - t) <= step ? shots.get(best) : undefined;
+    },
+    [sortedKeys, shots, step],
+  );
 
   /** 1枚取り出す */
   const grab = useCallback(
@@ -134,7 +195,7 @@ export function Filmstrip({
 
   useEffect(() => {
     if (!videoPath || failed) return;
-    wanted.current = slots.map((s) => s.src);
+    wanted.current = wantList;
     if (slots.length > 0) {
       window0.current = { from: slots[0].src, to: slots[slots.length - 1].src };
     }
@@ -212,7 +273,7 @@ export function Filmstrip({
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoPath, slotKey, failed, grab]);
+  }, [videoPath, wantKey, failed, grab]);
 
   // 出来た画像は必ず片付ける。放っておくとメモリに残り続ける
   useEffect(
@@ -235,7 +296,8 @@ export function Filmstrip({
         crossOrigin="anonymous"
       />
       {slots.map((slot) => {
-        const url = shots.get(slot.src);
+        // 取れていなければ、1コマ分より近いもので繋ぐ（空白にすると点滅して見える）
+        const url = shots.get(slot.src) ?? nearest(slot.src);
         return (
           <div
             key={slot.at}
