@@ -19,6 +19,7 @@
  */
 
 import type { ReactNode } from 'react';
+import { Resizer, useLayout } from './Resizer';
 import './shell.css';
 
 export type StepId = 'source' | 'cut' | 'telop' | 'framing' | 'export';
@@ -58,8 +59,18 @@ export function EditorShell({
   inspector,
   timeline,
 }: EditorShellProps) {
+  const { layout, set, reset } = useLayout();
+
   return (
-    <div className="fcp">
+    <div
+      className="fcp"
+      style={
+        {
+          '--inspector-w': `${layout.inspector}px`,
+          '--timeline-h': `${layout.timeline}px`,
+        } as React.CSSProperties
+      }
+    >
       <header className="fcp-toolbar">
         <span className="fcp-brand">PAC</span>
         <nav className="fcp-steps" aria-label="手順">
@@ -79,6 +90,14 @@ export function EditorShell({
         </nav>
         <div className="fcp-spacer" />
         {toolbar}
+        <button
+          className="icon"
+          onClick={reset}
+          title="パネルの幅と高さを既定に戻す"
+          aria-label="配置を戻す"
+        >
+          ⤢
+        </button>
       </header>
 
       <section className="fcp-viewer" aria-label="ビューア">
@@ -86,10 +105,26 @@ export function EditorShell({
         {transport && <div className="fcp-transport">{transport}</div>}
       </section>
 
+      <Resizer
+        direction="col"
+        value={layout.inspector}
+        onChange={(v) => set('inspector', v)}
+        invert
+        label="右のパネルの幅"
+      />
+
       <aside className="fcp-inspector" aria-label={inspectorTitle}>
         <div className="fcp-insp-head">{inspectorTitle}</div>
         <div className="fcp-insp-body">{inspector}</div>
       </aside>
+
+      <Resizer
+        direction="row"
+        value={layout.timeline}
+        onChange={(v) => set('timeline', v)}
+        invert
+        label="タイムラインの高さ"
+      />
 
       {timeline}
     </div>

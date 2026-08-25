@@ -4,17 +4,23 @@
  *
  * 🔴 見えている範囲だけ作ること。
  *    素材全体のコマを一度に取り出すと、20分の素材で数百枚になり、
- *    取り出しのあいだ画面が固まる。実用にならない。
+ *    取り出しのあいだ画面が固まる。
  *
  * 🔴 取り出しは1枚ずつ順番に。
  *    <video> は同時に複数の位置へは飛べない。並行にやると
  *    seek が互いに潰し合って、同じコマばかりになる。
  *
- * 作り方は「隠した <video> を目的の時刻へ飛ばして、canvas に写す」。
- * ffmpeg を呼ばずに済むので、追加の仕組みが要らない。
+ * 🔴 拡大やスクロールの最中は取り出しを始めないこと（2026-08-25 に踏んだ）。
+ *    ＋/− を続けて押すと、押すたびに新しい取り出しが始まって前のが残り、
+ *    **コマが点滅し、全体/＋/− が押せなくなる**。
+ *    落ち着くまで待ってから、1本の流れだけで取り出す。
+ *
+ * 🔴 toDataURL は使わない。
+ *    同期で走るうえ Base64 の文字列を作るので、main を止める。
+ *    toBlob（非同期）＋ createObjectURL にする。
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { mediaUrl } from './media';
 import type { TimelineView } from './Timeline';
 import { toSource, type Segment } from './editedTime';
@@ -27,9 +33,7 @@ export interface FilmstripProps extends TimelineView {
    * 残る区間。渡すと**カット後の並び**になる。
    *
    * 🔴 タイムラインの目盛りと同じ時間軸で置くこと。
-   *    ここだけ別の時間で並べると、同じ横位置が別の瞬間を指すことになり、
-   *    「コマを見て場所を決める」ができなくなる。
-   *    渡す側（CutStage / TelopStage）が、目盛りごと切り替える。
+   *    ここだけ別の時間で並べると、同じ横位置が別の瞬間を指すことになる。
    */
   segments?: readonly Segment[];
 }
@@ -41,6 +45,12 @@ function stepFor(scale: number, thumbW: number): number {
   const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
   return steps.find((s) => s >= sec) ?? steps[steps.length - 1];
 }
+
+/** 覚えておくコマの上限。増やしすぎると画像でメモリを食う */
+const CACHE_MAX = 240;
+
+/** 拡大やスクロールが落ち着くまで待つ時間（ミリ秒） */
+const SETTLE_MS = 220;
 
 export function Filmstrip({
   videoPath,
@@ -55,49 +65,32 @@ export function Filmstrip({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [shots, setShots] = useState<Map<number, string>>(new Map());
   const [failed, setFailed] = useState(false);
-  const busy = useRef(false);
-  const queue = useRef<number[]>([]);
+
+  /** 取り出しの流れは常に1本だけ。ここが true の間は新しく始めない */
+  const running = useRef(false);
+  /** いま欲しい時刻。落ち着いたらこれを見に行く */
+  const wanted = useRef<number[]>([]);
+  const shotsRef = useRef(shots);
+  shotsRef.current = shots;
 
   const thumbW = Math.round(height * aspect);
   const step = stepFor(scale, thumbW);
 
-  /*
-    見えている範囲の、必要な時刻を並べる。
-
-    segments が来ているときは、並べる位置は**カット後の時刻**で、
-    そこに写すのは対応する**元素材の時刻**のコマ。
-    ここを取り違えると、切ったはずの場面がコマに出る。
-  */
   const slots = useMemo(() => {
     const out: { at: number; src: number }[] = [];
     const first = Math.max(0, Math.floor(from / step) * step);
     for (let t = first; t < Math.min(duration, to + step); t += step) {
       const at = Number(t.toFixed(2));
-      out.push({ at, src: segments ? toSource(segments, at) : at });
+      out.push({ at, src: Number((segments ? toSource(segments, at) : at).toFixed(2)) });
     }
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, step, duration, segments]);
 
-  useEffect(() => {
-    if (!videoPath || failed) return;
-    const need = slots.map((s) => s.src).filter((t) => !shots.has(t) && !queue.current.includes(t));
-    if (need.length === 0) return;
-    queue.current.push(...need);
+  const slotKey = slots.map((s) => s.src).join(',');
 
-    if (busy.current) return;
-    busy.current = true;
-
-    const v = videoRef.current;
-    if (!v) {
-      busy.current = false;
-      return;
-    }
-
-    let alive = true;
-    const canvas = document.createElement('canvas');
-
-    const grab = (t: number) =>
+  /** 1枚取り出す */
+  const grab = useCallback(
+    (v: HTMLVideoElement, canvas: HTMLCanvasElement, t: number) =>
       new Promise<string | null>((resolve) => {
         let done = false;
         const fin = (r: string | null) => {
@@ -113,52 +106,101 @@ export function Filmstrip({
             const ctx = canvas.getContext('2d');
             if (!ctx) return fin(null);
             ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-            fin(canvas.toDataURL('image/jpeg', 0.6));
+            // 🔴 toBlob は非同期。toDataURL のように main を止めない
+            canvas.toBlob(
+              (blob) => fin(blob ? URL.createObjectURL(blob) : null),
+              'image/jpeg',
+              0.6,
+            );
           } catch {
             fin(null);
           }
         };
         v.addEventListener('seeked', onSeeked);
-        // 取り出せないまま止まらないように上限を置く
         setTimeout(() => fin(null), 4000);
         v.currentTime = Math.min(t, Math.max(0, duration - 0.05));
-      });
+      }),
+    [thumbW, height, duration],
+  );
 
-    void (async () => {
-      // メタデータが来るまで待つ。来ないうちに飛ばすと必ず失敗する
-      if (v.readyState < 1) {
-        await new Promise<void>((r) => {
-          const ok = () => {
-            v.removeEventListener('loadedmetadata', ok);
-            r();
-          };
-          v.addEventListener('loadedmetadata', ok);
-          setTimeout(ok, 5000);
-        });
-      }
-      let miss = 0;
-      while (alive && queue.current.length > 0) {
-        const t = queue.current.shift()!;
-        const url = await grab(t);
-        if (!alive) break;
-        if (url) {
-          setShots((m) => new Map(m).set(t, url));
-        } else if (++miss >= 3) {
-          // 3回続けて取れないなら、この素材ではコマを出せない
-          setFailed(true);
-          break;
+  useEffect(() => {
+    if (!videoPath || failed) return;
+    wanted.current = slots.map((s) => s.src);
+
+    /*
+      🔴 少し待ってから始める。
+         拡大やスクロールの途中は毎フレームここへ来るので、
+         そのたびに取り出しを始めると点滅して操作も効かなくなる。
+    */
+    const timer = setTimeout(() => {
+      if (running.current) return;
+      const v = videoRef.current;
+      if (!v) return;
+      running.current = true;
+
+      let alive = true;
+      const canvas = document.createElement('canvas');
+
+      void (async () => {
+        try {
+          if (v.readyState < 1) {
+            await new Promise<void>((r) => {
+              const ok = () => {
+                v.removeEventListener('loadedmetadata', ok);
+                r();
+              };
+              v.addEventListener('loadedmetadata', ok);
+              setTimeout(ok, 5000);
+            });
+          }
+          let miss = 0;
+          // 途中で見る場所が変わったら、そのときの「欲しい時刻」に従う
+          for (;;) {
+            if (!alive) break;
+            const next = wanted.current.find((t) => !shotsRef.current.has(t));
+            if (next === undefined) break;
+            const url = await grab(v, canvas, next);
+            if (!alive) break;
+            if (url) {
+              miss = 0;
+              setShots((m) => {
+                const n = new Map(m).set(next, url);
+                // 古いものから捨てる。画像を持ちすぎない
+                if (n.size > CACHE_MAX) {
+                  const drop = [...n.keys()].slice(0, n.size - CACHE_MAX);
+                  for (const k of drop) {
+                    URL.revokeObjectURL(n.get(k)!);
+                    n.delete(k);
+                  }
+                }
+                return n;
+              });
+            } else if (++miss >= 3) {
+              setFailed(true);
+              break;
+            }
+          }
+        } finally {
+          running.current = false;
         }
-      }
-      busy.current = false;
-    })();
+      })();
 
-    return () => {
-      alive = false;
-      busy.current = false;
-    };
-    // slots は毎回新しい配列になるので、中身を文字列にして比べる
+      return () => {
+        alive = false;
+      };
+    }, SETTLE_MS);
+
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoPath, slots.map((s) => s.src).join(','), thumbW, height, duration, failed]);
+  }, [videoPath, slotKey, failed, grab]);
+
+  // 出来た画像は必ず片付ける。放っておくとメモリに残り続ける
+  useEffect(
+    () => () => {
+      for (const url of shotsRef.current.values()) URL.revokeObjectURL(url);
+    },
+    [],
+  );
 
   if (!videoPath) return null;
 

@@ -363,11 +363,33 @@ export function CutStage({
   const [axis, setAxis] = useState<'source' | 'edited'>('source');
   const applyCuts = axis === 'edited';
 
+  /**
+   * 「カット後」で流すときに取り除く区間。
+   *
+   * 🔴 赤（切る）だけでなく黄色（判断待ち）も外す。
+   *    まだ決めていない箇所は「切ったらこうなる」を見るためのものなので、
+   *    出来上がりを確かめる側では外れていたほうが判断しやすい。
+   *    ただし**書き出しに乗るのは赤だけ**。黄色は決まっていないので出力には残る。
+   */
+  const previewCuts = useMemo(
+    () =>
+      regions
+        .filter((r) => r.kind === 'cut' || r.kind === 'hold')
+        .map((r) => ({ srcStart: r.start, srcEnd: r.end })),
+    [regions],
+  );
+
   const player = useEditedPlayer({
     duration,
-    cuts: approvedCuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
-    // 🔴 承認したカットは常に飛ばす。目盛りをどちらで見ていても同じ。
-    skipCuts: true,
+    cuts: previewCuts,
+    /*
+      🔴 「元の素材」で見ているときは飛ばさない。
+
+         元の素材は、切る前がどうだったかを確かめるための目盛り。
+         そこで飛ばされると、切った場所の前後がどう繋がっていたのかを
+         聞き直せなくなる。飛ばすのは「カット後」を見ているときだけ。
+    */
+    skipCuts: axis === 'edited',
     timeBase: axis,
     reverseAudioPath: audioPath ? mediaUrl(audioPath) : null,
   });
@@ -684,21 +706,21 @@ export function CutStage({
                 <button
                   className={curRegion.kind === 'cut' ? 'on' : ''}
                   onClick={() => decide(curRegion.id, 'cut')}
-                  title="Y キー"
+                  title="D キー"
                 >
                   切る
                 </button>
                 <button
                   className={curRegion.kind === 'keep' ? 'on' : ''}
                   onClick={() => decide(curRegion.id, 'keep')}
-                  title="X キー"
+                  title="F キー"
                 >
                   残す
                 </button>
                 <button
                   className={curRegion.kind === 'hold' ? 'on' : ''}
                   onClick={() => decide(curRegion.id, 'hold')}
-                  title="H キー"
+                  title="G キー"
                 >
                   あとで
                 </button>
@@ -791,7 +813,7 @@ export function CutStage({
               </div>
               <p className="fcp-dim">
                 <strong>↓</strong> で次の判断待ちへ移り、その少し手前から流します。
-                <strong>Y</strong> 切る / <strong>X</strong> 残す / <strong>H</strong> あとで。
+                <strong>D</strong> 切る / <strong>F</strong> 残す / <strong>G</strong> あとで。
               </p>
             </div>
 

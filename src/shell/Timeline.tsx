@@ -216,6 +216,56 @@ export function Timeline({
     };
   }, [scrubbing, seekFromEvent]);
 
+  /**
+   * 余白を掴んで横に流す。
+   *
+   * 🔴 スクロールバーを掴ませないこと。
+   *    棒は細く、タイムラインの一番下にある。素材を見ながら片手で
+   *    行き来する操作なのに、毎回そこへ狙いを付けるのは現実的でない（友達の指摘）。
+   *
+   * 🔴 ただの押下は「その位置へ再生位置を移す」を残すこと。
+   *    掴んだ瞬間に流し始めると、狙った場所を一発で指せなくなる。
+   *    少し（4px）動いたときだけ横流しに切り替える。
+   */
+  const PAN_THRESHOLD = 4;
+  const pan = useRef<{ x: number; scrollLeft: number; moved: boolean } | null>(null);
+
+  const startPan = useCallback(
+    (e: React.PointerEvent) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      pan.current = { x: e.clientX, scrollLeft: el.scrollLeft, moved: false };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      const p = pan.current;
+      const el = scrollRef.current;
+      if (!p || !el) return;
+      const d = e.clientX - p.x;
+      if (!p.moved && Math.abs(d) < PAN_THRESHOLD) return;
+      p.moved = true;
+      el.scrollLeft = p.scrollLeft - d;
+      setView({ left: el.scrollLeft, width: el.clientWidth });
+    };
+    const up = () => {
+      pan.current = null;
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, []);
+
+  /** 押して離すまでに動いていなければ「移動」とみなさない */
+  const panned = () => pan.current?.moved === true;
+
   /* --- 端のドラッグ --- */
   const startDrag = useCallback(
     (e: React.PointerEvent, r: TimelineRegion, edge: Dragging['edge']) => {
@@ -406,7 +456,14 @@ export function Timeline({
         <div className="fcp-tl-canvas" style={{ width }} ref={canvasRef}>
           <div
             className="fcp-ruler"
-            onPointerDown={startScrub}
+            onPointerDown={(e) => {
+              // 中ボタン（ホイール押し込み）は横流し。編集ソフトの慣習
+              if (e.button === 1) {
+                startPan(e);
+                return;
+              }
+              startScrub(e);
+            }}
             role="slider"
             aria-label="再生位置"
             aria-valuemin={0}
@@ -428,7 +485,13 @@ export function Timeline({
                 className="fcp-track-body"
                 style={{ ['--track-h' as string]: `${track.height ?? 56}px` }}
                 onPointerDown={(e) => {
-                  if (e.target === e.currentTarget) {
+                  if (e.target !== e.currentTarget) return;
+                  startPan(e);
+                }}
+                onPointerUp={(e) => {
+                  if (e.target !== e.currentTarget) return;
+                  // 掴んで流したのでなければ、その位置へ再生位置を移す
+                  if (!panned()) {
                     onSelect(null);
                     seekFromEvent(e.clientX, e.currentTarget);
                   }

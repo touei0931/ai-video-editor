@@ -49,12 +49,17 @@
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-columns: 1fr var(--inspector-w, 340px);
-  grid-template-rows: 48px minmax(0, 1fr) minmax(200px, var(--timeline-h, 38vh));
+  /*
+    境目に 6px の掴める帯を挟む。
+    🔴 幅を 0 にしないこと。見た目は細い線でも、当たり判定が無いと掴めない。
+  */
+  grid-template-columns: minmax(0, 1fr) 6px var(--inspector-w, 340px);
+  grid-template-rows: 48px minmax(0, 1fr) 6px minmax(120px, var(--timeline-h, 320px));
   grid-template-areas:
-    'toolbar   toolbar'
-    'viewer    inspector'
-    'timeline  timeline';
+    'toolbar    toolbar   toolbar'
+    'viewer     vsplit    inspector'
+    'hsplit     hsplit    hsplit'
+    'timeline   timeline  timeline';
   background: var(--s1);
   color: var(--text);
   font-family: 'Yu Gothic UI', 'Hiragino Sans', system-ui, sans-serif;
@@ -971,4 +976,42 @@
   background: var(--s4);
   color: var(--text);
   font-weight: 700;
+}
+
+
+/* ---------------- パネルの境目 ---------------- */
+
+.fcp-resizer {
+  position: relative;
+  background: var(--line-soft);
+  z-index: 5;
+}
+
+.fcp-resizer.col {
+  grid-area: vsplit;
+  cursor: col-resize;
+}
+
+.fcp-resizer.row {
+  grid-area: hsplit;
+  cursor: row-resize;
+}
+
+/* 掴める範囲を見た目より広げる。線は細いままにしたい */
+.fcp-resizer::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+}
+
+.fcp-resizer:hover,
+.fcp-resizer.dragging,
+.fcp-resizer:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+
+/* 掴んでいる間、下の要素が文字選択されないようにする */
+.fcp:has(.fcp-resizer.dragging) {
+  user-select: none;
 }

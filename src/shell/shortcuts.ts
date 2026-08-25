@@ -69,9 +69,9 @@ export const SHORTCUT_HELP: { keys: string; label: string }[] = [
   { keys: 'Ctrl + + / −', label: '拡大 / 縮小' },
   { keys: 'N', label: '吸着の切り替え' },
   { keys: 'Delete', label: '選んだものを消す' },
-  { keys: 'Y', label: 'ここを切る' },
-  { keys: 'X', label: 'ここは残す' },
-  { keys: 'H', label: 'あとで見る' },
+  { keys: 'D', label: 'ここを切る' },
+  { keys: 'F', label: 'ここは残す' },
+  { keys: 'G', label: 'あとで見る' },
   { keys: '↓ / ↑', label: '次 / 前の判断待ちへ' },
 ];
 
@@ -163,14 +163,23 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
     case 'n':
       return 'toggleSnap';
     /*
-      🔴 「残す」は X にする。N は Final Cut の吸着切り替えなので譲れない。
-         Y（切る）の隣で押しやすく、他と当たらない。
+      判定は D / F / G。ホームポジションで**隣り合った3つ**にする。
+
+      🔴 左から順に「切る・残す・あとで」。インスペクタのボタンの並びと同じ。
+         3つが離れていると、押すたびに指を探すことになり、
+         1件あたりの手数が減らない（この画面の目的はレビュー速度）。
+
+      Final Cut の既定との衝突:
+        D … 単独キーの割り当ては無い（⌘D は複製）
+        F … 「よく使う項目にする」。このアプリに同じ機能は無い
+        G … 単独キーの割り当ては無い
+      Y / X は隣り合っていない（Y は上段、X は下段）ので使わない。
     */
-    case 'y':
+    case 'd':
       return 'markCut';
-    case 'x':
+    case 'f':
       return 'markKeep';
-    case 'h':
+    case 'g':
       return 'markHold';
     default:
       return null;
