@@ -81,6 +81,9 @@ jobs:
         if: always()
         run: rm -f ~/.ssh/id_ed25519
 
+      - name: 解析エンジンの検査（モデル不要）
+        run: python3 fcp-extension/engine/tests/test_engine.py
+
       - name: xcodegen
         run: brew install xcodegen
 
