@@ -135,4 +135,52 @@ extension WorkflowExtensionViewController {
             }
         }
     }
+
+    /// ① 解析する動画を選ぶ。
+    /// ここで選んだ時点でサンドボックスの許可も取れるので、
+    /// 別途フォルダを選ばせる必要はない（初回だけ選ばせて覚える）。
+    func pickVideo(completion: @escaping (Any) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.movie, .video, .mpeg4Movie, .quickTimeMovie]
+        panel.prompt = "この動画を使う"
+        panel.message = "下ごしらえしたい動画を選んでください"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else {
+                completion(NSNull())
+                return
+            }
+            // 次回以降ダイアログを出さずに読めるよう、置き場所を覚えておく
+            if let bookmark = try? url.deletingLastPathComponent().bookmarkData(
+                options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
+            ) {
+                UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey)
+            }
+            completion(["path": url.path, "name": url.lastPathComponent])
+        }
+    }
+
+    /// ③ 解析（文字起こし → カット候補とテロップ）。
+    ///
+    /// 拡張はサンドボックスの中なので、ここから直接 Python や ffmpeg を起動できない。
+    /// 解析はコンテナアプリ（PAC.app）側のエンジンにやってもらい、
+    /// 127.0.0.1 のローカルソケット越しに結果を受け取る。
+    func runAnalysis(params: [String: Any], completion: @escaping (Bool, Any) -> Void) {
+        guard let videoPath = params["videoPath"] as? String, !videoPath.isEmpty else {
+            completion(false, ["message": "動画が選ばれていません"])
+            return
+        }
+        EngineClient.shared.analyze(
+            videoPath: videoPath,
+            language: (params["language"] as? String) ?? "ja",
+            model: (params["model"] as? String) ?? "large-v3-turbo",
+            progress: { [weak self] stage, ratio in
+                self?.sendProgress(stage: stage, ratio: ratio)
+            },
+            completion: completion
+        )
+    }
 }

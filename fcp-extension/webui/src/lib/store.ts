@@ -22,6 +22,8 @@ export interface Store {
   /** テロップの見本を取り込む / 外す */
   pickTemplate: () => Promise<string | null>
   dropTemplate: () => Promise<void>
+  /** 解析の結果で中身を入れ替える（スタイル・フォント・見本は保つ） */
+  applyAnalysis: (result: Partial<ProjectState>) => void
 }
 
 export function useStore(): Store {
@@ -96,6 +98,23 @@ export function useStore(): Store {
     setState((s) => (s ? { ...s, template: null } : s))
   }, [])
 
+  const applyAnalysis = useCallback((result: Partial<ProjectState>) => {
+    setState((s) => {
+      // 解析が返すのは素材そのものの情報だけ。
+      // 見た目の設定と見本は利用者が決めたものなので上書きしない。
+      const base = s ?? null
+      if (!base) return result as ProjectState
+      return {
+        ...base,
+        videoUrl: result.videoUrl ?? base.videoUrl,
+        durationSec: result.durationSec ?? base.durationSec,
+        waveform: result.waveform ?? base.waveform,
+        cuts: result.cuts ?? [],
+        telops: result.telops ?? [],
+      }
+    })
+  }, [])
+
   const approvedCuts = useMemo(
     () => (state ? state.cuts.filter((c) => c.decision === 'approved') : []),
     [state],
@@ -112,6 +131,7 @@ export function useStore(): Store {
     approvedCuts,
     pickTemplate,
     dropTemplate,
+    applyAnalysis,
   }
 }
 

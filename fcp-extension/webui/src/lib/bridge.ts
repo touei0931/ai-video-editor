@@ -5,7 +5,13 @@
 // 「同じ UI が両方で動く」ことを保つのがこの層の役目。
 
 import { MOCK } from './mock'
-import type { ProjectState, Telop, CutCandidate, TitleTemplateSummary } from './types'
+import type {
+  ProjectState,
+  Telop,
+  CutCandidate,
+  TitleTemplateSummary,
+  AnalyzeSettings,
+} from './types'
 
 type Resolver = { resolve: (v: unknown) => void; reject: (e: unknown) => void }
 
@@ -14,6 +20,8 @@ declare global {
     webkit?: { messageHandlers?: { pac?: { postMessage: (m: unknown) => void } } }
     /** Swift から呼ばれる。応答を受け取る入口 */
     pacResolve?: (id: number, ok: boolean, payload: unknown) => void
+    /** Swift から呼ばれる。解析の進み具合を受け取る入口 */
+    pacProgress?: (stage: string, ratio: number) => void
   }
 }
 
@@ -32,18 +40,21 @@ if (typeof window !== 'undefined') {
   }
 }
 
-function callSwift<T>(method: string, params: unknown = {}): Promise<T> {
+function callSwift<T>(method: string, params: unknown = {}, timeoutMs = 30_000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const id = ++seq
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
     window.webkit!.messageHandlers!.pac!.postMessage({ id, method, params })
-    // Swift 側が落ちたときに永遠に待たないようにする
-    setTimeout(() => {
-      if (pending.has(id)) {
-        pending.delete(id)
-        reject(new Error(`${method} が応答しませんでした`))
-      }
-    }, 30_000)
+    // Swift 側が落ちたときに永遠に待たないようにする。
+    // 解析だけは数分〜数十分かかるので時間制限を外す（timeoutMs = 0）。
+    if (timeoutMs > 0) {
+      setTimeout(() => {
+        if (pending.has(id)) {
+          pending.delete(id)
+          reject(new Error(`${method} が応答しませんでした`))
+        }
+      }, timeoutMs)
+    }
   })
 }
 
@@ -81,6 +92,49 @@ export async function listFonts(): Promise<string[]> {
 export async function grantMediaFolder(): Promise<string | null> {
   if (!isInFCP) return null
   return callSwift<string | null>('grantMediaFolder')
+}
+
+/** 解析する動画を選ぶ。サンドボックスの許可もここで取れる */
+export async function pickVideo(): Promise<{ path: string; name: string } | null> {
+  if (!isInFCP) {
+    // 開発中は選べないので、置いてある実データを使う
+    return { path: '(開発モード)', name: 'dev-sample.mp4' }
+  }
+  return callSwift<{ path: string; name: string } | null>('pickVideo')
+}
+
+/**
+ * 解析（文字起こし → カット候補とテロップ）を実行する。
+ *
+ * フィラーと言い直しは「何と言ったか」が分からないと判定できないので、
+ * カットだけを先に出すことはできない。ここで一度に作る。
+ */
+export async function runAnalysis(
+  params: { videoPath: string } & AnalyzeSettings,
+  onProgress: (stage: string, ratio: number) => void,
+): Promise<ProjectState> {
+  if (!isInFCP) {
+    // 開発中はエンジンがいないので、実データを読みながら進捗だけ真似る
+    const stages: [string, number][] = [
+      ['音声を取り出しています', 0.1],
+      ['文字起こしをしています', 0.45],
+      ['カット候補を探しています', 0.8],
+      ['テロップを作っています', 0.95],
+      ['完了', 1],
+    ]
+    for (const [stage, ratio] of stages) {
+      onProgress(stage, ratio)
+      await new Promise((r) => setTimeout(r, 260))
+    }
+    return loadProject()
+  }
+
+  window.pacProgress = onProgress
+  try {
+    return await callSwift<ProjectState>('runAnalysis', params, 0)
+  } finally {
+    window.pacProgress = undefined
+  }
 }
 
 /**

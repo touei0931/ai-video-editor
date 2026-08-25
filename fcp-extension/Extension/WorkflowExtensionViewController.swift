@@ -97,6 +97,14 @@ extension WorkflowExtensionViewController: WKScriptMessageHandler {
             grantMediaFolder { path in
                 self.reply(id: id, ok: true, payload: path as Any)
             }
+        case "pickVideo":
+            pickVideo { payload in
+                self.reply(id: id, ok: true, payload: payload)
+            }
+        case "runAnalysis":
+            runAnalysis(params: params) { ok, payload in
+                self.reply(id: id, ok: ok, payload: payload)
+            }
         case "loadTitleTemplate":
             loadTitleTemplate { ok, payload in
                 self.reply(id: id, ok: ok, payload: payload)
@@ -110,6 +118,17 @@ extension WorkflowExtensionViewController: WKScriptMessageHandler {
             }
         default:
             reply(id: id, ok: false, payload: ["message": "未知の呼び出し: \(method)"])
+        }
+    }
+
+    /// 解析の進み具合を JS 側の window.pacProgress に流す
+    func sendProgress(stage: String, ratio: Double) {
+        let escaped = stage
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let js = "window.pacProgress && window.pacProgress(\"\(escaped)\", \(ratio));"
+        DispatchQueue.main.async {
+            self.webView.evaluateJavaScript(js, completionHandler: nil)
         }
     }
 

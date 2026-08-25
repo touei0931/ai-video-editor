@@ -84,3 +84,54 @@ export const STYLE_LABEL: Record<StyleName, string> = {
   normal: '通常',
   emphasis: '強調',
 }
+
+// ── 解析の設定 ─────────────────────────────────────────
+
+export type ModelName = 'large-v3-turbo' | 'medium' | 'small' | 'base'
+
+export interface AnalyzeSettings {
+  language: string
+  model: ModelName
+}
+
+export const LANGUAGES: { code: string; label: string }[] = [
+  { code: 'ja', label: '日本語' },
+  { code: 'en', label: '英語' },
+  { code: 'auto', label: '自動で判定する' },
+]
+
+/** モデルの選択肢。初回のダウンロード量を必ず添える（無反応に見えて強制終了されるため） */
+export const MODELS: {
+  name: ModelName
+  label: string
+  description: string
+  downloadSize: string
+}[] = [
+  {
+    name: 'large-v3-turbo',
+    label: '高い（おすすめ）',
+    description: '一番きれいに文字起こしできます。M2 なら実時間の 1〜2 倍くらいです。',
+    downloadSize: '1.6GB',
+  },
+  {
+    name: 'medium',
+    label: 'ふつう',
+    description: '少し粗くなりますが、その分軽いです。',
+    downloadSize: '1.5GB',
+  },
+  {
+    name: 'small',
+    label: '低い（速い）',
+    description: '固有名詞をよく間違えます。下書きを急ぎで作るとき向けです。',
+    downloadSize: '480MB',
+  },
+  {
+    name: 'base',
+    label: '最低（試し用）',
+    description: '動くかどうかを確かめるためのものです。仕上げには向きません。',
+    downloadSize: '145MB',
+  },
+]
+
+/** 画面の進み方 */
+export type Step = 'select' | 'settings' | 'analyzing' | 'cut' | 'telop'
