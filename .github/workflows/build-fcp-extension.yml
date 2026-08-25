@@ -125,6 +125,9 @@ jobs:
       - name: 関門チェック
         run: ./fcp-extension/scripts/check_extension.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
 
+      - name: 🔴 配布した形で解析が通ること
+        run: ./fcp-extension/scripts/check_engine_e2e.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
+
       - name: 配布物を固める
         run: |
           set -euo pipefail
