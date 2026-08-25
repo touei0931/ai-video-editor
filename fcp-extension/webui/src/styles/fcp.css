@@ -1,0 +1,304 @@
+/* Final Cut Pro に寄せた見た目。
+   FCP は暗いグレー基調・薄い境界線・彩度低めの選択色で、
+   クリップは種類ごとに色が決まっている（映像=青灰、タイトル=紫、音声=緑）。 */
+
+:root {
+  --bg: #1c1c1c;
+  --bg-panel: #262626;
+  --bg-raised: #303030;
+  --bg-input: #1a1a1a;
+  --line: #121212;
+  --line-soft: #3a3a3a;
+
+  --text: #dcdcdc;
+  --text-dim: #8c8c8c;
+  --text-faint: #6a6a6a;
+
+  --accent: #4a8fd4;
+  --accent-dim: #2f5f8f;
+
+  --clip-video: #35597f;
+  --clip-title: #6b4d8f;
+  --clip-audio: #3d7a4a;
+
+  --cut-silence: #6a6a6a;
+  --cut-filler: #b8862f;
+  --cut-restate: #a8514f;
+
+  --ok: #4f9d5d;
+  --ng: #a8514f;
+
+  --radius: 4px;
+  --h-toolbar: 44px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI",
+               "Segoe UI", Meiryo, sans-serif;
+  font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ---- 全体レイアウト ---- */
+.app { display: flex; flex-direction: column; height: 100%; }
+
+.toolbar {
+  height: var(--h-toolbar);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  background: linear-gradient(#333, #292929);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding-right: 4px;
+}
+
+.tabs {
+  display: flex;
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.tab {
+  padding: 5px 14px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 0;
+  border-right: 1px solid var(--line);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tab:last-child { border-right: 0; }
+.tab.active { background: var(--accent-dim); color: #fff; }
+
+.spacer { flex: 1; }
+
+/* ---- ボタン ---- */
+button {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: linear-gradient(#3a3a3a, #303030);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: linear-gradient(#454545, #383838); }
+button:active:not(:disabled) { background: #2a2a2a; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: linear-gradient(#5296dc, #3a7ab8); border-color: #24486b; color: #fff; }
+button.primary:hover:not(:disabled) { background: linear-gradient(#63a3e4, #4285c4); }
+button.ok { color: #b7e3bf; }
+button.ng { color: #e8b6b5; }
+button.tiny { padding: 2px 6px; font-size: 11px; }
+
+/* ---- パネル ---- */
+.body { flex: 1; min-height: 0; display: flex; gap: 8px; padding: 8px; }
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.panel-title {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-raised);
+  border-radius: var(--radius) var(--radius) 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* ---- プレビュー ---- */
+.preview-wrap { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px; }
+.stage {
+  position: relative;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  overflow: hidden;
+}
+.stage video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+.stage-placeholder {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(45deg, #1b1b1b, #1b1b1b 12px, #202020 12px, #202020 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px;
+}
+
+/* テロップの重ね表示 */
+.telop-layer { position: absolute; inset: 0; pointer-events: none; }
+.telop-text {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: pre-wrap;
+  text-align: center;
+  line-height: 1.25;
+  max-width: 92%;
+}
+
+.transport { display: flex; align-items: center; gap: 8px; }
+.tc {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+}
+.scrub { flex: 1; }
+
+/* ---- タイムライン ---- */
+.timeline {
+  position: relative;
+  background: #171717;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.ruler { height: 18px; position: relative; border-bottom: 1px solid var(--line); background: var(--bg-raised); }
+.ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid #4a4a4a;
+  padding-left: 3px;
+  font-size: 9px;
+  color: var(--text-faint);
+}
+.track { position: relative; height: 60px; border-bottom: 1px solid var(--line); }
+.track-title { position: relative; height: 26px; background: #1d1d1d; }
+.wave { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cut-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.85;
+  cursor: pointer;
+}
+.cut-block.rejected { opacity: 0.2; }
+.cut-block.selected { outline: 2px solid #fff; outline-offset: -2px; z-index: 3; }
+.telop-block {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  background: var(--clip-title);
+  border: 1px solid #4a3566;
+  border-radius: 3px;
+  font-size: 10px;
+  color: #e9dff5;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  line-height: 18px;
+}
+.telop-block.selected { outline: 2px solid #fff; outline-offset: -1px; z-index: 3; }
+.playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: #e8e8e8; pointer-events: none; z-index: 5; }
+
+/* ---- リスト ---- */
+.list { overflow: auto; flex: 1; min-height: 0; }
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+.row:hover { background: #2e2e2e; }
+.row.selected { background: var(--accent-dim); }
+.row.rejected { opacity: 0.45; }
+.badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.badge.silence { background: var(--cut-silence); color: #fff; }
+.badge.filler { background: var(--cut-filler); color: #2a1e05; }
+.badge.restate { background: var(--cut-restate); color: #fff; }
+.badge.normal { background: #45566b; color: #dfe8f2; }
+.badge.emphasis { background: #8a6a1f; color: #ffeec2; }
+.row-time { font-family: "SF Mono", Menlo, Consolas, monospace; color: var(--text-dim); flex: 0 0 auto; }
+.row-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+
+/* ---- 設定 ---- */
+.form {
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 6px 8px;
+  align-items: center;
+}
+.form label { color: var(--text-dim); font-size: 11px; }
+select, input[type="text"], input[type="number"] {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 6px;
+}
+input[type="color"] {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+input[type="range"] { width: 100%; }
+.inline { display: flex; align-items: center; gap: 6px; }
+
+.hint {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+  border-top: 1px solid var(--line);
+  background: #1f1f1f;
+  flex: 0 0 auto;
+}
+.warn { color: #d2a24c; }
+
+.empty { padding: 24px; text-align: center; color: var(--text-faint); }

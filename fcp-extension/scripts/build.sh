@@ -14,6 +14,17 @@ if [ ! -d "$SDK_PATH" ]; then
 fi
 echo "✅ SDK: $SDK_PATH"
 
+echo "--- webui をビルド ---"
+if [ -d webui ]; then
+  ( cd webui && npm ci --no-audit --no-fund && npm run build )
+  rm -rf Extension/webui
+  cp -R webui/dist Extension/webui
+  echo "✅ webui を Extension/webui に配置"
+  ls Extension/webui | head
+else
+  echo "⚠ webui が無いのでスキップ"
+fi
+
 echo "--- xcodegen ---"
 xcodegen generate
 

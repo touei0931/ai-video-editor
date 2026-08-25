@@ -1,0 +1,6 @@
+# webui のビルド結果（CI で毎回作る）
+webui/dist/
+Extension/webui/
+# Xcode / xcodegen の生成物
+PAC.xcodeproj/
+build/

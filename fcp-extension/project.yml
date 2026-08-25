@@ -45,6 +45,12 @@ targets:
     platform: macOS
     sources:
       - path: Extension
+      # webui をビルドしたものを Resources/webui として同梱する。
+      # 実体は scripts/build.sh が webui/dist からコピーする。
+      - path: Extension/webui
+        type: folder
+        buildPhase: resources
+        optional: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.touei.pac.fcp.WorkflowExtension
