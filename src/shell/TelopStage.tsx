@@ -608,16 +608,22 @@ export function TelopStage({
         }
       }
 
-      const target = hit ?? cur;
-      if (!target) return;
-      if (hit && hit.id !== selected) setSelected(hit.id);
+      /*
+        🔴 テロップの上を押したときだけ掴むこと。
+
+           選んでいるあいだ画面のどこを押しても動いていたので、
+           映像の別の場所を触ったつもりで**テロップがついてくる**。
+           選んでいることと、掴んでいることは別。
+      */
+      if (!hit) return;
+      if (hit.id !== selected) setSelected(hit.id);
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
       dragPos.current = {
         x: e.clientX,
         y: e.clientY,
-        ox: target.offsetX,
-        oy: target.offsetY,
-        id: target.id,
+        ox: hit.offsetX,
+        oy: hit.offsetY,
+        id: hit.id,
       };
     },
     [cur, showing, specOf, frame, selected, stageBox],
@@ -942,7 +948,7 @@ export function TelopStage({
           <canvas
             ref={canvasRef}
             className="fcp-stage-inner"
-            style={{ cursor: cur ? 'move' : 'default' }}
+            style={{ cursor: showing.length > 0 || cur ? 'move' : 'default' }}
             onPointerDown={onStagePointerDown}
             onPointerMove={onStagePointerMove}
             onPointerUp={endStageDrag}
@@ -1106,12 +1112,43 @@ export function TelopStage({
                   複製
                 </button>
               </div>
-              <p className="fcp-dim">
-                <strong>Ctrl+C / Ctrl+V</strong> コピー・貼り付け ・{' '}
-                <strong>Ctrl+D</strong> 複製 ・ <strong>Delete</strong> 削除 ・{' '}
-                <strong>Ctrl+Z</strong> ひとつ戻す（Mac は ⌘）。
-                貼り付けは<strong>いまの再生位置</strong>に置きます。
-              </p>
+              {/*
+                🔴 キーと意味は**1対1**で並べること。
+                   「Ctrl+C / Ctrl+V ＝ コピー・貼り付け」のように2つずつ書くと、
+                   どちらがどちらか読む側が組み替えることになる。
+                   1行に詰め込むと横に長くなり、区切りも見分けられない。
+              */}
+              <dl className="fcp-keys">
+                <div>
+                  <dt>Ctrl + C</dt>
+                  <dd>コピー</dd>
+                </div>
+                <div>
+                  <dt>Ctrl + V</dt>
+                  <dd>いまの再生位置に貼り付け</dd>
+                </div>
+                <div>
+                  <dt>Ctrl + D</dt>
+                  <dd>複製</dd>
+                </div>
+                <div>
+                  <dt>Q</dt>
+                  <dd>頭を再生位置まで詰める</dd>
+                </div>
+                <div>
+                  <dt>W</dt>
+                  <dd>尻を再生位置まで詰める</dd>
+                </div>
+                <div>
+                  <dt>Delete</dt>
+                  <dd>このテロップを消す</dd>
+                </div>
+                <div>
+                  <dt>Ctrl + Z</dt>
+                  <dd>ひとつ戻す</dd>
+                </div>
+              </dl>
+              <p className="fcp-dim">Mac は Ctrl の代わりに ⌘ です。</p>
               <p className="fcp-dim">
                 同じ時間に何枚でも置けます。重なったぶんは
                 {(cur.positionOverride ?? styles[cur.style]?.position) === 'bottom' ? '上' : '下'}

@@ -905,19 +905,47 @@ export function CutStage({
                   ↓ 次へ
                 </button>
               </div>
-              <p className="fcp-dim">
-                <strong>↓</strong> で次の保留へ移り、その少し手前から流します。
-                <strong>D</strong> 切る / <strong>F</strong> 残す / <strong>G</strong> 保留。
-              </p>
+              <dl className="fcp-keys">
+                <div>
+                  <dt>↓ / ↑</dt>
+                  <dd>次 / 前の保留へ（少し手前から流します）</dd>
+                </div>
+                <div>
+                  <dt>D</dt>
+                  <dd>ここを切る</dd>
+                </div>
+                <div>
+                  <dt>F</dt>
+                  <dd>ここは残す</dd>
+                </div>
+                <div>
+                  <dt>G</dt>
+                  <dd>保留にする</dd>
+                </div>
+              </dl>
             </div>
 
 
             <div className="fcp-field">
               <label>要らない場面を丸ごと切る</label>
-              <div className="fcp-dim">
-                切りたいところの手前で <strong>I</strong>、終わりで <strong>O</strong>、
-                <strong>Enter</strong> で足します。Esc でやめられます。
-              </div>
+              <dl className="fcp-keys">
+                <div>
+                  <dt>I</dt>
+                  <dd>ここから（範囲の始まり）</dd>
+                </div>
+                <div>
+                  <dt>O</dt>
+                  <dd>ここまで（範囲の終わり）</dd>
+                </div>
+                <div>
+                  <dt>Enter</dt>
+                  <dd>その範囲を切る</dd>
+                </div>
+                <div>
+                  <dt>Esc</dt>
+                  <dd>選んだ範囲をやめる</dd>
+                </div>
+              </dl>
               <div className="fcp-dim" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 ここから {markIn === null ? '—' : clock(markIn)} / ここまで{' '}
                 {markOut === null ? '—' : clock(markOut)}

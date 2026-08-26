@@ -1237,3 +1237,42 @@
 .fcp-stage video {
   -webkit-user-drag: none;
 }
+
+/*
+  キーの凡例。
+
+  🔴 キーと意味は1行に1組で並べること。
+     1行に詰め込むと横に長くなり、どこで切れているのか読み取れない。
+  🔴 キーの幅を揃えること。揃っていないと目が意味の列を追えない。
+*/
+.fcp-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.fcp-keys > div {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.fcp-keys dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--s0);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.fcp-keys dd {
+  margin: 0;
+  color: var(--text-dim, var(--text-faint));
+}
