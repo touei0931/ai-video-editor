@@ -880,23 +880,19 @@ export function CutStage({
         ) : (
           <>
             <div className="fcp-field">
-              <label>間の詰め具合</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {PACE_ORDER.map((p) => (
-                  <button
-                    key={p}
-                    className={p === pace ? 'on' : ''}
-                    disabled={repacing || !onChangePace}
-                    onClick={() => onChangePace?.(p)}
-                  >
-                    {PACE_LABEL[p]}
-                  </button>
-                ))}
+              <label>カット判定</label>
+              <div className="fcp-tally">
+                <span>カット：</span>
+                <strong>{approvedCuts.length} 箇所</strong>
               </div>
-              <p className="fcp-dim">
-                変えると候補を作り直します（解析はやり直しません）。
-                それまでに押した「切る／残す」はやり直しになります。
-              </p>
+              <div className="fcp-tally">
+                <span>カット時間：</span>
+                <strong>{removedSec.toFixed(1)} 秒</strong>
+              </div>
+              <div className="fcp-tally">
+                <span>保留：</span>
+                <strong>{held.length} 箇所</strong>
+              </div>
             </div>
 
             <div className="fcp-field">
@@ -915,12 +911,6 @@ export function CutStage({
               </p>
             </div>
 
-            <div className="fcp-field">
-              <label>いまの見込み</label>
-              <div>切るところ {approvedCuts.length} 箇所</div>
-              <div>短くなる分 {removedSec.toFixed(1)} 秒</div>
-              <div>保留 {held.length} 箇所</div>
-            </div>
 
             <div className="fcp-field">
               <label>要らない場面を丸ごと切る</label>
@@ -940,6 +930,27 @@ export function CutStage({
             <p className="fcp-dim">
               タイムラインのクリップを選ぶと、ここで細かく直せます。
             </p>
+
+            {/* 🔴 一番下に置く。最初に一度決めたら、あとはめったに触らない */}
+            <div className="fcp-field fcp-minor">
+              <label>間の詰め具合</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {PACE_ORDER.map((p) => (
+                  <button
+                    key={p}
+                    className={p === pace ? 'on' : ''}
+                    disabled={repacing || !onChangePace}
+                    onClick={() => onChangePace?.(p)}
+                  >
+                    {PACE_LABEL[p]}
+                  </button>
+                ))}
+              </div>
+              <p className="fcp-dim">
+                変えると候補を作り直します（解析はやり直しません）。
+                それまでに押した「切る／残す」はやり直しになります。
+              </p>
+            </div>
           </>
         )
       }
@@ -976,11 +987,22 @@ export function CutStage({
             </>
           }
           tracks={[
+            /*
+              🔴 切る所は**コマの上に重ねる**こと。
+
+                 以前は「コマ」と「カット」を別のレーンにしていた。帯とコマが
+                 縦に離れているので、「この絵のところを切る」の対応を目で
+                 追わないと分からなかった。重ねれば、切る所の絵がそのまま
+                 暗くなるので、対応を考えなくて済む。
+                 端のドラッグも、絵を見ながらそのまま合わせられる。
+            */
             {
               id: 'film',
-              label: 'コマ',
-              regions: [],
-              height: 46,
+              label: '素材',
+              regions: displayRegions,
+              overlay: true,
+              scalable: true,
+              height: 64,
               render: (v) => (
                 <Filmstrip
                   {...v}
@@ -990,7 +1012,6 @@ export function CutStage({
                 />
               ),
             },
-            { id: 'cut', label: 'カット', regions: displayRegions, showSource: true, height: 60 },
             {
               id: 'wave',
               label: '音',

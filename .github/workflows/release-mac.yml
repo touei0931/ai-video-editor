@@ -45,6 +45,7 @@ jobs:
           npm run test:telop
           npm run test:time
           npm run test:rows
+          npm run test:align
 
       - name: Python の依存をそろえる
         run: |

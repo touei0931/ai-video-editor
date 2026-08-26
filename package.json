@@ -23,6 +23,7 @@
     "test:time": "node scripts/test-edited-time.mjs",
     "test:rows": "node scripts/test-timeline-rows.mjs",
     "test:lanes": "python scripts/test_telop_lanes.py",
+    "test:align": "node scripts/test-telop-align.mjs",
     "smoke": "electron . --smoke-test",
     "t1": "electron . --t1-wysiwyg",
     "t2": "electron . --t2-budoux",

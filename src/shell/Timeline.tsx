@@ -53,6 +53,17 @@ export interface TimelineTrack {
    *    消したつもりのテロップが書き出しに出てくる、という形で後から気づく。
    */
   stack?: boolean;
+  /**
+   * 区間を**コマの上に薄く重ねる**か。
+   *
+   * 🔴 切る所を別のレーンに分けないこと。
+   *    帯とコマが縦に離れていると、「この絵のところを切る」の対応を
+   *    目で追わないといけない。同じ場所に重ねれば、切る所の絵が
+   *    そのまま暗くなるので、対応を考えなくて済む。
+   */
+  overlay?: boolean;
+  /** 1 / 2 キーで高さを変えられるレーンか（素材のコマ） */
+  scalable?: boolean;
 }
 
 export interface TimelineView {
@@ -99,6 +110,12 @@ export interface TimelineProps {
   snapPoints?: readonly number[];
   /** 吸着を効かせるか。N キーで切り替える（Final Cut と同じ） */
   snapEnabled?: boolean;
+  /**
+   * 1 / 2 キーで素材のコマの高さを変えるか。
+   * 🔴 テロップ画面では false。あちらは 1〜9 が雛形の切り替えで、
+   *    先に決まっている割り当てを奪うと雛形が選べなくなる。
+   */
+  laneZoomKeys?: boolean;
 }
 
 /**
@@ -167,8 +184,16 @@ export function Timeline({
   extraControls,
   snapPoints,
   snapEnabled = true,
+  laneZoomKeys = true,
 }: TimelineProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * 素材（コマ）のレーンの高さ倍率。
+   * 🔴 コマは「どこを触っているか」を目で探すためのもの。
+   *    小さいと絵が潰れて探せず、大きいと他のレーンが見えない。
+   *    その時の作業で要る大きさが違うので、手元で変えられるようにする。
+   */
+  const [laneScale, setLaneScale] = useState(1);
   const [pxPerSec, setPxPerSec] = useState(initialPxPerSec ?? 0);
   const [drag, setDrag] = useState<Dragging | null>(null);
   // ドラッグ中の最新値。確定時に描画の外から読むために持つ（下の up を参照）
@@ -622,6 +647,30 @@ export function Timeline({
     if (nearEdge) scrollTo(x - el.clientWidth / 2);
   }, [currentTime, drag, scale, scrollTo]);
 
+  /*
+    素材のコマの高さを 1 / 2 で変える。
+
+    🔴 ここで受け取ること。Stage 側に散らすと、画面ごとに効いたり効かなかったりする。
+    🔴 文字を打っている最中は奪わない。
+  */
+  useEffect(() => {
+    if (!laneZoomKeys) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === '1') {
+        e.preventDefault();
+        setLaneScale((v) => Math.min(3, Number((v * 1.35).toFixed(3))));
+      } else if (e.key === '2') {
+        e.preventDefault();
+        setLaneScale((v) => Math.max(0.5, Number((v / 1.35).toFixed(3))));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [laneZoomKeys]);
+
   const ticks = useMemo(() => {
     const out: { t: number; major: boolean }[] = [];
     for (let t = 0; t <= duration + 0.001; t += step) {
@@ -708,7 +757,7 @@ export function Timeline({
           </div>
 
           {tracks.map((track) => {
-            const rowH = track.height ?? 56;
+            const rowH = Math.round((track.height ?? 56) * (track.scalable ? laneScale : 1));
             // 重なりがあるときだけ段を増やす。重なっていなければ今までと同じ高さ
             const rows = track.stack ? assignRows(track.regions) : null;
             const rowCount = countRows(rows);
@@ -716,7 +765,7 @@ export function Timeline({
             <div className="fcp-track" key={track.id}>
               <span className="fcp-track-label">{track.label}</span>
               <div
-                className="fcp-track-body"
+                className={`fcp-track-body${track.overlay ? ' on-film' : ''}`}
                 style={{ ['--track-h' as string]: `${rowH * rowCount}px` }}
 
               >

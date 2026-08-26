@@ -52,7 +52,15 @@ export type ShortcutAction =
   /** 次の保留へ */
   | 'nextPending'
   /** 前の保留へ */
-  | 'prevPending';
+  | 'prevPending'
+  /** テロップの頭を再生位置まで詰める */
+  | 'trimHead'
+  /** テロップの尻を再生位置まで詰める */
+  | 'trimTail'
+  /** 素材（コマ）のレーンを高くする */
+  | 'laneBigger'
+  /** 素材（コマ）のレーンを低くする */
+  | 'laneSmaller';
 
 /** 画面に出す一覧。ヘルプと同じ言葉にする */
 export const SHORTCUT_HELP: { keys: string; label: string }[] = [
@@ -73,6 +81,8 @@ export const SHORTCUT_HELP: { keys: string; label: string }[] = [
   { keys: 'F', label: 'ここは残す' },
   { keys: 'G', label: '保留にする' },
   { keys: '↓ / ↑', label: '次 / 前の保留へ' },
+  { keys: 'Q / W', label: 'テロップの頭 / 尻を再生位置まで詰める' },
+  { keys: '1 / 2', label: '素材のコマを大きく / 小さく（テロップ画面を除く）' },
 ];
 
 /** 文字を打っている最中か。打っているならキーを奪わない */
@@ -162,6 +172,24 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
       return 'markOut';
     case 'n':
       return 'toggleSnap';
+    /*
+      Q / W はテロップの端を再生位置まで詰める。
+      🔴 「頭側を切る」は開始を動かす、「後ろ側を切る」は終了を動かす。
+         端をドラッグで合わせるより、聞きながら押すほうが速い。
+    */
+    case 'q':
+      return 'trimHead';
+    case 'w':
+      return 'trimTail';
+    /*
+      素材のコマを大きく / 小さく。
+      🔴 テロップ画面では雛形の切り替え（1〜9）が先。
+         あちらは枠を選ぶキーとして先に決まっているので、ここでは奪わない。
+    */
+    case '1':
+      return 'laneBigger';
+    case '2':
+      return 'laneSmaller';
     /*
       判定は D / F / G。ホームポジションで**隣り合った3つ**にする。
 

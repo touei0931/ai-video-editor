@@ -1105,3 +1105,100 @@
   cursor: pointer;
   padding: 2px 0;
 }
+
+/*
+  素材のコマの上に重ねるカット。
+
+  🔴 帯で塗り潰さないこと。下の絵が見えなくなったら、
+     コマの上に置いた意味が無い。切る所は**暗くする**、残す所は**素通し**。
+     「暗くなっている＝切られる」が一目で分かる状態にする。
+*/
+.fcp-track-body.on-film .fcp-clip {
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  box-shadow: none;
+  background: transparent;
+}
+
+.fcp-track-body.on-film .fcp-clip.kind-cut {
+  background: rgba(8, 8, 10, 0.66);
+  border-color: var(--cut);
+}
+
+.fcp-track-body.on-film .fcp-clip.kind-hold {
+  background: rgba(8, 8, 10, 0.5);
+  border-color: var(--hold-top, #8172c9);
+}
+
+/* 残す所は暗くしない。枠だけで場所を示す */
+.fcp-track-body.on-film .fcp-clip.kind-keep {
+  background: transparent;
+  border-color: rgba(120, 175, 255, 0.55);
+}
+
+.fcp-track-body.on-film .fcp-clip .cap {
+  height: 2px;
+}
+
+.fcp-track-body.on-film .fcp-clip.selected {
+  outline: 2px solid var(--sel);
+  outline-offset: -2px;
+}
+
+/* 数字を読みやすく揃える（カット判定） */
+.fcp-tally {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.fcp-tally strong {
+  font-size: 15px;
+}
+
+/* めったに触らない設定。場所は取らせるが、目は引かせない */
+.fcp-minor {
+  opacity: 0.72;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
+.fcp-minor button {
+  font-size: 11px;
+  padding: 3px 7px;
+}
+
+.fcp-minor label {
+  font-size: 11px;
+}
+
+/*
+  重ねたレーンでは、枠とつまみを出しすぎない。
+
+  🔴 「暗い＝切る」だけが読めればよい。残す所まで枠で囲むと、
+     コマの上が線だらけになって、肝心の絵が読めなくなる。
+     触るときだけ（重ねる・選ぶ）出す。掴めることは変わらない。
+*/
+.fcp-track-body.on-film .fcp-clip.kind-keep {
+  border-color: transparent;
+}
+
+.fcp-track-body.on-film .fcp-clip.kind-keep:hover,
+.fcp-track-body.on-film .fcp-clip.kind-keep.selected {
+  border-color: rgba(120, 175, 255, 0.7);
+}
+
+.fcp-track-body.on-film .fcp-handle {
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.fcp-track-body.on-film .fcp-clip:hover .fcp-handle,
+.fcp-track-body.on-film .fcp-clip.selected .fcp-handle {
+  opacity: 1;
+}

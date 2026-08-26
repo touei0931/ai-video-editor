@@ -247,3 +247,55 @@ export function maxCharsPerLine(spec: TelopSpec, frame: Frame, marginRatio = 0.0
   const usable = frame.width * (1 - marginRatio * 2);
   return Math.max(1, Math.floor(usable / fontSize));
 }
+
+/**
+ * テロップが占める矩形。プレビューの枠と、位置合わせの吸着に使う。
+ *
+ * 🔴 drawTelop と**同じ計算**でなければならない。
+ *    枠だけ別に測ると、枠と文字がずれる。ずれた枠は「どこを掴んでいるのか」を
+ *    かえって分からなくする。位置の決め方（baseY / startY / centerX）は
+ *    drawTelop から写して同じにしてある。変えるときは必ず両方直すこと。
+ */
+export interface TelopBounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function telopBounds(ctx: Ctx2D, spec: TelopSpec, frame: Frame): TelopBounds | null {
+  const { lines, style, position } = spec;
+  if (lines.length === 0) return null;
+
+  const fontSize = telopFontSize(style, frame);
+  const lineHeight = Math.round(fontSize * style.lineHeightRatio);
+  const blockHeight = lineHeight * (lines.length - 1);
+  const baseY = Math.round(frame.height * (POSITION_RATIO[position] + (spec.offsetY ?? 0)));
+  const startY =
+    position === 'middle' ? baseY - blockHeight / 2 : position === 'bottom' ? baseY - blockHeight : baseY;
+  const centerX = frame.width * (0.5 + (spec.offsetX ?? 0));
+
+  ctx.save();
+  let widest = 0;
+  for (const line of lines) {
+    const spans = toSpans(line).filter((s) => s.text.length > 0);
+    let total = 0;
+    for (const span of spans) {
+      ctx.font = cssFont(style, Math.round(fontSize * (span.scale ?? 1)));
+      total += ctx.measureText(span.text).width;
+    }
+    widest = Math.max(widest, total);
+  }
+  ctx.restore();
+  if (widest === 0) return null;
+
+  // 字の上下は測れないので、字の大きさから見込む（縁取りの分も少し足す）
+  const above = fontSize * 0.92;
+  const below = fontSize * 0.26;
+  return {
+    x: centerX - widest / 2,
+    y: startY - above,
+    w: widest,
+    h: blockHeight + above + below,
+  };
+}

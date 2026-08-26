@@ -15,9 +15,10 @@ import { EditorShell } from './EditorShell';
 import { Timeline, clock, type TimelineRegion } from './Timeline';
 import { Waveform } from './Waveform';
 import { Filmstrip } from './Filmstrip';
-import { buildLines, drawTelop, type Frame } from '../telop/render';
+import { buildLines, drawTelop, telopBounds, type Frame, type TelopBounds } from '../telop/render';
 import { type TelopCard } from '../telop/split';
 import { activeAt, laneOffsetY, laneStep, telopLanes } from '../telop/lanes';
+import { snapToBoxes } from '../telop/align';
 import {
   DEFAULT_STYLES,
   resolveStyle,
@@ -190,6 +191,28 @@ export function TelopStage({
   const lanes = useMemo(() => telopLanes(cards), [cards]);
   const step = useMemo(() => laneStep(cards, styles, frame), [cards, styles, frame]);
 
+  /**
+   * 1枚を描くときの指定。
+   * 🔴 プレビューの描画・枠・位置合わせは**必ずこれを通す**こと。
+   *    別々に組み立てると、枠だけずれる／吸着だけずれる、が起きる。
+   */
+  const specOf = useCallback(
+    (card: TelopCard) => {
+      const style = resolveStyle(styles, card.style, card.override, card.fontScale);
+      return {
+        lines: buildLines(card.lines, card.highlight ?? undefined, style),
+        style,
+        position: card.positionOverride ?? style.position,
+        offsetX: card.offsetX,
+        offsetY: card.offsetY + laneOffsetY(card, lanes.get(card.id) ?? 0, styles, step),
+      };
+    },
+    [styles, lanes, step],
+  );
+
+  /** 位置合わせで出す線（キャンバスの座標）。掴んでいる間だけ入る */
+  const guides = useRef<{ x: number[]; y: number[] }>({ x: [], y: [] });
+
   /* ---------- プレビュー ---------- */
 
   /**
@@ -224,20 +247,53 @@ export function TelopStage({
     */
     const list = showing.length > 0 ? showing : cur ? [cur] : [];
     for (const card of list) {
-      const style = resolveStyle(styles, card.style, card.override, card.fontScale);
-      drawTelop(
-        ctx,
-        {
-          lines: buildLines(card.lines, card.highlight ?? undefined, style),
-          style,
-          position: card.positionOverride ?? style.position,
-          offsetX: card.offsetX,
-          offsetY: card.offsetY + laneOffsetY(card, lanes.get(card.id) ?? 0, styles, step),
-        },
-        frame,
-      );
+      const spec = specOf(card);
+      drawTelop(ctx, spec, frame);
+
+      /*
+        選んでいるテロップに枠を出す。
+        🔴 どれを掴んでいるのかが分からないと、重ねたときに直しようがない。
+           2枚が近くにあると、動かして初めて「違うほうだった」と気づく。
+      */
+      if (card.id === selected) {
+        const b = telopBounds(ctx, spec, frame);
+        if (b) {
+          const pad = Math.round(frame.height * 0.008);
+          ctx.save();
+          ctx.strokeStyle = 'rgba(242,193,78,0.95)';
+          ctx.lineWidth = Math.max(2, Math.round(frame.height / 360));
+          ctx.setLineDash([Math.round(frame.height / 90), Math.round(frame.height / 120)]);
+          ctx.strokeRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2);
+          ctx.restore();
+        }
+      }
     }
-  }, [showing, cur, styles, frame, lanes, step]);
+
+    /*
+      位置合わせの線。掴んでいる間だけ、合った所に出す。
+      🔴 出さないと「吸い付いたのか、たまたまそこで止まったのか」が分からない。
+    */
+    for (const gx of guides.current.x) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(120,200,255,0.9)';
+      ctx.lineWidth = Math.max(1, Math.round(frame.height / 540));
+      ctx.beginPath();
+      ctx.moveTo(gx, 0);
+      ctx.lineTo(gx, frame.height);
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (const gy of guides.current.y) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(120,200,255,0.9)';
+      ctx.lineWidth = Math.max(1, Math.round(frame.height / 540));
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.lineTo(frame.width, gy);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }, [showing, cur, styles, frame, lanes, step, selected, specOf]);
 
   // 直したら描き直す
   useEffect(() => {
@@ -510,20 +566,59 @@ export function TelopStage({
     },
     [cur],
   );
+  /**
+   * 掴んで動かす。他のテロップと縦横のラインが合う所で吸い付ける。
+   *
+   * 🔴 吸着は「同じ時間に出ているテロップ」だけを相手にすること。
+   *    画面に出ていないテロップに吸い付いても、並んで見えることはない。
+   * 🔴 吸い付いた所には線を出す。出さないと、吸い付いたのか
+   *    たまたまそこで止まったのかが分からない。
+   */
   const onStagePointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const d = dragPos.current;
       if (!d || !cur) return;
       const rect = (e.target as HTMLElement).getBoundingClientRect();
-      patch(cur.id, {
-        offsetX: Number((d.ox + (e.clientX - d.x) / rect.width).toFixed(4)),
-        offsetY: Number((d.oy + (e.clientY - d.y) / rect.height).toFixed(4)),
-      });
+      let nx = Number((d.ox + (e.clientX - d.x) / rect.width).toFixed(4));
+      let ny = Number((d.oy + (e.clientY - d.y) / rect.height).toFixed(4));
+
+      const ctx = canvasRef.current?.getContext('2d');
+      const gx: number[] = [];
+      const gy: number[] = [];
+      if (ctx && !e.shiftKey) {
+        // 相手（同時に出ている他のテロップ）の縦横のライン
+        const others: TelopBounds[] = [];
+        for (const o of showing) {
+          if (o.id === cur.id) continue;
+          const b = telopBounds(ctx, specOf(o), frame);
+          if (b) others.push(b);
+        }
+        if (others.length > 0) {
+          // 掴んでいる最中の自分の位置。段のずらしは足したまま測る
+          const laneY = laneOffsetY(cur, lanes.get(cur.id) ?? 0, styles, step);
+          const mine = telopBounds(ctx, { ...specOf(cur), offsetX: nx, offsetY: ny + laneY }, frame);
+          if (mine) {
+            // 画面の 1.2% 以内なら合わせる（計算は telop/align.ts）
+            const snap = snapToBoxes(mine, others, frame.width * 0.012, frame.height * 0.012);
+            if (snap.dx !== 0 || snap.guideX !== null) {
+              nx = Number((nx + snap.dx / frame.width).toFixed(4));
+              if (snap.guideX !== null) gx.push(snap.guideX);
+            }
+            if (snap.dy !== 0 || snap.guideY !== null) {
+              ny = Number((ny + snap.dy / frame.height).toFixed(4));
+              if (snap.guideY !== null) gy.push(snap.guideY);
+            }
+          }
+        }
+      }
+      guides.current = { x: gx, y: gy };
+      patch(cur.id, { offsetX: nx, offsetY: ny });
     },
-    [cur, patch],
+    [cur, patch, showing, specOf, frame, lanes, styles, step],
   );
   const endStageDrag = useCallback(() => {
     dragPos.current = null;
+    guides.current = { x: [], y: [] };
   }, []);
 
   /* ---------- タイムライン ---------- */
@@ -611,11 +706,17 @@ export function TelopStage({
   const snapPoints = useMemo(() => {
     const out = new Set<number>();
     for (const r of cutRegions) {
+      /*
+        🔴 カットの**前も後ろも**吸着点にすること。
+           以前は「カット後」の目盛りのときに終わり側を入れていなかったので、
+           切れ目の後ろにテロップの頭を合わせられなかった。
+           潰れて同じ値になる場合は Set が1つにまとめる。
+      */
       out.add(Number(toAxis(r.start).toFixed(3)));
-      if (!applyCuts) out.add(Number(toAxis(r.end).toFixed(3)));
+      out.add(Number(toAxis(r.end).toFixed(3)));
     }
     return [...out].sort((a, b) => a - b);
-  }, [cutRegions, toAxis, applyCuts]);
+  }, [cutRegions, toAxis]);
 
   /** 吸着の入り切り。Final Cut と同じく N キーで切り替える */
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -702,6 +803,24 @@ export function TelopStage({
         case 'delete':
           if (cur) remove(cur.id);
           break;
+        /*
+          Q / W … 選んでいるテロップの端を、いまの再生位置まで詰める。
+          🔴 保存する時刻は元素材のまま。srcTime（元素材の時刻）で入れること。
+             目盛り側の時刻を入れると、カット後で見ているときだけずれる。
+          🔴 潰さないように 0.1 秒は残す。長さ0のテロップは選べなくなる。
+        */
+        case 'trimHead':
+          if (cur) {
+            const t = Math.min(srcTime, cur.srcEnd - 0.1);
+            if (t > 0) patch(cur.id, { srcStart: Number(t.toFixed(3)) });
+          }
+          break;
+        case 'trimTail':
+          if (cur) {
+            const t = Math.max(srcTime, cur.srcStart + 0.1);
+            patch(cur.id, { srcEnd: Number(Math.min(duration, t).toFixed(3)) });
+          }
+          break;
         case 'undo':
           undo();
           break;
@@ -714,7 +833,7 @@ export function TelopStage({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cur, styleNames, restyle, player, fps, remove, copy, paste, duplicate, undo]);
+  }, [cur, styleNames, restyle, player, fps, remove, copy, paste, duplicate, undo, srcTime, patch, duration]);
 
   return (
     <EditorShell
@@ -1244,6 +1363,8 @@ export function TelopStage({
           onTrim={onTrim}
           snapPoints={snapPoints}
           snapEnabled={snapEnabled}
+          // 🔴 1〜9 は雛形の切り替え。コマの高さに奪わせない
+          laneZoomKeys={false}
           extraControls={
             <>
               <button
