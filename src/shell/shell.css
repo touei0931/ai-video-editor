@@ -917,8 +917,15 @@
 
 .fcp-frame img {
   display: block;
+  /*
+    🔴 枠いっぱいに広げること。
+       絵の実寸で置くと、刻み（秒）と絵の幅が合わないぶんが隙間になり、
+       **コマが飛び飛びに見える**。はみ出す分は左右を切る。
+  */
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  width: auto;
+  object-position: center;
 }
 
 /* 音楽（BGM）のクリップ */

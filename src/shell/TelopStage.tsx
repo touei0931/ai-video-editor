@@ -557,14 +557,70 @@ export function TelopStage({
 
   /* ---------- プレビュー上でテロップを掴んで動かす ---------- */
 
-  const dragPos = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  /**
+   * 画面上の1点を、映像の中の座標に直す。
+   *
+   * 🔴 キャンバスは object-fit: contain なので、要素の箱いっぱいには描かれていない。
+   *    箱の大きさで割ると、上下（または左右）の黒帯のぶんだけずれる。
+   *    押した所と掴んだ所がずれる／指より速く動く、として出る。
+   */
+  const stageBox = useCallback(
+    (rect: DOMRect) => {
+      const boxAspect = rect.width / rect.height;
+      const imgAspect = frame.width / frame.height;
+      const drawW = boxAspect > imgAspect ? rect.height * imgAspect : rect.width;
+      const drawH = boxAspect > imgAspect ? rect.height : rect.width / imgAspect;
+      return { drawW, drawH, offX: (rect.width - drawW) / 2, offY: (rect.height - drawH) / 2 };
+    },
+    [frame.width, frame.height],
+  );
+
+  const dragPos = useRef<{ x: number; y: number; ox: number; oy: number; id: string } | null>(null);
+
+  /**
+   * プレビューを押したとき。押した場所にテロップがあれば、それを選ぶ。
+   *
+   * 🔴 タイムラインまで戻らせないこと。
+   *    画面に出ているテロップを直したいのに、選ぶには下の帯から探す、では
+   *    「どれがどれか」を毎回突き合わせることになる。見えているものを押せば選べる。
+   *
+   * 🔴 重なっているときは**上に描かれたほう**を選ぶ。
+   *    見えているのが上のものなので、押した人が指しているのもそちら。
+   */
   const onStagePointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
-      if (!cur) return;
+      const cv = canvasRef.current;
+      const ctx = cv?.getContext('2d');
+      if (!cv || !ctx) return;
+      const rect = cv.getBoundingClientRect();
+      const box = stageBox(rect);
+      const px = ((e.clientX - rect.left - box.offX) / box.drawW) * frame.width;
+      const py = ((e.clientY - rect.top - box.offY) / box.drawH) * frame.height;
+
+      const list = showing.length > 0 ? showing : cur ? [cur] : [];
+      const pad = frame.height * 0.01;
+      let hit: TelopCard | null = null;
+      for (const card of list) {
+        const b = telopBounds(ctx, specOf(card), frame);
+        if (!b) continue;
+        if (px >= b.x - pad && px <= b.x + b.w + pad && py >= b.y - pad && py <= b.y + b.h + pad) {
+          hit = card; // 後に描いたものほど上。最後に当たったものを採る
+        }
+      }
+
+      const target = hit ?? cur;
+      if (!target) return;
+      if (hit && hit.id !== selected) setSelected(hit.id);
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-      dragPos.current = { x: e.clientX, y: e.clientY, ox: cur.offsetX, oy: cur.offsetY };
+      dragPos.current = {
+        x: e.clientX,
+        y: e.clientY,
+        ox: target.offsetX,
+        oy: target.offsetY,
+        id: target.id,
+      };
     },
-    [cur],
+    [cur, showing, specOf, frame, selected, stageBox],
   );
   /**
    * 掴んで動かす。他のテロップと縦横のラインが合う所で吸い付ける。
@@ -577,10 +633,15 @@ export function TelopStage({
   const onStagePointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const d = dragPos.current;
-      if (!d || !cur) return;
+      if (!d) return;
+      // 🔴 掴んだものを動かすこと。押した瞬間に選び直した場合、cur はまだ前のもの
+      const cur2 = cards.find((c) => c.id === d.id);
+      if (!cur2) return;
       const rect = (e.target as HTMLElement).getBoundingClientRect();
-      let nx = Number((d.ox + (e.clientX - d.x) / rect.width).toFixed(4));
-      let ny = Number((d.oy + (e.clientY - d.y) / rect.height).toFixed(4));
+      const box = stageBox(rect);
+      let nx = Number((d.ox + (e.clientX - d.x) / box.drawW).toFixed(4));
+      let ny = Number((d.oy + (e.clientY - d.y) / box.drawH).toFixed(4));
+      const cur = cur2;
 
       const ctx = canvasRef.current?.getContext('2d');
       const gx: number[] = [];
@@ -614,7 +675,7 @@ export function TelopStage({
       guides.current = { x: gx, y: gy };
       patch(cur.id, { offsetX: nx, offsetY: ny });
     },
-    [cur, patch, showing, specOf, frame, lanes, styles, step],
+    [cards, patch, showing, specOf, frame, lanes, styles, step, stageBox],
   );
   const endStageDrag = useCallback(() => {
     dragPos.current = null;
@@ -705,6 +766,15 @@ export function TelopStage({
    */
   const snapPoints = useMemo(() => {
     const out = new Set<number>();
+    /*
+      🔴 テロップ同士の端にも吸い付けること。
+         隣のテロップにぴったり繋げたいときに、1フレームずつ詰めなくて済む。
+         掴んでいる本人の端は Timeline 側で外す（自分の元の位置に戻されるため）。
+    */
+    for (const r of telopRegions) {
+      out.add(Number(r.start.toFixed(3)));
+      out.add(Number(r.end.toFixed(3)));
+    }
     for (const r of cutRegions) {
       /*
         🔴 カットの**前も後ろも**吸着点にすること。
@@ -716,7 +786,7 @@ export function TelopStage({
       out.add(Number(toAxis(r.end).toFixed(3)));
     }
     return [...out].sort((a, b) => a - b);
-  }, [cutRegions, toAxis]);
+  }, [cutRegions, toAxis, telopRegions]);
 
   /** 吸着の入り切り。Final Cut と同じく N キーで切り替える */
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -1385,11 +1455,18 @@ export function TelopStage({
             </>
           }
           tracks={[
+            /*
+              🔴 切る所は**コマの上に重ねる**こと（カット画面と同じ）。
+                 別のレーンに分けていると、テロップが「どの絵の所で切れるのか」を
+                 縦に目で追わないと分からない。重ねれば切る所の絵が暗くなる。
+            */
             {
               id: 'film',
-              label: 'コマ',
-              regions: [],
-              height: 42,
+              label: '素材',
+              regions: cutTrack,
+              overlay: true,
+              scalable: true,
+              height: 56,
               render: (v) => (
                 <Filmstrip
                   {...v}
@@ -1405,7 +1482,6 @@ export function TelopStage({
                  1段が厚いと2〜3枚重ねただけでタイムラインが埋まる。
             */
             { id: 'telop', label: 'テロップ', regions: telopRegions, height: 26, stack: true },
-            { id: 'cut', label: 'カット', regions: cutTrack, showSource: true, height: 30 },
             {
               id: 'wave',
               label: '音',

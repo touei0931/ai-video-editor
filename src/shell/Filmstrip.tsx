@@ -41,8 +41,14 @@ export interface FilmstripProps extends TimelineView {
 /** その拡大率で、何秒ごとにコマを置くか */
 function stepFor(scale: number, thumbW: number): number {
   const sec = thumbW / scale;
-  // 半端な刻みだと拡大のたびに全部作り直しになる。決まった段階に丸める
-  const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+  /*
+    半端な刻みだと拡大のたびに全部作り直しになるので、決まった段階に丸める。
+
+    🔴 段階は細かめに持つこと。粗いと、選ばれた刻みが必要な幅より
+       だいぶ大きくなり、コマとコマの間が**絵1枚分ちかく空く**。
+       「コマが飛び飛びに見える」のはこれ。
+  */
+  const steps = [0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300];
   return steps.find((s) => s >= sec) ?? steps[steps.length - 1];
 }
 
@@ -304,7 +310,13 @@ export function Filmstrip({
             className={`fcp-frame ${url ? '' : 'empty'}`}
             style={{ left: slot.at * scale, width: Math.max(2, step * scale), height }}
           >
-            {url && <img src={url} alt="" draggable={false} style={{ height }} />}
+            {/*
+              🔴 枠いっぱいに広げること。
+                 絵の幅（thumbW）と枠の幅（刻み×拡大率）は必ずしも一致しない。
+                 絵の実寸で置くと、余った分が隙間になって**コマが飛び飛びに見える**。
+                 はみ出す分は左右を切る（object-fit: cover）。
+            */}
+            {url && <img src={url} alt="" draggable={false} />}
           </div>
         );
       })}

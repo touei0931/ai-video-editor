@@ -239,7 +239,7 @@ export function Timeline({
    *    見た目には「吸着が効かない」としか分からない。
    */
   const snapTo = useCallback(
-    (t: number, fine: boolean): { value: number; snapped: number | null } => {
+    (t: number, fine: boolean, skip?: readonly number[]): { value: number; snapped: number | null } => {
       const clamped = Math.min(duration, Math.max(0, t));
       // Shift を押している間は吸着もフレームの丸めも外す（細かく合わせたいとき）
       if (fine) return { value: Number(clamped.toFixed(3)), snapped: null };
@@ -249,6 +249,12 @@ export function Timeline({
         let best: number | null = null;
         let bestD = Infinity;
         for (const p of snapPoints) {
+          /*
+            🔴 掴んでいる本人の端は外すこと。
+               吸着点に自分の端も入っていると、少し動かしただけで
+               **元の位置に引き戻され**、動かせなくなる。
+          */
+          if (skip && skip.some((x) => Math.abs(x - p) < 0.0005)) continue;
           const d = Math.abs(p - clamped);
           if (d <= within && d < bestD) {
             bestD = d;
@@ -421,9 +427,10 @@ export function Timeline({
             始まりだけ見ていると、終わりを切れ目に合わせたいときに合わせられない。
             🔴 吸い付いたほうを優先する。両方吸い付いたら近いほうを選ぶ。
           */
+          const mine = [cur.originStart, cur.originEnd];
           const rawStart = cur.originStart + d;
-          const a = snapTo(rawStart, fine);
-          const b = snapTo(rawStart + len, fine);
+          const a = snapTo(rawStart, fine, mine);
+          const b = snapTo(rawStart + len, fine, mine);
           const startCand = { value: a.value, snapped: a.snapped, at: a.value };
           const endCand = { value: b.value - len, snapped: b.snapped, at: b.value };
 
@@ -441,12 +448,12 @@ export function Timeline({
           return { ...cur, start: s, end: Number((s + len).toFixed(3)) };
         }
         if (cur.edge === 'start') {
-          const r = snapTo(cur.originStart + d, fine);
+          const r = snapTo(cur.originStart + d, fine, [cur.originStart]);
           const s = Math.min(r.value, cur.originEnd - MIN_LEN);
           setSnappedAt(s === r.value ? r.snapped : null);
           return { ...cur, start: Math.max(0, s) };
         }
-        const r = snapTo(cur.originEnd + d, fine);
+        const r = snapTo(cur.originEnd + d, fine, [cur.originEnd]);
         const en = Math.max(r.value, cur.originStart + MIN_LEN);
         setSnappedAt(en === r.value ? r.snapped : null);
         return { ...cur, end: Math.min(duration, en) };
