@@ -1293,3 +1293,20 @@
 .fcp-clip.decor {
   pointer-events: none;
 }
+
+/*
+  切れ目の印（カット箇所を非表示にしているとき）。
+
+  🔴 面ではなく線にすること。面にすると、切っていない所まで
+     暗く塗られているように見え、「非表示にしたのに切る所が見える」になる。
+*/
+.fcp-track-body.on-film .fcp-clip.decor {
+  background: var(--cut);
+  border: none;
+  border-radius: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+.fcp-track-body.on-film .fcp-clip.decor .cap {
+  display: none;
+}

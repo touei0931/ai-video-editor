@@ -199,10 +199,29 @@ export function CutStage({
     });
   }, [decisions, adjust, excludedFillers, history, autoOverride, manualCuts]);
 
+  /* ---------- 取り消し（操作の前の状態を覚えておく）---------- */
+
+  const stateRef = useRef({ decisions, adjust, excludedFillers, autoOverride, manualCuts, history });
+  stateRef.current = { decisions, adjust, excludedFillers, autoOverride, manualCuts, history };
+
+  const past = useRef<(typeof stateRef.current)[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  /** 1つの操作の中で何度呼ばれても、覚えるのは1回だけ */
+  const lastRemember = useRef(0);
+  const remember = useCallback(() => {
+    const now = performance.now();
+    if (now - lastRemember.current < 50) return;
+    lastRemember.current = now;
+    past.current = [...past.current.slice(-29), stateRef.current];
+    setCanUndo(true);
+  }, []);
+
+
   /* ---------- 判定を変える ---------- */
 
   const decide = useCallback(
     (id: string, next: Effective) => {
+      remember();
       const c = byId.get(id);
       if (!c) {
         // 手で足したカットは「残す」＝削除
@@ -229,47 +248,35 @@ export function CutStage({
       // それ以外（自動で決まった分・フィラー）は上書きとして持つ。保留も付けられる
       setAutoOverride((o) => ({ ...o, [id]: next }));
     },
-    [byId, LOW, HIGH],
+    [byId, LOW, HIGH, remember],
   );
 
   /**
    * 直前の操作を取り消す。
    *
-   * 🔴 戻したことを言葉で出すこと。
-   *    黙って状態だけ戻すと、**本当に1つ戻ったのか**が分からない。
-   *    どこを戻したのかも選び直して見せる。
+   * 🔴 「何を変えたか」ではなく「変える前の状態」を覚えること。
+   *    以前は判定（decisions / autoOverride）だけを消していたので、
+   *    **Q / W で足したカットも、端の伸縮も戻らなかった**。
+   *    操作ごとに戻し方を書き分けると、必ず戻せないものが出る。
+   *
+   * 🔴 戻したことを言葉で出すこと。黙って戻すと本当に戻ったのか分からない。
    */
   const undo = useCallback(() => {
-    setHistory((h) => {
-      const last = h[h.length - 1];
-      if (!last) {
-        setNotice('これ以上戻せません');
-        return h;
-      }
-      setDecisions((d) => {
-        const n = { ...d };
-        delete n[last];
-        return n;
-      });
-      setAutoOverride((o) => {
-        const n = { ...o };
-        delete n[last];
-        return n;
-      });
-      setExcludedFillers((s) => {
-        const n = new Set(s);
-        n.delete(last);
-        return n;
-      });
-      setSelected(last);
-      setFocusId(last);
-      const c = byId.get(last);
-      setNotice(
-        `1つ戻しました：${c ? (c.word ? `${KIND_LABEL[c.kind]}「${c.word}」` : KIND_LABEL[c.kind]) : '手動のカット'}`,
-      );
-      return h.slice(0, -1);
-    });
-  }, [byId]);
+    const prev = past.current.pop();
+    if (!prev) {
+      setNotice('これ以上戻せません');
+      setCanUndo(false);
+      return;
+    }
+    setDecisions(prev.decisions);
+    setAdjust(prev.adjust);
+    setExcludedFillers(prev.excludedFillers);
+    setAutoOverride(prev.autoOverride);
+    setManualCuts(prev.manualCuts);
+    setHistory(prev.history);
+    setCanUndo(past.current.length > 0);
+    setNotice('1つ戻しました');
+  }, []);
 
   /* ---------- タイムラインの区間 ---------- */
 
@@ -300,12 +307,13 @@ export function CutStage({
   const nudge = useCallback(
     (edge: 'start' | 'end', frames: number) => {
       if (!selected) return;
+      remember();
       setAdjust((a) => {
         const cur = a[selected] ?? { start: 0, end: 0 };
         return { ...a, [selected]: { ...cur, [edge]: cur[edge] + frames } };
       });
     },
-    [selected],
+    [selected, remember],
   );
 
   /* ---------- 書き出すカット ---------- */
@@ -423,12 +431,18 @@ export function CutStage({
         label: '',
       });
       acc += len;
-      // 切れ目の印。掴みたい端の真上に来るので、触れないようにする（decor）
+      /*
+        切れ目の印。
+        🔴 長さを持たせないこと。秒で幅を決めると、拡大したときに
+           **切っていない所が暗く塗られている**ように見える。
+           非表示にしているのに切る所が見えるのはおかしい。線1本でよい。
+        🔴 掴みたい端の真上に来るので、触れないようにする（decor）。
+      */
       if (i < segments.length - 1) {
         out.push({
           id: `join-${i}`,
           start: Number(acc.toFixed(3)),
-          end: Number((acc + 6 / 40).toFixed(3)),
+          end: Number(acc.toFixed(3)),
           kind: 'cut',
           label: '',
           fixed: true,
@@ -492,6 +506,7 @@ export function CutStage({
    */
   const onTrim = useCallback(
     (id: string, start: number, end: number) => {
+      remember();
       /*
         「カット非表示」で残る区間の端を動かした場合。
         伸ばした分だけ、隣のカットを削る（＝素材が戻る）。
@@ -524,7 +539,7 @@ export function CutStage({
         },
       }));
     },
-    [byId, fps, manualCuts, segments, nudgeCutAt],
+    [byId, fps, manualCuts, segments, nudgeCutAt, remember],
   );
 
   /**
@@ -635,6 +650,7 @@ export function CutStage({
 
   const addManual = useCallback(() => {
     if (markIn === null || markOut === null) return;
+    remember();
     const s = Math.min(markIn, markOut);
     const e = Math.max(markIn, markOut);
     if (e - s < 0.05) return;
@@ -646,7 +662,7 @@ export function CutStage({
     setMarkIn(null);
     setMarkOut(null);
     setSelected(id);
-  }, [markIn, markOut]);
+  }, [markIn, markOut, remember]);
 
   /**
    * 白線より前（後ろ）を、まとめて切る。
@@ -660,6 +676,7 @@ export function CutStage({
   const cutOutside = useCallback(
     (side: 'before' | 'after') => {
       const t = Number(fromPlayTime(player.time).toFixed(3));
+      remember();
       if (side === 'before' && t <= 0.05) {
         setNotice('先頭にいるので、切る所がありません');
         return;
@@ -680,11 +697,11 @@ export function CutStage({
       });
       setNotice(
         side === 'before'
-          ? `先頭から ${clock(t)} までを切ります（戻すときは選んで F）`
-          : `${clock(t)} から末尾までを切ります（戻すときは選んで F）`,
+          ? `先頭から ${clock(t)} までを切りました`
+          : `${clock(t)} から末尾までを切りました`,
       );
     },
-    [player.time, fromPlayTime, duration],
+    [player.time, fromPlayTime, duration, remember],
   );
 
   /**
@@ -851,7 +868,7 @@ export function CutStage({
               編集をやめる
             </button>
           )}
-          <button onClick={undo} disabled={history.length === 0} title="Ctrl+Z">
+          <button onClick={undo} disabled={!canUndo} title="Ctrl+Z">
             元に戻す
           </button>
           <button className="go" onClick={() => onExport?.(approvedCuts)} disabled={exporting}>
@@ -1149,8 +1166,9 @@ export function CutStage({
               >
                 🧲 吸着
               </button>
+            {/* 🔴 見出しは枠の外に。中に入れるとボタンの1つに見える */}
+            <span className="fcp-axis-label">カット箇所</span>
             <div className="fcp-axis" title="切る所を、暗くして見せるか、詰めて見せるか">
-              <span className="fcp-axis-label">カット</span>
               <button
                 className={axis === 'source' ? 'on' : ''}
                 onClick={() => setAxis('source')}

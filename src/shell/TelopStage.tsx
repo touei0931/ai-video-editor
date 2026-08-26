@@ -781,6 +781,15 @@ export function TelopStage({
       out.add(Number(r.start.toFixed(3)));
       out.add(Number(r.end.toFixed(3)));
     }
+    /*
+      🔴 BGM の帯の端も入れること。
+         テロップを BGM の鳴り始めに合わせたい、その逆もある。
+         片方だけ吸い付くと、合わせられる組み合わせを覚えることになる。
+    */
+    for (const r of musicRegions) {
+      out.add(Number(r.start.toFixed(3)));
+      out.add(Number(r.end.toFixed(3)));
+    }
     for (const r of cutRegions) {
       /*
         🔴 カットの**前も後ろも**吸着点にすること。
@@ -792,7 +801,7 @@ export function TelopStage({
       out.add(Number(toAxis(r.end).toFixed(3)));
     }
     return [...out].sort((a, b) => a - b);
-  }, [cutRegions, toAxis, telopRegions]);
+  }, [cutRegions, toAxis, telopRegions, musicRegions]);
 
   /** 吸着の入り切り。Final Cut と同じく N キーで切り替える */
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -1455,8 +1464,9 @@ export function TelopStage({
               >
                 🧲 吸着
               </button>
+            {/* 🔴 見出しは枠の外に。中に入れるとボタンの1つに見える */}
+            <span className="fcp-axis-label">カット箇所</span>
             <div className="fcp-axis" title="切る所を、暗くして見せるか、詰めて見せるか">
-              <span className="fcp-axis-label">カット</span>
               <button
                 className={axis === 'source' ? 'on' : ''}
                 onClick={() => setAxis('source')}

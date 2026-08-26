@@ -230,6 +230,14 @@ export function Timeline({
   const SNAP_PX = 9;
 
   /**
+   * 再生位置。吸着の相手に使う。
+   * 🔴 依存に入れないこと。再生中は毎コマ変わるので、snapTo が毎コマ作り直され、
+   *    ドラッグ中の listener を毎コマ張り替えることになる。
+   */
+  const timeRef = useRef(currentTime);
+  timeRef.current = currentTime;
+
+  /**
    * 吸い付いた先。掴んでいる間だけ線を出して知らせる。
    *
    * 🔴 吸い付いたことが見えないと、思った位置に置けなかったときに
@@ -252,11 +260,16 @@ export function Timeline({
       // Shift を押している間は吸着もフレームの丸めも外す（細かく合わせたいとき）
       if (fine) return { value: Number(clamped.toFixed(3)), snapped: null };
 
-      if (snapEnabled && snapPoints && snapPoints.length > 0) {
+      if (snapEnabled) {
         const within = SNAP_PX / scale;
         let best: number | null = null;
         let bestD = Infinity;
-        for (const p of snapPoints) {
+        /*
+          🔴 白線（再生位置）にも吸い付けること。
+             「ここから出したい」と思って白線を置いたのに、帯の端が
+             1フレームずれるのでは、置いた意味が無い。
+        */
+        for (const p of [...(snapPoints ?? []), timeRef.current]) {
           /*
             🔴 掴んでいる本人の端は外すこと。
                吸着点に自分の端も入っていると、少し動かしただけで
