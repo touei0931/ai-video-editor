@@ -100,7 +100,7 @@ enum FCPXMLWriter {
         if let mediaPath, !mediaPath.isEmpty {
             let url = URL(fileURLWithPath: mediaPath)
             xml += """
-                <asset id="r3" name="\(escape(url.deletingPathExtension().lastPathComponent))" start="0s" duration="\(time(total, fps: fps))" hasVideo="1" hasAudio="1" format="r1">
+                <asset id="r3" name="\(escape(url.deletingPathExtension().lastPathComponent))" start="0s" duration="\(time(total, fps: fps))" hasVideo="1" videoSources="1" hasAudio="1" audioSources="1" audioChannels="2" format="r1">
                   <media-rep kind="original-media" src="\(escape(url.absoluteString))"/>
                 </asset>
 
@@ -201,6 +201,16 @@ enum FCPXMLWriter {
             }
         }
 
+        // 位置を動かしている場合だけ、既定からのずれ分を足す。
+        // テンプレ自身の位置指定を壊さないよう、絶対位置ではなく差分で書く。
+        //
+        // 🔴 param のすぐ後、text より前に置くこと。
+        //    title の中身の並びは決まっていて（param → adjust-transform → text →
+        //    text-style-def）、後ろに回すと Final Cut が読み込みを丸ごと断る。
+        if let transform = positionOffset(base: baseStyle, overrides: overrides) {
+            s += "\(indent)  <adjust-transform position=\"\(transform)\"/>\n"
+        }
+
         // 本文。一部だけ見た目を変えている場合は、その範囲ごとに分けて書く
         s += "\(indent)  <text>\n"
         for (i, run) in runs.enumerated() {
@@ -216,12 +226,6 @@ enum FCPXMLWriter {
             s += "\(indent)  <text-style-def id=\"\(idBase)_\(i)\">\n"
             s += "\(indent)    <text-style \(textStyleAttributes(style: runStyle, template: template))/>\n"
             s += "\(indent)  </text-style-def>\n"
-        }
-
-        // 位置を動かしている場合だけ、既定からのずれ分を足す。
-        // テンプレ自身の位置指定を壊さないよう、絶対位置ではなく差分で書く。
-        if let transform = positionOffset(base: baseStyle, overrides: overrides) {
-            s += "\(indent)  <adjust-transform position=\"\(transform)\"/>\n"
         }
 
         s += "\(indent)</title>\n"

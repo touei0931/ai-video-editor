@@ -154,6 +154,44 @@ check("動かしたものだけ位置指定が付く", xml.components(separatedB
 check("既定からのずれ分で書いている", xml.contains("position=" + quote + "384.0 302.4" + quote),
       "実際: " + (xml.range(of: "position=" + quote + "[^" + quote + "]+" + quote, options: .regularExpression).map { String(xml[$0]) } ?? "無し"))
 
+
+print("")
+print("=== 中身の並び（Final Cut が断らない形か） ===")
+// Final Cut は DTD で中身の並びまで見る。並びが違うと XML ごと読み込みを断り、
+// 「DTD の検証でエラーが起きました」とだけ出て、どのテロップが原因かは分からない。
+func childNames(_ e: XMLElement) -> [String] {
+    return (e.children ?? []).compactMap { ($0 as? XMLElement)?.name }
+}
+if let doc = try? XMLDocument(xmlString: xml, options: []) {
+    let libs = (try? doc.nodes(forXPath: "//library")) as? [XMLElement] ?? []
+    let libAttrs = libs.flatMap { ($0.attributes ?? []).compactMap { $0.name } }
+    check("library に属性を付けていない", libAttrs.isEmpty, "実際 " + libAttrs.joined(separator: ","))
+
+    let seqs = (try? doc.nodes(forXPath: "//sequence")) as? [XMLElement] ?? []
+    let seqKids = Set(seqs.flatMap { childNames($0) })
+    check("sequence の中は spine だけ", seqKids == ["spine"], "実際 " + seqKids.sorted().joined(separator: ","))
+
+    // 決まった並び。param → adjust-transform → text → text-style-def
+    let order = ["param", "adjust-transform", "text", "text-style-def"]
+    let titles = (try? doc.nodes(forXPath: "//title")) as? [XMLElement] ?? []
+    var badTitle = ""
+    for t in titles {
+        let kids = childNames(t)
+        let ranks = kids.map { order.firstIndex(of: $0) ?? -1 }
+        if ranks.contains(-1) {
+            badTitle = "知らない中身: " + kids.joined(separator: " ")
+            break
+        }
+        if ranks != ranks.sorted() {
+            badTitle = "並びが違う: " + kids.joined(separator: " ")
+            break
+        }
+    }
+    check("title の中身が決まった並びになっている", badTitle.isEmpty && !titles.isEmpty, badTitle)
+} else {
+    check("並びを調べられた", false, "XML として読めない")
+}
+
 print("")
 print("=== カットの区切りをまたぐ確認 ===")
 check("カットした分だけ後ろのテロップがずれる", xml.contains("<title"))
