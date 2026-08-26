@@ -918,6 +918,14 @@
 .fcp-frame img {
   display: block;
   /*
+    🔴 絵に触らせないこと。
+       画像は既定で「掴んで持ち出せるもの」なので、タイムラインを
+       ドラッグしたつもりが**画像のドラッグ**になり、カーソルが 🚫 になって
+       動かせなくなる。押下も受け取らせない（掴むのは下の枠）。
+  */
+  pointer-events: none;
+  -webkit-user-drag: none;
+  /*
     🔴 枠いっぱいに広げること。
        絵の実寸で置くと、刻み（秒）と絵の幅が合わないぶんが隙間になり、
        **コマが飛び飛びに見える**。はみ出す分は左右を切る。
@@ -1208,4 +1216,24 @@
 .fcp-track-body.on-film .fcp-clip:hover .fcp-handle,
 .fcp-track-body.on-film .fcp-clip.selected .fcp-handle {
   opacity: 1;
+}
+
+/*
+  タイムラインとプレビューは「掴んで動かす」場所。
+
+  🔴 文字や絵が選択されないようにすること。
+     ドラッグすると青い選択の帯が出たり、絵を掴んだ扱いになって
+     カーソルが 🚫 になり、そのまま動かせなくなる。
+     友達には「ドラッグすると動かない時がある」として見えていた。
+*/
+.fcp-timeline,
+.fcp-stage {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.fcp-timeline img,
+.fcp-stage canvas,
+.fcp-stage video {
+  -webkit-user-drag: none;
 }

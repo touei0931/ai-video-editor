@@ -292,6 +292,24 @@ export function Timeline({
   /** いま見えている範囲。重いレーン（波形・コマ）に渡す */
   const [view, setView] = useState({ left: 0, width: 900 });
 
+  /*
+    見えている範囲は、開いた直後と大きさが変わったときにも測り直すこと。
+
+    🔴 scroll のときだけ測っていたので、**一度もスクロールしないと初期値のまま**だった。
+       初期値は仮の 900px なので、素材のコマが画面の右端まで並ばず
+       「途中で途切れている」ように見える。ペインの幅を変えたときも同じ。
+  */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setView({ left: el.scrollLeft, width: el.clientWidth });
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const startScrub = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
