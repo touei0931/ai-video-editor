@@ -333,6 +333,7 @@ export function Timeline({
 
           {/* 映像のコマ */}
           <div className="tl-lane" style={{ height: 40 }} onMouseDown={seekFromEvent}>
+            <span className="lane-name">コマ</span>
             <div className="lane-shift" style={{ transform: `translateX(${view.from * pxPerSec}px)` }}>
               <Filmstrip
                 videoUrl={videoUrl}
@@ -347,6 +348,7 @@ export function Timeline({
 
           {/* 音の波 */}
           <div className="tl-lane" style={{ height: 46 }} onMouseDown={seekFromEvent}>
+            <span className="lane-name">音</span>
             <div className="lane-shift" style={{ transform: `translateX(${view.from * pxPerSec}px)` }}>
               <canvas ref={waveRef} className="lane-canvas" style={{ height: 46 }} />
             </div>
@@ -358,6 +360,7 @@ export function Timeline({
             style={{ height: clipsLaneHeight }}
             onMouseDown={seekFromEvent}
           >
+            <span className="lane-name">{laneLabel}</span>
             {shown.map((c) => {
               const left = c.start * pxPerSec
               const width = Math.max(2, (c.end - c.start) * pxPerSec)

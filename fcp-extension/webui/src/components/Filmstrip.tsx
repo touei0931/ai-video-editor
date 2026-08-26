@@ -74,6 +74,16 @@ export function Filmstrip({ videoUrl, scale, from, to, height, duration }: Props
       ctx.fillStyle = '#141414'
       ctx.fillRect(0, 0, widthPx, height)
 
+      // 動画が無いときに箱だけ並べると、何の帯なのか分からない縞模様になる。
+      // 素材が来ていないことをそのまま書く。
+      if (!videoUrl) {
+        ctx.fillStyle = '#5a5a5a'
+        ctx.font = '11px -apple-system, "Hiragino Sans", sans-serif'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('映像のコマ（動画を読み込むと表示されます）', 10, height / 2)
+        return
+      }
+
       const first = Math.floor(from / step) * step
       for (let t = first; t < to; t += step) {
         const x = (t - from) * scale
@@ -110,23 +120,56 @@ export function Filmstrip({ videoUrl, scale, from, to, height, duration }: Props
     let cancelled = false
     running.current = true
 
+    /** 目的の時刻へ飛ぶ。返ってこないまま止まらないよう時間切れを設ける */
+    const seekTo = (sec: number) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup()
+          reject(new Error('seek が返ってこない'))
+        }, 8000)
+        const cleanup = () => {
+          clearTimeout(timer)
+          video.removeEventListener('seeked', onSeeked)
+          video.removeEventListener('error', onError)
+        }
+        const onSeeked = () => {
+          cleanup()
+          resolve()
+        }
+        const onError = () => {
+          cleanup()
+          reject(new Error('seek 失敗'))
+        }
+        video.addEventListener('seeked', onSeeked)
+        video.addEventListener('error', onError)
+        video.currentTime = sec
+      })
+
     const grab = async () => {
+      // 🔴 読み込みが終わる前に currentTime を入れても seeked は来ない。
+      //    そこで待たずに進むと、1枚も取り出せないまま黙って止まる
+      //    （エラーも出ないので、原因が分からない形で壊れる）。
+      if (video.readyState < 1) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('読み込みが終わらない')), 15000)
+            video.addEventListener('loadedmetadata', () => { clearTimeout(timer); resolve() }, { once: true })
+            video.addEventListener('error', () => { clearTimeout(timer); reject(new Error('読み込み失敗')) }, { once: true })
+          })
+        } catch {
+          running.current = false
+          return
+        }
+      }
+      if (cancelled) {
+        running.current = false
+        return
+      }
+
       for (const t of wanted) {
         if (cancelled) break
         try {
-          await new Promise<void>((resolve, reject) => {
-            const onSeeked = () => {
-              video.removeEventListener('seeked', onSeeked)
-              resolve()
-            }
-            const onError = () => {
-              video.removeEventListener('error', onError)
-              reject(new Error('seek 失敗'))
-            }
-            video.addEventListener('seeked', onSeeked, { once: true })
-            video.addEventListener('error', onError, { once: true })
-            video.currentTime = Math.min(t, Math.max(0, duration - 0.05))
-          })
+          await seekTo(Math.min(t, Math.max(0, duration - 0.05)))
           const off = document.createElement('canvas')
           off.width = thumbW
           off.height = height
