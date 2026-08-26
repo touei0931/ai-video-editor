@@ -1276,3 +1276,20 @@
   margin: 0;
   color: var(--text-dim, var(--text-faint));
 }
+
+/* 「カット 表示 / 非表示」の見出し */
+.fcp-axis-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 0 6px 0 2px;
+}
+
+/*
+  目印だけの区間（切れ目の印など）。
+
+  🔴 押下を受け取らせないこと。掴みたいつまみの真上に重なるので、
+     受け取ると端を掴めなくなる。
+*/
+.fcp-clip.decor {
+  pointer-events: none;
+}

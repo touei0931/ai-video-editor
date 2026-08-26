@@ -879,24 +879,6 @@ export function TelopStage({
         case 'delete':
           if (cur) remove(cur.id);
           break;
-        /*
-          Q / W … 選んでいるテロップの端を、いまの再生位置まで詰める。
-          🔴 保存する時刻は元素材のまま。srcTime（元素材の時刻）で入れること。
-             目盛り側の時刻を入れると、カット後で見ているときだけずれる。
-          🔴 潰さないように 0.1 秒は残す。長さ0のテロップは選べなくなる。
-        */
-        case 'trimHead':
-          if (cur) {
-            const t = Math.min(srcTime, cur.srcEnd - 0.1);
-            if (t > 0) patch(cur.id, { srcStart: Number(t.toFixed(3)) });
-          }
-          break;
-        case 'trimTail':
-          if (cur) {
-            const t = Math.max(srcTime, cur.srcStart + 0.1);
-            patch(cur.id, { srcEnd: Number(Math.min(duration, t).toFixed(3)) });
-          }
-          break;
         case 'undo':
           undo();
           break;
@@ -1130,14 +1112,6 @@ export function TelopStage({
                 <div>
                   <dt>Ctrl + D</dt>
                   <dd>複製</dd>
-                </div>
-                <div>
-                  <dt>Q</dt>
-                  <dd>頭を再生位置まで詰める</dd>
-                </div>
-                <div>
-                  <dt>W</dt>
-                  <dd>尻を再生位置まで詰める</dd>
                 </div>
                 <div>
                   <dt>Delete</dt>
@@ -1481,12 +1455,21 @@ export function TelopStage({
               >
                 🧲 吸着
               </button>
-            <div className="fcp-axis" title="タイムラインの時間軸">
-              <button className={axis === 'source' ? 'on' : ''} onClick={() => setAxis('source')}>
-                元の素材
+            <div className="fcp-axis" title="切る所を、暗くして見せるか、詰めて見せるか">
+              <span className="fcp-axis-label">カット</span>
+              <button
+                className={axis === 'source' ? 'on' : ''}
+                onClick={() => setAxis('source')}
+                title="切る所を暗くして、元の長さのまま見せる"
+              >
+                表示
               </button>
-              <button className={axis === 'edited' ? 'on' : ''} onClick={() => setAxis('edited')}>
-                カット後
+              <button
+                className={axis === 'edited' ? 'on' : ''}
+                onClick={() => setAxis('edited')}
+                title="切る所を詰めて、出来上がりの長さで見せる"
+              >
+                非表示
               </button>
             </div>
             </>

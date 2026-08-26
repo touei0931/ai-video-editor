@@ -27,6 +27,14 @@ export interface TimelineRegion {
   label?: string;
   /** 端をドラッグできないもの（テロップの帯など） */
   fixed?: boolean;
+  /**
+   * 目印だけで、触れないもの。
+   *
+   * 🔴 触れる区間の上に重なる印は、必ずこれにすること。
+   *    印が押下を受け取ると、その下にある**つまみが掴めなくなる**。
+   *    切れ目の印は、まさに掴みたい端の真上に来る。
+   */
+  decor?: boolean;
 }
 
 export interface TimelineTrack {
@@ -831,6 +839,7 @@ export function Timeline({
                         selectedId === r.id ? 'selected' : '',
                         isDragging ? 'trimming' : '',
                         w < 26 ? 'narrow' : '',
+                        r.decor ? 'decor' : '',
                       ]
                         .filter(Boolean)
                         .join(' ')}

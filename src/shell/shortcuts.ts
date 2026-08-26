@@ -53,10 +53,10 @@ export type ShortcutAction =
   | 'nextPending'
   /** 前の保留へ */
   | 'prevPending'
-  /** テロップの頭を再生位置まで詰める */
-  | 'trimHead'
-  /** テロップの尻を再生位置まで詰める */
-  | 'trimTail'
+  /** 再生位置より前を、頭からまとめて切る */
+  | 'cutBefore'
+  /** 再生位置より後ろを、末尾までまとめて切る */
+  | 'cutAfter'
   /** 素材（コマ）のレーンを高くする */
   | 'laneBigger'
   /** 素材（コマ）のレーンを低くする */
@@ -81,7 +81,7 @@ export const SHORTCUT_HELP: { keys: string; label: string }[] = [
   { keys: 'F', label: 'ここは残す' },
   { keys: 'G', label: '保留にする' },
   { keys: '↓ / ↑', label: '次 / 前の保留へ' },
-  { keys: 'Q / W', label: 'テロップの頭 / 尻を再生位置まで詰める' },
+  { keys: 'Q / W', label: '白線より前 / 後ろをまとめて切る（カット画面）' },
   { keys: '1 / 2', label: '素材のコマを大きく / 小さく（テロップ画面を除く）' },
 ];
 
@@ -173,14 +173,15 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
     case 'n':
       return 'toggleSnap';
     /*
-      Q / W はテロップの端を再生位置まで詰める。
-      🔴 「頭側を切る」は開始を動かす、「後ろ側を切る」は終了を動かす。
-         端をドラッグで合わせるより、聞きながら押すほうが速い。
+      Q / W は「ここより前（後ろ）を丸ごと切る」。
+
+      🔴 素材の頭と尻を落とす操作は、範囲を指定するまでもない。
+         I → O → Enter の3手を、聞きながら1手で済ませる。
     */
     case 'q':
-      return 'trimHead';
+      return 'cutBefore';
     case 'w':
-      return 'trimTail';
+      return 'cutAfter';
     /*
       素材のコマを大きく / 小さく。
       🔴 テロップ画面では雛形の切り替え（1〜9）が先。

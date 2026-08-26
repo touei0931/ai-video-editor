@@ -297,28 +297,6 @@ export function CutStage({
     return out.sort((a, b) => a.start - b.start);
   }, [candidates, adjust, fps, effective, manualCuts]);
 
-  /**
-   * 端をドラッグし終えたとき。
-   * 🔴 adjust（フレーム単位のずらし量）に直して持つこと。
-   *    ここを秒のまま持つと withTrim と二重にずれる。
-   */
-  const onTrim = useCallback(
-    (id: string, start: number, end: number) => {
-      const base =
-        byId.get(id) ??
-        (manualCuts.find((m) => m.id === id) as { srcStart: number; srcEnd: number } | undefined);
-      if (!base) return;
-      setAdjust((a) => ({
-        ...a,
-        [id]: {
-          start: Math.round((start - base.srcStart) * fps),
-          end: Math.round((end - base.srcEnd) * fps),
-        },
-      }));
-    },
-    [byId, fps, manualCuts],
-  );
-
   const nudge = useCallback(
     (edge: 'start' | 'end', frames: number) => {
       if (!selected) return;
@@ -424,21 +402,130 @@ export function CutStage({
    */
   const displayRegions = useMemo<TimelineRegion[]>(() => {
     if (axis === 'source' || segments.length === 0) return regions;
-    const mark = 6 / 40; // 拡大率に依らず細く見える程度の長さ
-    return regions.map((r) => {
-      const at = toOutput(segments, r.start);
-      if (r.kind === 'cut' || r.kind === 'hold') {
-        /*
-          🔴 印にしても中身（何を切ったのか）は消さないこと。
-             以前はここで label を空にしていたので、切る・保留にした箇所は
-             **ただの色の四角**になり、選んでも何だったのか分からなかった。
-             幅が足りないときは、タイムライン側が名札として横に出す。
-        */
-        return { ...r, start: at, end: at + mark, fixed: true };
+
+    /*
+      カットを「非表示」にしているときは、**残っている素材そのもの**を並べる。
+
+      🔴 残る区間をクリップとして出すこと。
+         切る区間を細い印にしただけだと、掴めるのは「切る所」しかない。
+         編集ソフトでカットを戻すのは、**残っている側の端を伸ばす**操作。
+         残る区間が掴めて初めて、その操作ができる。
+    */
+    const out: TimelineRegion[] = [];
+    let acc = 0;
+    segments.forEach((sg, i) => {
+      const len = sg.srcEnd - sg.srcStart;
+      out.push({
+        id: `seg-${i}`,
+        start: Number(acc.toFixed(3)),
+        end: Number((acc + len).toFixed(3)),
+        kind: 'keep',
+        label: '',
+      });
+      acc += len;
+      // 切れ目の印。掴みたい端の真上に来るので、触れないようにする（decor）
+      if (i < segments.length - 1) {
+        out.push({
+          id: `join-${i}`,
+          start: Number(acc.toFixed(3)),
+          end: Number((acc + 6 / 40).toFixed(3)),
+          kind: 'cut',
+          label: '',
+          fixed: true,
+          decor: true,
+        });
       }
-      return { ...r, start: at, end: toOutput(segments, r.end) };
     });
+    return out;
   }, [regions, axis, segments]);
+
+  /**
+   * 切れ目に接しているカットの端を、秒単位で動かす。
+   *
+   * 🔴 全部戻しきったら、そのカットは「残す」にすること。
+   *    長さ0の区間を残すと、掴めない印だけがタイムラインに残る。
+   *
+   * 戻り値は、動かす相手が見つかったかどうか。
+   */
+  const nudgeCutAt = useCallback(
+    (atSrc: number, side: 'left' | 'right', deltaSec: number): boolean => {
+      const list = regions.filter((r) => r.kind === 'cut' || r.kind === 'hold');
+      const target =
+        side === 'left'
+          ? list.find((r) => Math.abs(r.end - atSrc) < 0.03)
+          : list.find((r) => Math.abs(r.start - atSrc) < 0.03);
+      if (!target) return false;
+
+      const base =
+        byId.get(target.id) ??
+        (manualCuts.find((m) => m.id === target.id) as
+          | { srcStart: number; srcEnd: number }
+          | undefined);
+      if (!base) return false;
+
+      const cur = adjust[target.id] ?? { start: 0, end: 0 };
+      const edge = side === 'left' ? 'end' : 'start';
+      const next = { ...cur, [edge]: cur[edge] + Math.round(deltaSec * fps) };
+      const newStart = base.srcStart + next.start / fps;
+      const newEnd = base.srcEnd + next.end / fps;
+
+      if (newEnd - newStart <= 0.04) {
+        setAdjust((a) => {
+          const n = { ...a };
+          delete n[target.id];
+          return n;
+        });
+        decide(target.id, 'keep');
+        setNotice('カットを戻しました');
+        return true;
+      }
+      setAdjust((a) => ({ ...a, [target.id]: next }));
+      return true;
+    },
+    [regions, byId, manualCuts, adjust, fps, decide],
+  );
+
+  /**
+   * 端をドラッグし終えたとき。
+   * 🔴 adjust（フレーム単位のずらし量）に直して持つこと。
+   *    ここを秒のまま持つと withTrim と二重にずれる。
+   */
+  const onTrim = useCallback(
+    (id: string, start: number, end: number) => {
+      /*
+        「カット非表示」で残る区間の端を動かした場合。
+        伸ばした分だけ、隣のカットを削る（＝素材が戻る）。
+      */
+      if (id.startsWith('seg-')) {
+        const i = Number(id.slice(4));
+        const sg = segments[i];
+        if (!sg) return;
+        let acc = 0;
+        for (let k = 0; k < i; k++) acc += segments[k].srcEnd - segments[k].srcStart;
+        const len = sg.srcEnd - sg.srcStart;
+        const dStart = start - acc;
+        const dEnd = end - (acc + len);
+        let moved = false;
+        if (Math.abs(dStart) > 0.005) moved = nudgeCutAt(sg.srcStart, 'left', dStart) || moved;
+        if (Math.abs(dEnd) > 0.005) moved = nudgeCutAt(sg.srcEnd, 'right', dEnd) || moved;
+        if (!moved) setNotice('この端の先には、切った所がありません');
+        return;
+      }
+
+      const base =
+        byId.get(id) ??
+        (manualCuts.find((m) => m.id === id) as { srcStart: number; srcEnd: number } | undefined);
+      if (!base) return;
+      setAdjust((a) => ({
+        ...a,
+        [id]: {
+          start: Math.round((start - base.srcStart) * fps),
+          end: Math.round((end - base.srcEnd) * fps),
+        },
+      }));
+    },
+    [byId, fps, manualCuts, segments, nudgeCutAt],
+  );
 
   /**
    * 吸着させる時刻。カット画面では**他のカットの端**に合わせられるようにする。
@@ -562,6 +649,45 @@ export function CutStage({
   }, [markIn, markOut]);
 
   /**
+   * 白線より前（後ろ）を、まとめて切る。
+   *
+   * 🔴 素材の頭と尻を落とす操作は、範囲を指定するまでもない。
+   *    I → O → Enter の3手を1手にする。聞きながら押せる。
+   *
+   * 🔴 押すたびに足さないこと。もう頭からのカットがあるなら、その終わりを
+   *    動かす。押し直すたびに区間が増えると、どれが効いているのか分からなくなる。
+   */
+  const cutOutside = useCallback(
+    (side: 'before' | 'after') => {
+      const t = Number(fromPlayTime(player.time).toFixed(3));
+      if (side === 'before' && t <= 0.05) {
+        setNotice('先頭にいるので、切る所がありません');
+        return;
+      }
+      if (side === 'after' && t >= duration - 0.05) {
+        setNotice('末尾にいるので、切る所がありません');
+        return;
+      }
+      setManualCuts((m) => {
+        const head = side === 'before'
+          ? m.find((x) => x.srcStart <= 0.001)
+          : m.find((x) => x.srcEnd >= duration - 0.001);
+        const rest = m.filter((x) => x !== head);
+        const next = side === 'before'
+          ? { id: head?.id ?? `manual-head-${Date.now()}`, srcStart: 0, srcEnd: t }
+          : { id: head?.id ?? `manual-tail-${Date.now()}`, srcStart: t, srcEnd: duration };
+        return [...rest, next].sort((a, b) => a.srcStart - b.srcStart);
+      });
+      setNotice(
+        side === 'before'
+          ? `先頭から ${clock(t)} までを切ります（戻すときは選んで F）`
+          : `${clock(t)} から末尾までを切ります（戻すときは選んで F）`,
+      );
+    },
+    [player.time, fromPlayTime, duration],
+  );
+
+  /**
    * 次（前）の保留へ移る。
    *
    * 🔴 移った先を「選んで・寄って・その少し手前から流す」までやること。
@@ -668,6 +794,12 @@ export function CutStage({
         case 'markHold':
           if (selected) decide(selected, 'hold');
           break;
+        case 'cutBefore':
+          cutOutside('before');
+          break;
+        case 'cutAfter':
+          cutOutside('after');
+          break;
         case 'toggleSnap':
           setSnapEnabled((v) => !v);
           break;
@@ -683,7 +815,7 @@ export function CutStage({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, decide, undo, player, fps, goPending]);
+  }, [selected, decide, undo, player, fps, goPending, cutOutside]);
 
   /* ---------- 手で範囲を足す（Enter / Esc）---------- */
 
@@ -945,6 +1077,14 @@ export function CutStage({
                   <dt>Esc</dt>
                   <dd>選んだ範囲をやめる</dd>
                 </div>
+                <div>
+                  <dt>Q</dt>
+                  <dd>白線より前を、頭からまとめて切る</dd>
+                </div>
+                <div>
+                  <dt>W</dt>
+                  <dd>白線より後ろを、末尾までまとめて切る</dd>
+                </div>
               </dl>
               <div className="fcp-dim" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 ここから {markIn === null ? '—' : clock(markIn)} / ここまで{' '}
@@ -957,6 +1097,11 @@ export function CutStage({
 
             <p className="fcp-dim">
               タイムラインのクリップを選ぶと、ここで細かく直せます。
+            </p>
+            <p className="fcp-dim">
+              <strong>カットを戻したいとき</strong>は、<strong>カット「非表示」</strong>に切り替えて、
+              残っている素材の端を切れ目のほうへ<strong>ドラッグ</strong>してください。
+              引いた分だけ切った素材が戻り、全部戻すとそのカットは無くなります。
             </p>
 
             {/* 🔴 一番下に置く。最初に一度決めたら、あとはめったに触らない */}
@@ -1004,12 +1149,21 @@ export function CutStage({
               >
                 🧲 吸着
               </button>
-            <div className="fcp-axis" title="タイムラインの時間軸">
-              <button className={axis === 'source' ? 'on' : ''} onClick={() => setAxis('source')}>
-                元の素材
+            <div className="fcp-axis" title="切る所を、暗くして見せるか、詰めて見せるか">
+              <span className="fcp-axis-label">カット</span>
+              <button
+                className={axis === 'source' ? 'on' : ''}
+                onClick={() => setAxis('source')}
+                title="切る所を暗くして、元の長さのまま見せる"
+              >
+                表示
               </button>
-              <button className={axis === 'edited' ? 'on' : ''} onClick={() => setAxis('edited')}>
-                カット後
+              <button
+                className={axis === 'edited' ? 'on' : ''}
+                onClick={() => setAxis('edited')}
+                title="切る所を詰めて、出来上がりの長さで見せる"
+              >
+                非表示
               </button>
             </div>
             </>
