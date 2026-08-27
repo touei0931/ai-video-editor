@@ -25,6 +25,9 @@
  */
 
 import { isGap, layout, placedTelops, timelineDuration, type Project } from './project';
+import { fcpLook } from '../telop/render';
+import { macFontOf } from '../telop/fonts';
+import { resolveStyle } from '../telop/style';
 
 export const FCPXML_VERSION = '1.13';
 
@@ -88,9 +91,15 @@ function framesToStr(f: number, fps: number): string {
 }
 
 export function buildFCPXML(project: Project, options: ExportOptions = {}): string {
-  const fps = options.fps ?? 30;
-  const width = options.width ?? 1920;
-  const height = options.height ?? 1080;
+  /*
+    🔴 既定はプロジェクトの決めごとから取ること。
+       ここで 1920x1080 / 30fps を書き込むと、縦のプロジェクトを
+       書き出したときに Final Cut 側だけ横になる。
+  */
+  const fps = options.fps ?? project.settings.fps;
+  const width = options.width ?? project.settings.width;
+  const height = options.height ?? project.settings.height;
+  const frame = { width, height };
   const name = options.name ?? 'PAC';
   const { num, den } = frameDuration(fps);
 
@@ -233,17 +242,49 @@ export function buildFCPXML(project: Project, options: ExportOptions = {}): stri
       const offset = c.srcStart + (s - c.start);
       styleSeq += 1;
       const sid = `ts_${startF}_${styleSeq}`;
-      const size = t.style === 'emphasis' ? 96 : 72;
-      const color = t.style === 'emphasis' ? '1 0.847 0.29 1' : '1 1 1 1';
+
+      /*
+        見た目は雛形から写す。
+        🔴 「強調かどうか」の2択で決め打ちしないこと。
+           名前を付けた雛形は何組でも作れる。決め打ちだと、
+           **画面で整えた見た目と、Final Cut で開いた見た目が別物**になる。
+           しかも向こうで開くまで気付けない。
+        🔴 完全一致はしない（Canvas と Basic Title は別物）。近い所までは寄せる。
+      */
+      const resolved = resolveStyle(project.styles, t.style);
+      const look = fcpLook(
+        resolved,
+        resolved.position,
+        frame,
+        macFontOf(resolved.fontFamily, resolved.bold),
+      );
+      const rgb = (v: [number, number, number]) => `${v[0]} ${v[1]} ${v[2]} 1`;
+
       inner.push(
         `              <title ref="rT" lane="${telopLane}" name="${esc(t.text)}"` +
           ` offset="${timeStr(offset, fps)}" start="3600s" duration="${timeStr(e - s, fps)}">`,
         `                <text><text-style ref="${sid}">${esc(t.text)}</text-style></text>`,
-        `                <text-style-def id="${sid}"><text-style font="Hiragino Sans"` +
-          ` fontSize="${size}" fontColor="${color}" alignment="center"` +
-          ' strokeColor="0 0 0 1" strokeWidth="6.00"/></text-style-def>',
+        `                <text-style-def id="${sid}"><text-style` +
+          ` font="${esc(look.font)}" fontFace="${esc(look.font_face)}"` +
+          ` fontSize="${Math.round(look.font_size)}" fontColor="${rgb(look.color)}"` +
+          ` alignment="center"${look.italic ? ' italic="1"' : ''}` +
+          (look.stroke_color
+            ? ` strokeColor="${rgb(look.stroke_color)}" strokeWidth="${look.stroke_width.toFixed(2)}"`
+            : '') +
+          '/></text-style-def>',
         '              </title>',
       );
+    }
+
+    /*
+      クリップごとの音量。
+      🔴 これを落とすと、PAC で揃えた声の大きさが Final Cut では全部 0dB に戻る。
+         対談で2人の声量が違うときは、向こうでやり直しになる。
+      🔴 adjust-volume は asset-clip の**中身の先頭**に置くこと（DTD の並び）。
+    */
+    const gain = c.gainDb ?? 0;
+    if (gain !== 0) {
+      inner.unshift(`              <adjust-volume amount="${gain.toFixed(1)}dB"/>`);
     }
 
     const open =

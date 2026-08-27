@@ -129,7 +129,28 @@ function base() {
   check('参照先の定義が全部ある', refs.every((r) => ids.includes(r)), `${refs} / ${ids}`);
 
   check('記号がエスケープされている', xml.includes('&lt;&amp;&gt;'));
-  check('強調は大きい', xml.includes('fontSize="96"'));
+  /*
+    🔴 見た目は雛形から写すこと。決め打ちの数字と比べない。
+       以前は fontSize="96" と直に比べていたので、
+       雛形の大きさを変えても検査は緑のままだった。
+       ここで確かめたいのは「強調は通常より大きい」という関係。
+  */
+  const looks = xml.split('<title ').slice(1).map((part) => ({
+    name: /name="([^"]*)"/.exec(part)?.[1] ?? '',
+    size: Number(/fontSize="(\d+)"/.exec(part)?.[1] ?? 0),
+    color: /fontColor="([^"]+)"/.exec(part)?.[1] ?? '',
+  }));
+  const normal = looks.find((l) => l.name.startsWith('ふつう'));
+  // 本文に記号が入っているので、名前はエスケープされた形になる
+  const strong = looks.find((l) => l.name.startsWith('つよい'));
+  check('通常と強調が両方ある', !!normal && !!strong, JSON.stringify(looks));
+  check('どちらも大きさが入っている', (normal?.size ?? 0) > 0 && (strong?.size ?? 0) > 0,
+        JSON.stringify(looks));
+  check('強調は通常より大きい', (strong?.size ?? 0) > (normal?.size ?? 0),
+        `通常 ${normal?.size} / 強調 ${strong?.size}`);
+  // 🔴 色も雛形から来ること。両方とも白のままなら写せていない
+  check('強調は色が違う', (strong?.color ?? '') !== (normal?.color ?? ''),
+        `通常 ${normal?.color} / 強調 ${strong?.color}`);
   check('雛形の内部 start を使う', xml.includes('start="3600s"'));
 
   /*
@@ -138,6 +159,59 @@ function base() {
   */
   check('2本目のテロップが親の時間で入る', xml.includes('offset="156000/3000s"'),
         (xml.match(/name="つよい[^"]*"[^>]*offset="[^"]+"/) || ['無し'])[0]);
+}
+
+/* ------------------------------------------------------- クリップの音量 */
+
+{
+  let p = base();
+  p = appendToMain(p, 'a', 0, 10);
+  p = appendToMain(p, 'b', 0, 5);
+  const id = p.clips[0].id;
+  p = { ...p, clips: p.clips.map((c) => (c.id === id ? { ...c, gainDb: -6 } : c)) };
+  const xml = buildFCPXML(p, { fps: 30 });
+
+  /*
+    🔴 音量を落とすと、PAC で揃えた声の大きさが Final Cut では全部 0dB に戻る。
+       対談で2人の声量が違うときは、向こうでやり直しになる。
+  */
+  check('音量が書き出される', xml.includes('<adjust-volume amount="-6.0dB"/>'),
+        (xml.match(/<adjust-volume[^>]*>/) || ['無し'])[0]);
+  check('音量を触っていないクリップには出さない',
+        (xml.match(/<adjust-volume/g) || []).length === 1,
+        `実際 ${(xml.match(/<adjust-volume/g) || []).length} 個`);
+
+  /*
+    🔴 並びを守ること。FCPXML の asset-clip では
+       adjust-* は、ぶら下げたもの（重ね・テロップ）より**前**に来る。
+       逆にすると DTD の検証で弾かれ、XML ごと読み込みを断られる。
+  */
+  let q = base();
+  q = appendToMain(q, 'a', 0, 20);
+  q = placeOnLane(q, 'v2', 'b', 5, 0, 4);
+  const qid = q.clips[0].id;
+  q = { ...q, clips: q.clips.map((c) => (c.id === qid ? { ...c, gainDb: 3 } : c)) };
+  const xml2 = buildFCPXML(q, { fps: 30 });
+  check('音量はぶら下げたものより前',
+        xml2.indexOf('<adjust-volume') < xml2.indexOf('lane="1"'),
+        `音量 ${xml2.indexOf('<adjust-volume')} / 重ね ${xml2.indexOf('lane="1"')}`);
+}
+
+/* ------------------------------------------------- 大きさは決めごとから */
+
+{
+  let p = base();
+  p = { ...p, settings: { ...p.settings, width: 1080, height: 1920, fps: 24 } };
+  p = appendToMain(p, 'a', 0, 5);
+  const xml = buildFCPXML(p);
+  /*
+    🔴 ここで 1920x1080 / 30fps を決め打ちすると、
+       縦のプロジェクトを書き出したときに Final Cut 側だけ横になる。
+  */
+  check('プロジェクトの大きさが使われる', xml.includes('width="1080" height="1920"'),
+        (xml.match(/width="\d+" height="\d+"/) || ['無し'])[0]);
+  check('プロジェクトのコマ数が使われる', xml.includes('FFVideoFormat1920p24'),
+        (xml.match(/name="FFVideoFormat[^"]*"/) || ['無し'])[0]);
 }
 
 /* ------------------------------------------------------------ 穴（隙間） */
