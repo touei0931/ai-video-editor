@@ -35,6 +35,7 @@
     "t4": "electron . --t4-sidecar",
     "sidecar:dev": "python -m sidecar",
     "t5": "electron . --t5-telop",
+    "t6": "electron . --t6-timeline",
     "sidecar:build": "cd packaging && pyinstaller sidecar.spec --noconfirm --distpath ../dist-sidecar --workpath ../build-sidecar",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",

@@ -18,6 +18,14 @@ contextBridge.exposeInMainWorld('t2', {
   submit: (payload: unknown) => ipcRenderer.invoke('t2:submit', payload),
 });
 
+/** 並べたタイムラインの書き出しを通しで確かめる（npm run t6） */
+contextBridge.exposeInMainWorld('timelineE2E', {
+  workDir: () => ipcRenderer.invoke('timelineE2E:workDir'),
+  outPath: () => ipcRenderer.invoke('timelineE2E:outPath'),
+  samples: () => ipcRenderer.invoke('timelineE2E:samples'),
+  submit: (payload: unknown) => ipcRenderer.invoke('timelineE2E:submit', payload),
+});
+
 contextBridge.exposeInMainWorld('telopE2E', {
   workDir: () => ipcRenderer.invoke('telopE2E:workDir'),
   mediaProbePath: () => ipcRenderer.invoke('telopE2E:mediaProbePath'),

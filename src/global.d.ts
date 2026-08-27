@@ -27,6 +27,12 @@ declare global {
     t2: {
       submit: (payload: unknown) => Promise<void>;
     };
+    timelineE2E: {
+      workDir: () => Promise<string>;
+      outPath: () => Promise<string>;
+      samples: () => Promise<string[]>;
+      submit: (payload: unknown) => Promise<void>;
+    };
     telopE2E: {
       workDir: () => Promise<string>;
       mediaProbePath: () => Promise<string>;

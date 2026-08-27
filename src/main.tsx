@@ -8,6 +8,7 @@ import { TelopE2E } from './telop/TelopE2E';
 import { ShellDemo } from './shell/ShellDemo';
 import { TimelineDemo } from './timeline/TimelineDemo';
 import { PacEditor } from './timeline/PacEditor';
+import { TimelineE2E } from './timeline/TimelineE2E';
 import { CutStage } from './shell/CutStage';
 import { TelopStage } from './shell/TelopStage';
 import { generateMockCandidates } from './review/mockCandidates';
@@ -65,6 +66,7 @@ function Root() {
   if (mode === 't1') return <T1Wysiwyg />;
   if (mode === 't2') return <T2Budoux />;
   if (mode === 'telop-e2e') return <TelopE2E />;
+  if (mode === 'timeline-e2e') return <TimelineE2E />;
   // 作り直した骨格の見た目と操作感を、実素材なしで確かめる（src/shell/ShellDemo.tsx）
   if (mode === 'shell') return <ShellDemo />;
   // 作り直したメインの編集画面（素材を並べる方）を触る（src/timeline/）

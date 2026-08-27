@@ -28,6 +28,14 @@ function extOf(path: string): string {
   return dot < 0 ? '' : name.slice(dot);
 }
 
+/**
+ * 画の大きさが来るのを待つ上限。
+ *
+ * 🔴 短くしておくこと。これは「あれば嬉しい」情報で、無くても素材は使える。
+ *    長くすると、見えていない窓では素材1本ごとにこの秒数だけ止まる。
+ */
+const SIZE_WAIT_MS = 1500;
+
 export class ProbeError extends Error {}
 
 /**
@@ -40,15 +48,25 @@ export function probeAsset(path: string, timeoutMs = 20000): Promise<Asset> {
 
   return new Promise<Asset>((resolve, reject) => {
     const el = document.createElement(audioOnly ? 'audio' : 'video');
-    el.preload = 'metadata';
+    /*
+      コマが1枚 decode されないと videoWidth が入らないことがあるので、
+      映像は 'auto' で読む。読み終わり次第 src を外すので溜まりはしない。
+    */
+    el.preload = audioOnly ? 'metadata' : 'auto';
     el.muted = true;
 
     let done = false;
+    /** 大きさを待ち直したか。何度も待たないための印 */
+    let waited = false;
+    let sizeTimer: ReturnType<typeof setTimeout> | undefined;
     const finish = (fn: () => void) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      clearTimeout(sizeTimer);
       el.removeEventListener('loadedmetadata', onLoaded);
+      el.removeEventListener('loadeddata', onSized);
+      el.removeEventListener('resize', onSized);
       el.removeEventListener('error', onError);
       // 🔴 参照を切らないと、素材を足すたびに読み込み済みの動画が溜まる
       el.src = '';
@@ -59,6 +77,23 @@ export function probeAsset(path: string, timeoutMs = 20000): Promise<Asset> {
       () => finish(() => reject(new ProbeError('読み込みに時間がかかりすぎました'))),
       timeoutMs,
     );
+
+    /*
+      画の大きさは「取れたら使う」。**待ち続けないこと**。
+
+      🔴 loadedmetadata の時点で videoWidth が 0 のことがある。
+         見えていない窓（画面に出していない BrowserWindow やブラウザの裏タブ）では
+         コマが decode されないので、待っても永久に来ない。
+         実際に検証用の窓で 20 秒待って時間切れになった。
+      🔴 そして、取れなかったことを「映像が無い」にしないこと。
+         そうすると**書き出しがその素材のぶんだけ真っ黒になる**。
+         エラーは出ないので、出来た動画を最後まで見るまで気付けない（T6 で捕まえた）。
+         大きさはプロジェクトの初期値を決める手掛かりに使うだけで、
+         取れなければ既定（1920x1080）のままにする。
+    */
+    const onSized = () => {
+      if ((el as HTMLVideoElement).videoWidth > 0) onLoaded();
+    };
 
     const onLoaded = () => {
       const duration = el.duration;
@@ -73,13 +108,31 @@ export function probeAsset(path: string, timeoutMs = 20000): Promise<Asset> {
       }
       const width = (el as HTMLVideoElement).videoWidth ?? 0;
       const height = (el as HTMLVideoElement).videoHeight ?? 0;
+
+      // まだ分からないなら、少しだけ待つ。来なければ大きさ無しで進む
+      if (!audioOnly && width === 0 && !waited) {
+        waited = true;
+        el.addEventListener('loadeddata', onSized);
+        el.addEventListener('resize', onSized);
+        sizeTimer = setTimeout(onLoaded, SIZE_WAIT_MS);
+        return;
+      }
+      clearTimeout(sizeTimer);
+
       finish(() =>
         resolve({
           id: newId('asset'),
           path,
           name: baseName(path),
           duration: Number(duration.toFixed(3)),
-          hasVideo: !audioOnly && width > 0,
+          /*
+            🔴 大きさが取れなかったことを「映像が無い」にしないこと。
+               入れ物（拡張子）が動画なら映像はある前提で扱う。
+               取り違えると、書き出しがその素材のぶんだけ黒くなる。
+               逆（音だけの .mp4 を映像ありと見なす）は、
+               書き出しで ffmpeg が「映像の流れが無い」と言って止まるので気付ける。
+          */
+          hasVideo: !audioOnly,
           ...(width > 0 && height > 0 ? { width, height } : {}),
           /*
             🔴 音の有無は当てにできない。

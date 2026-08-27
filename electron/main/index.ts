@@ -25,6 +25,7 @@ import { runT1 } from './t1.js';
 import { runT2 } from './t2.js';
 import { runT4 } from './t4.js';
 import { runTelopE2E } from './telop-e2e.js';
+import { runTimelineE2E } from './timeline-e2e.js';
 import { buildMenu, type MenuContext } from './menu.js';
 
 // バンドル後は import.meta.url が当てにならないので、基準は必ず app.getAppPath() を使う
@@ -898,6 +899,21 @@ app
         .catch((e: Error) => {
           writeArtifact('t5-error.json', { message: e.message, stack: e.stack });
           console.error('T5 に失敗しました:', e);
+          sidecar.stop();
+          app.exit(1);
+        });
+      return;
+    }
+
+    if (process.argv.includes('--t6-timeline')) {
+      void runTimelineE2E(appRoot(), process.env.VITE_DEV_SERVER_URL)
+        .then((code) => {
+          sidecar.stop();
+          app.exit(code);
+        })
+        .catch((e: Error) => {
+          writeArtifact('t6-error.json', { message: e.message, stack: e.stack });
+          console.error('T6 に失敗しました:', e);
           sidecar.stop();
           app.exit(1);
         });

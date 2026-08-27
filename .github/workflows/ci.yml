@@ -226,6 +226,27 @@ jobs:
           name: t5-${{ matrix.os }}
           path: phase0-artifacts/t5/
           if-no-files-found: warn
+      # 🔴🔴 T6: 並べたタイムラインの書き出しを、アプリの形のまま通す。
+      #    素材を読む → テロップを描く → PNG を保存 → サイドカーへ渡す、の道は
+      #    ブラウザでは走らせられない（media:// も保存も Electron のもの）。
+      #    途中が切れていても型検査もテストも通る。
+      #    実際、素材が「映像なし」と判定されて**真っ黒な動画**が出来ていたのを
+      #    これだけが捕まえた（ffmpeg は成功し、尺も大きさも音も合っていた）。
+      - run: npm run t6
+      - name: T6 の結果を確認
+        shell: bash
+        env:
+          # T5 と同じ理由。Windows の Python は既定で cp1252 に書き出そうとする
+          PYTHONIOENCODING: utf-8
+        run: |
+          python -c "import json;d=json.load(open('phase0-artifacts/t6/t6-result.json',encoding='utf-8'));print(json.dumps(d,ensure_ascii=False,indent=2))"
+          grep -q '"ok": *true' phase0-artifacts/t6/t6-result.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t6-${{ matrix.os }}
+          path: phase0-artifacts/t6/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:
