@@ -811,3 +811,28 @@
   padding: 3px 8px;
   font-size: 11px;
 }
+
+/* 選んでいる区間の表示 */
+.tl-range-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(74, 158, 255, 0.16);
+  color: var(--accent, #4a9eff);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-range-note button {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+}

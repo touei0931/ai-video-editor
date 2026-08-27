@@ -124,6 +124,13 @@ export interface TimelineProps {
    *    元素材の時刻のまま渡すと、見えている場所と吸き付く場所がずれる。
    */
   snapPoints?: readonly number[];
+  /**
+   * 選んでいる区間（I / O で決める）。
+   *
+   * 🔴 画面に出すこと。印だけ持って出さないと、
+   *    「どこからどこまで消えるのか」が分からないまま Delete を押すことになる。
+   */
+  range?: { from: number; to: number } | null;
   /** 吸着を効かせるか。N キーで切り替える（Final Cut と同じ） */
   snapEnabled?: boolean;
   /**
@@ -199,6 +206,7 @@ export function Timeline({
   initialPxPerSec,
   focusId,
   extraControls,
+  range,
   snapPoints,
   snapEnabled = true,
   zoomKeys = true,
@@ -1070,6 +1078,18 @@ export function Timeline({
             🔴 見た目の細さと、掴める幅を分けること。
                当たり判定を線と同じ太さにすると、狙って掴むのが苦行になる。
           */}
+          {/*
+            選んでいる区間（I / O）。
+            🔴 見えるようにすること。印だけを持って画面に出さないと、
+               「どこからどこまで消えるのか」が分からないまま Delete を押すことになる。
+          */}
+          {range && range.to > range.from && (
+            <div
+              className="fcp-range"
+              style={{ left: range.from * scale, width: (range.to - range.from) * scale }}
+            />
+          )}
+
           {/* 吸い付いた切れ目。掴んでいる間だけ出す */}
           {snappedAt !== null && (
             <div className="fcp-snapline" style={{ left: snappedAt * scale }} />

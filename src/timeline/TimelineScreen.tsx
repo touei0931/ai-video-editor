@@ -36,6 +36,7 @@ import {
   updateTelop,
   removeTelop,
   moveTelopEdge,
+  removeRange,
   duplicateClip,
   pasteClip,
   videoAt,
@@ -205,6 +206,45 @@ export function TimelineScreen({
 
   /* ---------------------------------------------------------------- 操作 */
 
+  /*
+    区間の指定（I / O）。
+
+    🔴 区間があるときの Delete は、区間を消すこと。
+       画面に区間が出ているのに、選んでいるクリップが消えるのでは
+       何を指しているのか分からなくなる。
+  */
+  const [inPoint, setInPoint] = useState<number | null>(null);
+  const [outPoint, setOutPoint] = useState<number | null>(null);
+  const range = useMemo(() => {
+    if (inPoint === null || outPoint === null) return null;
+    const from = Math.min(inPoint, outPoint);
+    const to = Math.max(inPoint, outPoint);
+    return to - from > 0.002 ? { from, to } : null;
+  }, [inPoint, outPoint]);
+
+  const clearRange = useCallback(() => {
+    setInPoint(null);
+    setOutPoint(null);
+  }, []);
+
+  const removeSelectedRange = useCallback(
+    (lift: boolean) => {
+      if (!range) return;
+      const laneId = selectedLane ?? project.lanes.find((l) => l.kind === 'main')?.id;
+      if (!laneId) return;
+      const next = removeRange(project, laneId, range.from, range.to, lift ? 'lift' : 'ripple');
+      if (next === project) {
+        setNotice('この区間には消せるものがありません');
+        return;
+      }
+      apply(next, lift ? '区間を空きにしました' : '区間を消して詰めました');
+      clearRange();
+      setSelected(null);
+    },
+    [range, project, selectedLane, apply, clearRange],
+  );
+
+
   /** 白線の所で分ける（⌘B）。選んでいるレーン、無ければ本編 */
   const blade = useCallback(() => {
     const laneId = selectedLane ?? project.lanes.find((l) => l.kind === 'main')?.id;
@@ -225,6 +265,11 @@ export function TimelineScreen({
    */
   const remove = useCallback(
     (lift: boolean) => {
+      // 🔴 区間が出ているなら、区間を消す（画面に出ているものを優先する）
+      if (range) {
+        removeSelectedRange(lift);
+        return;
+      }
       const sel = parseSelection(selected);
       if (!sel) return;
       /*
@@ -242,7 +287,7 @@ export function TimelineScreen({
       );
       setSelected(null);
     },
-    [project, selected, apply],
+    [project, selected, apply, range, removeSelectedRange],
   );
 
   /**
@@ -782,11 +827,25 @@ export function TimelineScreen({
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
         void saveTimeline();
+      } else if (!mod && e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        setInPoint(time);
+        // 🔴 終わりが決まっていないなら、先に末尾を入れておく。
+        //    I だけ押しても何も見えないと、効いたのか分からない
+        setOutPoint((o) => (o === null ? duration : o));
+      } else if (!mod && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        setOutPoint(time);
+        setInPoint((i) => (i === null ? 0 : i));
+      } else if (!mod && e.key === 'Escape') {
+        e.preventDefault();
+        clearRange();
+        setSelected(null);
       }
     },
     [
       blade, undo, remove, addTelopHere, seekBy, seekEdit,
-      copyClip, paste, duplicate, saveTimeline,
+      copyClip, paste, duplicate, saveTimeline, clearRange, time,
       fps, duration, project, apply, player,
     ],
   );
@@ -1018,6 +1077,14 @@ export function TimelineScreen({
           </div>
         </details>
         <span className="tl-spacer" />
+        {range && (
+          <span className="tl-range-note">
+            区間 {clock(range.from)}〜{clock(range.to)}
+            <button onClick={clearRange} title="区間を外す（Esc）">
+              ×
+            </button>
+          </span>
+        )}
         <span className="tl-len">{clock(duration)}</span>
         {/*
           🔴 キーの一覧を画面の中に置くこと。
@@ -1034,6 +1101,8 @@ export function TimelineScreen({
             <div><dt>N</dt><dd>詰める の入 / 切</dd></div>
             <div><dt>⌘Z / Ctrl+Z</dt><dd>ひとつ戻す</dd></div>
             <div><dt>T</dt><dd>再生位置にテロップを足す</dd></div>
+            <div><dt>I / O</dt><dd>区間の始まり / 終わりを決める</dd></div>
+            <div><dt>Esc</dt><dd>区間と選択を外す</dd></div>
             <div><dt>⌘S</dt><dd>保存する</dd></div>
             <div><dt>⌘C / ⌘V</dt><dd>控える / 貼る</dd></div>
             <div><dt>⌘D</dt><dd>複製して後ろに置く</dd></div>
@@ -1096,6 +1165,7 @@ export function TimelineScreen({
         onTrim={onTrim}
         onMoveToLane={onMoveToLane}
         snapPoints={snapPoints}
+        range={range}
         tracks={tracks}
         extraControls={
           <button

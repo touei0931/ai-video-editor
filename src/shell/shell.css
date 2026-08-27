@@ -1310,3 +1310,21 @@
 .fcp-track-body.on-film .fcp-clip.decor .cap {
   display: none;
 }
+
+/*
+  選んでいる区間（I / O）。
+
+  🔴 触れないようにすること（pointer-events: none）。
+     この上にクリップの帯が乗る。区間がマウスを受けると、
+     区間の中のクリップを掴めなくなる。
+*/
+.fcp-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: rgba(74, 158, 255, 0.14);
+  border-left: 2px solid rgba(74, 158, 255, 0.9);
+  border-right: 2px solid rgba(74, 158, 255, 0.9);
+}
