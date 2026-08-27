@@ -294,3 +294,74 @@
   position: absolute;
   inset: 0;
 }
+
+/*
+  キーの一覧。
+  🔴 開いたときに場所を取らせないこと（浮かせる）。
+     行が増えるとタイムラインが下へずれ、掴んでいたクリップを見失う。
+*/
+.tl-keys {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.tl-keys > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border: 1px solid var(--s4, #34343e);
+  border-radius: 5px;
+  background: var(--s2, #232329);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tl-keys > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tl-keys[open] > summary {
+  background: var(--s4, #34343e);
+}
+
+.tl-keys dl {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  margin: 0;
+  padding: 10px 12px;
+  min-width: 240px;
+  border: 1px solid var(--line, #3a3a45);
+  border-radius: 6px;
+  background: var(--s2, #232329);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 🔴 キーの幅を揃える。揃っていないと目が意味の列を追えない */
+.tl-keys dl > div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tl-keys dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--line, #3a3a45);
+  border-radius: 4px;
+  background: var(--s0, #161619);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.tl-keys dd {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim, #9a9aa8);
+}

@@ -420,6 +420,24 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
         </button>
         <span className="tl-spacer" />
         <span className="tl-len">{clock(duration)}</span>
+        {/*
+          🔴 キーの一覧を画面の中に置くこと。
+             ⌘B も Delete も、押せると知らなければ一度も使われない。
+             別の窓や説明書に隠すと、結局マウスだけで操作することになる。
+        */}
+        <details className="tl-keys">
+          <summary title="キー操作">キー</summary>
+          <dl>
+            <div><dt>Space</dt><dd>再生 / 一時停止</dd></div>
+            <div><dt>⌘B / Ctrl+B</dt><dd>再生位置で分ける</dd></div>
+            <div><dt>Delete</dt><dd>消して後ろを詰める</dd></div>
+            <div><dt>Shift+Delete</dt><dd>その場を空きにする</dd></div>
+            <div><dt>N</dt><dd>詰める の入 / 切</dd></div>
+            <div><dt>⌘Z / Ctrl+Z</dt><dd>ひとつ戻す</dd></div>
+            <div><dt>1 / 2</dt><dd>拡大 / 縮小</dd></div>
+            <div><dt>Shift+1 / 2</dt><dd>コマを大きく / 小さく</dd></div>
+          </dl>
+        </details>
       </div>
 
       {notice && (

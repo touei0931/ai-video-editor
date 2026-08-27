@@ -69,12 +69,13 @@ function Root() {
   if (mode === 'shell') return <ShellDemo />;
   // 作り直したメインの編集画面（素材を並べる方）を触る（src/timeline/）
   if (mode === 'timeline') return <TimelineDemo />;
-  /*
-    素材を並べる画面を主役にした形（下ごしらえは子画面）。
-    🔴 まだ既定にしない。今の一本道の画面で作業している人がいる。
-       ?mode=editor で開いて、確かめてから入れ替える。
-  */
   if (mode === 'editor') return <PacEditor />;
+  /*
+    作り直す前の一本道の画面。
+    🔴 消さずに残すこと。並べる画面で何か起きたときに、
+       ここに戻れば今まで通りの手順で書き出せる。逃げ道を断たない。
+  */
+  if (mode === 'classic') return <App />;
   if (mode === 'telop') return <TelopDemo />;
 
   // 作り直したカット画面を、モックの候補で触る
@@ -93,7 +94,15 @@ function Root() {
   if (mode === 'review-demo') {
     return <ReviewScreen onExport={(cuts) => console.log('カット', cuts.length, cuts)} />;
   }
-  return <App />;
+  /*
+    既定は「素材を並べる画面」。下ごしらえ（自動カット・自動テロップ）は
+    その中の子画面として開く。
+
+    🔴 一本道の画面を既定に戻さないこと。
+       素材を複数扱えるようにした以上、入口が「動画を1本選ぶ」だと、
+       2本目をどう足すのかが画面から分からなくなる。
+  */
+  return <PacEditor />;
 }
 
 createRoot(document.getElementById('root')!).render(
