@@ -24,6 +24,7 @@ import {
   placeOnLane,
   placedTelops,
   removeClip,
+  setClipTransform,
   isGap,
   type Project,
 } from './project';
@@ -71,6 +72,16 @@ export function TimelineE2E() {
           p = addAsset(p, b);
           p = addLane(p, { id: 'v1', kind: 'video', name: '重ね' });
           p = placeOnLane(p, 'v1', b.id, 1.0, 0, 1.5);
+          /*
+            🔴 画角（変形）も必ず通すこと。
+               通さないと、書き出しの変形は机上の検査でしか見ていないことになる。
+            🔴 素材の大きさから決めないこと（fillScale を使わない）。
+               画面に出していない窓では大きさが読めず倍率が 1 になり、
+               **変形が何も掛からないまま緑になる**（実際そうなった）。
+               決め打ちの値なら、どこで走らせても必ず通る。
+          */
+          const placedB = p.clips[p.clips.length - 1];
+          p = setClipTransform(p, placedB.id, { scale: 1.4, x: 0.05, y: -0.03 });
         }
         // 末尾にもう1本足す
         p = appendToMain(p, a.id, 12, 14);
@@ -113,6 +124,9 @@ export function TimelineE2E() {
               video: lane.kind !== 'audio' && asset.hasVideo,
               audio: asset.hasAudio,
               gain_db: c.gainDb ?? 0,
+              // 🔴 ここを忘れると、画角はプロジェクトに入っているのに
+              //    書き出しには渡らない。数だけ数えても気付けない（実際そうなった）
+              ...(c.transform ? { transform: c.transform } : {}),
             };
           });
 
@@ -150,6 +164,12 @@ export function TimelineE2E() {
           expectDark,
           settings: p.settings,
           assets: p.assets.map((x) => ({ name: x.name, duration: x.duration, w: x.width, h: x.height })),
+          /*
+            🔴 数えるのは**書き出しに渡した中身**であって、
+               プロジェクトに入っている数ではない。
+               プロジェクト側だけ数えていたので、渡し忘れに気付けなかった。
+          */
+          transforms: clips.filter((c) => 'transform' in c).length,
           clips: clips.length,
           telops: cards.length,
           result,

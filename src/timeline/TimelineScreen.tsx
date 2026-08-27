@@ -577,6 +577,7 @@ export function TimelineScreen({
           video: lane.kind !== 'audio' && asset.hasVideo,
           audio: asset.hasAudio,
           gain_db: c.gainDb ?? 0,
+          ...(c.transform ? { transform: c.transform } : {}),
         };
       })
       .filter((c): c is NonNullable<typeof c> => c !== null);

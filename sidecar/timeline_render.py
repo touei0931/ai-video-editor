@@ -51,7 +51,62 @@ def _ms(t: float) -> int:
     return int(round(t * 1000))
 
 
-def _norm_video(head: str, tail: str, width: int, height: int, fps: float) -> str:
+def _transform_chain(width: int, height: int, tf: dict[str, Any] | None) -> str:
+    """画角（位置と大きさ）。
+
+    🔴 枠に収めた**あと**に効かせること。
+       先に効かせると、縦の素材と横の素材で同じ数字が別の意味になる。
+       収めてから動かせば、倍率1.0・ずらし0 がいつでも「そのまま」になる。
+
+    🔴 寄せた（1倍より大きい）ときは切り取り、引いた（1倍より小さい）ときは
+       余白で埋める。どちらでも出来上がりは必ずプロジェクトの大きさにする。
+       ここで大きさが変わると concat が "Input link parameters do not match"
+       で止まる（縦横の混在と同じ罠）。
+
+    🔴 幅と高さは偶数にすること。奇数だと yuv420p にできず ffmpeg が落ちる。
+    """
+    if not tf:
+        return ""
+    scale = float(tf.get("scale", 1) or 1)
+    dx = float(tf.get("x", 0) or 0)
+    dy = float(tf.get("y", 0) or 0)
+    if abs(scale - 1) < 0.0005 and abs(dx) < 0.0005 and abs(dy) < 0.0005:
+        return ""
+
+    def even(v: float) -> int:
+        return max(2, int(round(v / 2)) * 2)
+
+    sw, sh = even(width * scale), even(height * scale)
+    chain = f",scale={sw}:{sh}"
+
+    # ずらしは画面に対する割合。右・下が正
+    ox = width * dx
+    oy = height * dy
+
+    if sw >= width and sh >= height:
+        # 寄っている。中央からずらした場所を切り取る
+        cx = (sw - width) / 2 - ox
+        cy = (sh - height) / 2 - oy
+        cx = int(round(max(0, min(sw - width, cx))))
+        cy = int(round(max(0, min(sh - height, cy))))
+        return chain + f",crop={width}:{height}:{cx}:{cy}"
+
+    # 引いている。足りない分を黒で埋める
+    px = (width - sw) / 2 + ox
+    py = (height - sh) / 2 + oy
+    px = int(round(max(0, min(width - sw, px))))
+    py = int(round(max(0, min(height - sh, py))))
+    return chain + f",pad={width}:{height}:{px}:{py}:color=black"
+
+
+def _norm_video(
+    head: str,
+    tail: str,
+    width: int,
+    height: int,
+    fps: float,
+    transform: dict[str, Any] | None = None,
+) -> str:
     """どの素材でも同じ大きさ・同じ形・同じコマ数にする。
 
     🔴 concat は入力の**大きさ・画素比・コマ数が全部揃っていること**を求める。
@@ -63,8 +118,9 @@ def _norm_video(head: str, tail: str, width: int, height: int, fps: float) -> st
     return (
         head
         + f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-        + f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
-        + f"setsar=1,fps={fps:.5g},format=yuv420p"
+        + f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black"
+        + _transform_chain(width, height, transform)
+        + f",setsar=1,fps={fps:.5g},format=yuv420p"
         + tail
     )
 
@@ -74,7 +130,7 @@ def build_timeline_graph(spec: dict[str, Any]) -> dict[str, Any]:
 
     spec:
         width, height, fps, duration
-        clips: [{path, src_start, src_end, at, video, audio, z, gain_db}]
+        clips: [{path, src_start, src_end, at, video, audio, z, gain_db, transform}]
         telop_tracks: [concat リストのパス]   # 段ごとに1本
         music: {path, volume, loop} | None
         loudnorm: bool                        # 既定 True
@@ -148,6 +204,7 @@ def build_timeline_graph(spec: dict[str, Any]) -> dict[str, Any]:
                 width,
                 height,
                 fps,
+                c.get("transform"),
             )
         )
         segments.append(f"[v{n}]")
@@ -193,6 +250,7 @@ def build_timeline_graph(spec: dict[str, Any]) -> dict[str, Any]:
                 width,
                 height,
                 fps,
+                c.get("transform"),
             )
         )
         dst = f"[vlay{k}]"

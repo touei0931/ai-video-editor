@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { placedTelops, type Project } from './project';
+import { placedTelops, videoAt, type Project } from './project';
 import { buildTimelineCards, drawCardsAt, telopLayout } from './telopCanvas';
 import type { TimelinePlayer } from './useTimelinePlayer';
 
@@ -40,6 +40,22 @@ export function Viewer({ project, player }: Props) {
   const empty = project.clips.length === 0;
   // 🔴 見た目はプロジェクトのものを使う。書き出しと同じものでなければ意味がない
   const styles = project.styles;
+
+  /*
+    いま映っているクリップの画角。
+
+    🔴 書き出しと同じ順で効かせること（枠に収める → 拡大 → ずらす）。
+       CSS の transform は右から順に効くので、
+       `translate(...) scale(...)` と書くと「拡大してからずらす」になり、
+       書き出し（scale → crop/pad）と同じ並びになる。
+       逆に書くと、寄ったときのずれ量が倍率のぶんだけ食い違う。
+    🔴 ずらしは画面に対する割合。プロジェクトの大きさが変わっても位置が保たれる。
+  */
+  const shown = videoAt(project, player.time);
+  const tf = shown?.transform;
+  const videoTransform = tf
+    ? `translate(${(tf.x * 100).toFixed(3)}%, ${(tf.y * 100).toFixed(3)}%) scale(${tf.scale})`
+    : undefined;
   const frame = useMemo(
     () => ({ width: project.settings.width, height: project.settings.height }),
     [project.settings.width, project.settings.height],
@@ -97,12 +113,12 @@ export function Viewer({ project, player }: Props) {
         <div className="tl-frame" style={{ width: box.w, height: box.h }}>
           <video
             ref={player.aRef}
-            style={{ ...layer, opacity: player.frontIsA ? 1 : 0 }}
+            style={{ ...layer, opacity: player.frontIsA ? 1 : 0, transform: videoTransform }}
             playsInline
           />
           <video
             ref={player.bRef}
-            style={{ ...layer, opacity: player.frontIsA ? 0 : 1 }}
+            style={{ ...layer, opacity: player.frontIsA ? 0 : 1, transform: videoTransform }}
             playsInline
           />
           {/* 音だけのレーン。画には出さない */}

@@ -18,8 +18,12 @@ import { useCallback } from 'react';
 import { clock } from '../shell/Timeline';
 import {
   GAIN_RANGE,
+  NO_TRANSFORM,
+  TRANSFORM_RANGE,
   clipsOnLane,
+  fillScale,
   isGap,
+  setClipTransform,
   removeLane,
   renameLane,
   moveTelopEdge,
@@ -177,6 +181,9 @@ export function Inspector({
     const asset = project.assets.find((a) => a.id === clip.assetId);
     const lane = project.lanes.find((l) => l.id === clip.laneId);
     const gain = clip.gainDb ?? 0;
+    const tf = clip.transform ?? NO_TRANSFORM;
+    const shift = (dx: number, dy: number) =>
+      onChange(setClipTransform(project, clip.id, { x: tf.x + dx, y: tf.y + dy }));
 
     return (
       <aside className="tl-inspector">
@@ -250,6 +257,72 @@ export function Inspector({
           </button>
         </div>
         {!asset?.hasAudio && <p className="tl-hint">この素材には音がありません。</p>}
+
+        {/*
+          画角（位置と大きさ）。
+
+          🔴 プロジェクトの枠に収めた**あと**に効く。
+             倍率1.0・ずらし0 が、いつでも「そのまま」になる。
+          🔴 縦横の合わない素材を枠いっぱいにする道を1つ用意すること。
+             横の素材を縦のプロジェクトに置くと上下に黒帯が残る。
+             ショート動画では毎回やる操作なので、手で合わせさせない。
+        */}
+        {asset?.hasVideo && (
+          <>
+            <hr className="tl-settings-line" />
+            <label className="tl-field">
+              <span>
+                大きさ <b>{Math.round(tf.scale * 100)}%</b>
+              </span>
+              <input
+                type="range"
+                min={TRANSFORM_RANGE.minScale}
+                max={TRANSFORM_RANGE.maxScale}
+                step={0.01}
+                value={tf.scale}
+                onChange={(e) =>
+                  onChange(setClipTransform(project, clip.id, { scale: Number(e.target.value) }))
+                }
+              />
+            </label>
+
+            <div className="tl-row tl-nudge">
+              <span className="tl-nudge-label">位置</span>
+              <button onClick={() => shift(-0.02, 0)} title="左へ">◀</button>
+              <button onClick={() => shift(0.02, 0)} title="右へ">▶</button>
+              <button onClick={() => shift(0, -0.02)} title="上へ">▲</button>
+              <button onClick={() => shift(0, 0.02)} title="下へ">▼</button>
+            </div>
+
+            <div className="tl-row">
+              <button
+                disabled={!asset.width || !asset.height}
+                title="縦横の合わない素材を、黒帯が出ないところまで広げます"
+                onClick={() =>
+                  onChange(
+                    setClipTransform(project, clip.id, {
+                      scale: fillScale(asset, project.settings),
+                      x: 0,
+                      y: 0,
+                    }),
+                    '枠いっぱいにしました',
+                  )
+                }
+              >
+                枠いっぱい
+              </button>
+              <button
+                disabled={!clip.transform}
+                onClick={() => onChange(setClipTransform(project, clip.id, NO_TRANSFORM), '画角を戻しました')}
+              >
+                戻す
+              </button>
+            </div>
+            <p className="tl-readout">
+              ずらし {Math.round(tf.x * 100)}% / {Math.round(tf.y * 100)}%
+            </p>
+          </>
+        )}
       </aside>
     );
   }

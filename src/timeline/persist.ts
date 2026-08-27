@@ -11,7 +11,7 @@
  *    素材が移動・削除されていることはあるので、開いた側で確かめる。
  */
 
-import { DEFAULT_SETTINGS, GAIN_RANGE, type Asset, type Clip, type Lane, type Project, type ProjectSettings, type Telop } from './project';
+import { DEFAULT_SETTINGS, GAIN_RANGE, clampTransform, isPlainTransform, type Asset, type Clip, type Lane, type Project, type ProjectSettings, type Telop } from './project';
 import { sanitizeStyles, type StyleMap } from '../telop/style';
 
 /** 書類の版。形を変えたら上げる */
@@ -113,6 +113,14 @@ function toClip(v: unknown, assets: Set<string>, lanes: Set<string>): Clip | nul
        書類は人が手で書き換えられる場所にある。+60dB のまま通すと
        書き出しが割れるうえ、再生でも耳を痛める。
   */
+  /*
+    🔴 画角も範囲で縛ること。
+       倍率 0 のまま通すと絵が消え、「真っ黒になった」としか分からなくなる。
+    🔴 何もしない変形なら持たないこと。書類が無駄に太る。
+  */
+  const t = isObj(v.transform) ? clampTransform(v.transform as never) : null;
+  const transform = t && !isPlainTransform(t) ? t : null;
+
   const gain = num(v.gainDb);
   const gainDb =
     gain === null || gain === 0
@@ -128,6 +136,7 @@ function toClip(v: unknown, assets: Set<string>, lanes: Set<string>): Clip | nul
     srcEnd,
     ...(at === null ? {} : { at: Math.max(0, at) }),
     ...(gainDb === null ? {} : { gainDb }),
+    ...(transform === null ? {} : { transform }),
   };
 }
 

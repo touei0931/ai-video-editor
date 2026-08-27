@@ -151,6 +151,13 @@ export interface Clip {
    *    編集ソフトが揃ってデシベルなのはそのため。
    */
   gainDb?: number;
+  /**
+   * 画角（位置と大きさ）。
+   *
+   * 🔴 プロジェクトの枠に収めた**あと**に効く。
+   *    先に効かせると、縦の素材と横の素材で同じ数字が別の意味になる。
+   */
+  transform?: Transform;
 }
 
 /**
@@ -786,6 +793,106 @@ export function pasteClip(
 
   clip.at = Math.max(0, round(at));
   return { ...project, clips: [...project.clips, clip] };
+}
+
+/**
+ * クリップの変形（画角）。
+ *
+ * 🔴 「素材をプロジェクトの枠に収めたあと」に効かせること。
+ *    先に変形して収めると、縦の素材と横の素材で同じ数字が別の意味になる。
+ *    収めてから動かせば、倍率1.0・ずらし0 がいつでも「そのまま」になる。
+ *
+ * 🔴 ずらし量は画面に対する割合で持つこと。画素で持たない。
+ *    プロジェクトの大きさを変えた瞬間に、位置が全部ずれる。
+ */
+export interface Transform {
+  /** 倍率。1 が等倍。1 より大きいと寄る（周りは切れる） */
+  scale: number;
+  /** 横のずらし。画面幅に対する割合。右が正 */
+  x: number;
+  /** 縦のずらし。画面高さに対する割合。下が正 */
+  y: number;
+}
+
+/** 何もしない変形 */
+export const NO_TRANSFORM: Transform = { scale: 1, x: 0, y: 0 };
+
+/**
+ * 変形の範囲。
+ *
+ * 🔴 縮小の下限を決めること。0 に近づけると絵が消え、
+ *    「真っ黒になった」としか分からなくなる。
+ * 🔴 拡大の上限も決めること。10倍まで寄ると画素が見えるだけで使い道が無く、
+ *    書き出しでは巨大な中間画像を作ることになる。
+ */
+export const TRANSFORM_RANGE = { minScale: 0.2, maxScale: 4, maxShift: 1 };
+
+export function isPlainTransform(t: Transform | undefined): boolean {
+  if (!t) return true;
+  return Math.abs(t.scale - 1) < 0.0005 && Math.abs(t.x) < 0.0005 && Math.abs(t.y) < 0.0005;
+}
+
+/** 範囲に収める。書類は人が触れる場所にあるので、読むたびに通す */
+export function clampTransform(t: Partial<Transform> | undefined): Transform {
+  const n = (v: unknown, fallback: number) =>
+    typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  const { minScale, maxScale, maxShift } = TRANSFORM_RANGE;
+  const q = (v: number) => Math.round(v * 1000) / 1000;
+  return {
+    scale: q(Math.max(minScale, Math.min(maxScale, n(t?.scale, 1)))),
+    x: q(Math.max(-maxShift, Math.min(maxShift, n(t?.x, 0)))),
+    y: q(Math.max(-maxShift, Math.min(maxShift, n(t?.y, 0)))),
+  };
+}
+
+/**
+ * クリップの画角を変える。
+ *
+ * 🔴 何もしない変形なら持たないこと。
+ *    既定の値を書類に残すと、無駄に太るうえ差分も汚れる。
+ */
+export function setClipTransform(
+  project: Project,
+  id: string,
+  patch: Partial<Transform>,
+): Project {
+  const i = project.clips.findIndex((c) => c.id === id);
+  if (i < 0) return project;
+  const before = project.clips[i].transform ?? NO_TRANSFORM;
+  const next = clampTransform({ ...before, ...patch });
+  if (
+    next.scale === before.scale &&
+    next.x === before.x &&
+    next.y === before.y
+  ) {
+    return project;
+  }
+  const clips = [...project.clips];
+  if (isPlainTransform(next)) {
+    const { transform: _drop, ...rest } = clips[i];
+    clips[i] = rest;
+  } else {
+    clips[i] = { ...clips[i], transform: next };
+  }
+  return { ...project, clips };
+}
+
+/**
+ * 縦横の合わない素材を、枠いっぱいに広げる倍率。
+ *
+ * 🔴 これが無いと、横の素材を縦のプロジェクトに置いたとき
+ *    上下に黒い帯が残ったままになる。ショート動画では毎回やる操作なので、
+ *    1回で決まる道を用意する。
+ */
+export function fillScale(
+  asset: { width?: number; height?: number },
+  frame: { width: number; height: number },
+): number {
+  if (!asset.width || !asset.height) return 1;
+  const contain = Math.min(frame.width / asset.width, frame.height / asset.height);
+  const cover = Math.max(frame.width / asset.width, frame.height / asset.height);
+  if (contain <= 0) return 1;
+  return clampTransform({ scale: cover / contain }).scale;
 }
 
 /* ---------------------------------------------------------------- レーン */

@@ -30,6 +30,8 @@ interface Submission {
   assets?: { name: string; duration: number; w?: number; h?: number }[];
   clips?: number;
   telops?: number;
+  /** 画角（変形）を付けたクリップの数 */
+  transforms?: number;
   result?: Record<string, unknown>;
 }
 
@@ -103,6 +105,7 @@ export async function runTimelineE2E(appRoot: string, devUrl?: string): Promise<
     素材: submission.assets,
     クリップ数: submission.clips,
     テロップ数: submission.telops,
+    画角を付けた数: submission.transforms,
     ねらった尺: submission.duration,
     書き出しの結果: submission.result,
   };
@@ -120,6 +123,15 @@ export async function runTimelineE2E(appRoot: string, devUrl?: string): Promise<
   }
   facts.大きさが取れた素材 = (submission.assets ?? []).filter((a) => a.w && a.h).length;
   if ((submission.telops ?? 0) === 0) problems.push('テロップが1枚も作られていません');
+  /*
+    🔴 画角の経路も必ず通すこと。
+       通さないと、書き出しの変形は机上の検査でしか見ていないことになる。
+       見送り条件を付けないこと。付けると、条件のほうが外れて
+       「何も掛かっていないのに緑」になる（一度そうなった）。
+  */
+  if ((submission.transforms ?? 0) === 0) {
+    problems.push('画角を付けたクリップがありません（変形の経路が通っていない）');
+  }
 
   if (!existsSync(outPath)) {
     problems.push('動画が出来ていません');

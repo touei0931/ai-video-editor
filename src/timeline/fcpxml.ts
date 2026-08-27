@@ -287,6 +287,28 @@ export function buildFCPXML(project: Project, options: ExportOptions = {}): stri
       inner.unshift(`              <adjust-volume amount="${gain.toFixed(1)}dB"/>`);
     }
 
+    /*
+      画角（位置と大きさ）。
+
+      🔴 これを落とすと、PAC で決めた画角が Final Cut では全部
+         等倍・中央に戻る。縦の素材を横の枠いっぱいにした指定が消えるので、
+         向こうで開くと黒帯が戻る。
+      🔴 並びを守ること。FCPXML では adjust-transform が adjust-volume より**前**。
+         逆にすると DTD の検証で弾かれ、XML ごと読み込みを断られる。
+         （unshift なので、音量を入れたあとに入れると前へ回る）
+      🔴 縦の向きは Final Cut と逆。あちらは上が正、こちらは下が正。
+         テロップの位置（fcpLook）と同じ約束にそろえる。
+    */
+    const tf = c.transform;
+    if (tf) {
+      const px = Math.round(tf.x * width * 10) / 10;
+      const py = Math.round(-tf.y * height * 10) / 10;
+      inner.unshift(
+        `              <adjust-transform position="${px} ${py}"` +
+          ` scale="${tf.scale} ${tf.scale}"/>`,
+      );
+    }
+
     const open =
       `            <asset-clip ref="${ref}" name="${esc(c.id)}"` +
       ` offset="${framesToStr(startF, fps)}" start="${timeStr(c.srcStart, fps)}"` +

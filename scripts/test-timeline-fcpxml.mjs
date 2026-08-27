@@ -197,6 +197,40 @@ function base() {
         `音量 ${xml2.indexOf('<adjust-volume')} / 重ね ${xml2.indexOf('lane="1"')}`);
 }
 
+/* --------------------------------------------------- クリップの画角 */
+
+{
+  let p = base();
+  p = appendToMain(p, 'a', 0, 10);
+  const id = p.clips[0].id;
+  p = { ...p, clips: p.clips.map((c) => (
+    c.id === id ? { ...c, gainDb: -6, transform: { scale: 1.5, x: 0.25, y: -0.1 } } : c
+  )) };
+  const xml = buildFCPXML(p, { fps: 30 });
+
+  /*
+    🔴 画角を落とすと、Final Cut では等倍・中央に戻る。
+       縦の素材を横の枠いっぱいにした指定が消えて、向こうで黒帯が戻る。
+  */
+  check('画角が書き出される', xml.includes('scale="1.5 1.5"'),
+        (xml.match(/<adjust-transform[^>]*>/) || ['無し'])[0]);
+  // 🔴 縦は Final Cut と逆（あちらは上が正）。1080 * 0.1 = 108
+  check('位置は画素で、縦は向きを合わせる', xml.includes('position="480 108"'),
+        (xml.match(/<adjust-transform[^>]*>/) || ['無し'])[0]);
+
+  /*
+    🔴 並びを守ること。FCPXML では adjust-transform が adjust-volume より前。
+       逆にすると DTD の検証で弾かれ、XML ごと読み込みを断られる。
+  */
+  check('画角は音量より前',
+        xml.indexOf('<adjust-transform') < xml.indexOf('<adjust-volume'),
+        `画角 ${xml.indexOf('<adjust-transform')} / 音量 ${xml.indexOf('<adjust-volume')}`);
+
+  check('画角を触っていないクリップには出さない',
+        (xml.match(/<adjust-transform/g) || []).length === 1,
+        `実際 ${(xml.match(/<adjust-transform/g) || []).length} 個`);
+}
+
 /* ------------------------------------------------- 大きさは決めごとから */
 
 {

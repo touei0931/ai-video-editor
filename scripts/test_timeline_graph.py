@@ -240,6 +240,69 @@ def main() -> int:
     check("縦横混在: 画素比も揃える", fc.count("setsar=1") >= 2)
     check_labels("縦横混在", fc)
 
+    # ── 画角（変形） ──
+    #
+    # 🔴 枠に収めた**あと**に効かせること。
+    #    先に効かせると、縦の素材と横の素材で同じ数字が別の意味になる。
+    g = build_timeline_graph({**base, "duration": 10.0, "clips": [
+        clip("a.mp4", 0.0, 0.0, 10.0, transform={"scale": 2, "x": 0, "y": 0}),
+    ]})
+    fc = g["filter_complex"]
+    check("変形: 収めてから効く",
+          fc.index("force_original_aspect_ratio") < fc.index("scale=3840:2160"), fc)
+    # 寄せたら切り取る。出来上がりは必ずプロジェクトの大きさ
+    check("寄せたら切り取る", "crop=1920:1080:960:540" in fc, fc)
+    check_labels("画角（寄せ）", fc)
+
+    # 引いたら余白で埋める
+    g = build_timeline_graph({**base, "duration": 10.0, "clips": [
+        clip("a.mp4", 0.0, 0.0, 10.0, transform={"scale": 0.5, "x": 0, "y": 0}),
+    ]})
+    fc = g["filter_complex"]
+    check("引いたら余白で埋める", "pad=1920:1080:480:270:color=black" in fc, fc)
+    check_labels("画角（引き）", fc)
+
+    # ずらし。右・下が正
+    g = build_timeline_graph({**base, "duration": 10.0, "clips": [
+        clip("a.mp4", 0.0, 0.0, 10.0, transform={"scale": 2, "x": 0.25, "y": -0.1}),
+    ]})
+    fc = g["filter_complex"]
+    # 右へずらす = 切り取る場所は左へ寄る（960 - 1920*0.25 = 480）
+    # 上へずらす = 切り取る場所は下へ（540 + 1080*0.1 = 648）
+    check("ずらしが効く", "crop=1920:1080:480:648" in fc, fc)
+    check_labels("画角（ずらし）", fc)
+
+    # 🔴 切り取る場所を外へ出さないこと。負の値だと ffmpeg が落ちる
+    g = build_timeline_graph({**base, "duration": 10.0, "clips": [
+        clip("a.mp4", 0.0, 0.0, 10.0, transform={"scale": 1.2, "x": 5, "y": -5}),
+    ]})
+    check("行き過ぎても外へ出ない", "crop=1920:1080:0:216" in g["filter_complex"],
+          g["filter_complex"])
+
+    # 何もしない変形では、余計なものを足さない
+    g = build_timeline_graph({**base, "duration": 10.0, "clips": [
+        clip("a.mp4", 0.0, 0.0, 10.0, transform={"scale": 1, "x": 0, "y": 0}),
+    ]})
+    check("等倍では何も足さない", "crop=" not in g["filter_complex"], g["filter_complex"])
+
+    # 🔴 幅と高さは偶数。奇数だと yuv420p にできず ffmpeg が落ちる
+    g = build_timeline_graph({**base, "duration": 10.0, "clips": [
+        clip("a.mp4", 0.0, 0.0, 10.0, transform={"scale": 1.333, "x": 0, "y": 0}),
+    ]})
+    import re as _re
+    m = _re.search(r"scale=(\d+):(\d+),crop", g["filter_complex"])
+    check("寄せた先も偶数", bool(m) and int(m.group(1)) % 2 == 0 and int(m.group(2)) % 2 == 0,
+          g["filter_complex"])
+
+    # 重ねるレーンでも効く
+    g = build_timeline_graph({**base, "duration": 20.0, "clips": [
+        clip("a.mp4", 0.0, 0.0, 20.0),
+        clip("b.mp4", 5.0, 0.0, 3.0, z=1, transform={"scale": 0.5, "x": 0.2, "y": 0.2}),
+    ]})
+    fc = g["filter_complex"]
+    check("重ねたクリップにも効く", "pad=1920:1080:864:486:color=black" in fc, fc)
+    check_labels("画角（重ね）", fc)
+
     # ── 末尾 ──
     check("末尾にセミコロンを残さない", not g["filter_complex"].rstrip().endswith(";"))
 

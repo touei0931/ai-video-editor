@@ -194,6 +194,12 @@
   position: relative;
   background: #000;
   flex: 0 0 auto;
+  /*
+    🔴 はみ出しを切ること。
+       画角で寄せたとき、枠の外まで絵が出たままだと
+       書き出し（crop）と見え方が食い違う。
+  */
+  overflow: hidden;
   /* 実寸は Viewer.tsx が測って入れる。CSS だけでは決まらない（あちらの注記を読むこと） */
 }
 

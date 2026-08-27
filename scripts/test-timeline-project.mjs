@@ -25,6 +25,7 @@ const {
   renameClip, setClipGain, GAIN_RANGE,
   duplicateClip, pasteClip, isGap,
   removeLane, renameLane, clipsOnLane, removeRange,
+  setClipTransform, fillScale, NO_TRANSFORM, TRANSFORM_RANGE,
 } = m;
 
 let failed = 0;
@@ -741,6 +742,62 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   const one = removeRange(base(), mainId, 0, 5, 'ripple');
   eq('1本ぶんだけ消える', layout(one).filter((c) => c.laneId === mainId).length, 2);
   eq('残りの中身', layout(one).filter((c) => c.laneId === mainId).map((c) => c.srcStart), [20, 40]);
+}
+
+/* ================================================ 画角（変形） */
+{
+  let p = importCutResult(emptyProject(), {
+    asset: { id: 'a', path: '/m/a.mp4', name: 'A', duration: 60,
+             hasVideo: true, hasAudio: true, width: 1920, height: 1080 },
+    keeps: [{ srcStart: 0, srcEnd: 10 }],
+  });
+  const id = p.clips[0].id;
+
+  // 🔴 何もしない変形は持たない。書類が無駄に太る
+  eq('既定では持たない', p.clips[0].transform, undefined);
+  eq('等倍を入れても持たない', setClipTransform(p, id, NO_TRANSFORM) === p, true);
+
+  p = setClipTransform(p, id, { scale: 1.5 });
+  eq('倍率が入る', p.clips[0].transform, { scale: 1.5, x: 0, y: 0 });
+
+  p = setClipTransform(p, id, { x: 0.2, y: -0.1 });
+  eq('ずらしが入る（前の倍率は残る）', p.clips[0].transform, { scale: 1.5, x: 0.2, y: -0.1 });
+
+  // 0 に戻したら持たない
+  p = setClipTransform(p, id, NO_TRANSFORM);
+  eq('戻すと消える', 'transform' in p.clips[0], false);
+
+  /*
+    🔴 範囲で縛ること。
+       倍率0は絵が消えて「真っ黒になった」としか分からなくなるし、
+       大きすぎる倍率は書き出しで巨大な中間画像を作る。
+  */
+  eq('倍率の下限', setClipTransform(p, id, { scale: 0 }).clips[0].transform.scale,
+     TRANSFORM_RANGE.minScale);
+  eq('倍率の上限', setClipTransform(p, id, { scale: 999 }).clips[0].transform.scale,
+     TRANSFORM_RANGE.maxScale);
+  eq('ずらしの上限', setClipTransform(p, id, { x: 99 }).clips[0].transform.x,
+     TRANSFORM_RANGE.maxShift);
+  eq('ずらしの下限', setClipTransform(p, id, { y: -99 }).clips[0].transform.y,
+     -TRANSFORM_RANGE.maxShift);
+  eq('数でないものは既定へ',
+     setClipTransform(p, id, { scale: NaN, x: 0.3 }).clips[0].transform, { scale: 1, x: 0.3, y: 0 });
+  eq('知らない id では作り直さない', setClipTransform(p, 'ない', { scale: 2 }) === p, true);
+
+  /* ------------------------------------------------ 枠いっぱいの倍率 */
+  /*
+    🔴 横の素材を縦のプロジェクトに置くと、上下に黒帯が残る。
+       ショート動画では毎回やる操作なので、1回で決まる道を用意する。
+  */
+  const yoko = { width: 1920, height: 1080 };
+  const tate = { width: 1080, height: 1920 };
+  eq('同じ形なら等倍', fillScale(yoko, { width: 1920, height: 1080 }), 1);
+  // 横1920x1080 を縦1080x1920 に収めると 0.5625倍。いっぱいにするには 1.7778倍
+  // その比は 3.1605 → 上限 4 に収まる
+  const s = fillScale(yoko, tate);
+  eq('横を縦の枠いっぱいにすると寄る', s > 3.15 && s < 3.17, true);
+  eq('上限を超えない', fillScale({ width: 10000, height: 10 }, tate) <= TRANSFORM_RANGE.maxScale, true);
+  eq('大きさが分からない素材は等倍', fillScale({}, tate), 1);
 }
 
 if (failed > 0) {

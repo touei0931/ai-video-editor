@@ -325,6 +325,38 @@ eq('本編のレーンが無い',
   eq('壊れていても既定がそろう', !!broken.styles.normal, true);
 }
 
+/* ------------------------------------------------ クリップの画角 */
+{
+  const doc = (transform) => ({
+    kind: 'pac-timeline', version: 1,
+    project: {
+      assets: [{ id: 'a', path: '/m/a.mp4', duration: 60 }],
+      lanes: [{ id: 'main', kind: 'main' }],
+      clips: [{ id: 'c', name: 'c', assetId: 'a', laneId: 'main', srcStart: 0, srcEnd: 5, transform }],
+      telops: [],
+    },
+  });
+
+  eq('画角が残る', fromSaved(doc({ scale: 1.5, x: 0.2, y: -0.1 })).clips[0].transform,
+     { scale: 1.5, x: 0.2, y: -0.1 });
+
+  // 🔴 何もしない変形は持たない。書類が無駄に太る
+  eq('等倍は持たない', 'transform' in fromSaved(doc({ scale: 1, x: 0, y: 0 })).clips[0], false);
+  eq('無ければ持たない', 'transform' in fromSaved(doc(undefined)).clips[0], false);
+
+  /*
+    🔴 書類は人が手で書き換えられる場所にある。
+       倍率0のまま通すと絵が消え、「真っ黒になった」としか分からなくなる。
+  */
+  eq('倍率0は通さない', fromSaved(doc({ scale: 0, x: 0, y: 0 })).clips[0].transform.scale > 0, true);
+  eq('大きすぎる倍率は抑える',
+     fromSaved(doc({ scale: 999, x: 0, y: 0 })).clips[0].transform.scale <= 4, true);
+  eq('数でないものは既定へ',
+     fromSaved(doc({ scale: '大きく', x: 0.3, y: null })).clips[0].transform,
+     { scale: 1, x: 0.3, y: 0 });
+  eq('壊れていても開ける', fromSaved(doc('画角')) !== null, true);
+}
+
 if (failed > 0) {
   console.error(`\ntest-timeline-persist: NG ${failed} 件`);
   process.exit(1);
