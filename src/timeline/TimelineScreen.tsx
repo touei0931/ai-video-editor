@@ -32,6 +32,7 @@ import {
 } from './project';
 import { ProbeError, probeAsset } from './probe';
 import { buildFCPXML } from './fcpxml';
+import { fromSaved, toSaved } from './persist';
 import { useTimelinePlayer } from './useTimelinePlayer';
 import { Viewer } from './Viewer';
 import './timeline-screen.css';
@@ -256,6 +257,44 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
     }
   }, [project, fps]);
 
+  /** タイムラインを保存する */
+  const saveTimeline = useCallback(async () => {
+    const api = window.app;
+    if (!api?.saveTimeline) {
+      setNotice('この画面からは保存できません（アプリ版で開いてください）');
+      return;
+    }
+    const saved = await api.saveTimeline({
+      data: toSaved(project),
+      defaultName: 'タイムライン.pacproj',
+    });
+    setNotice(saved ? '保存しました' : '中止しました');
+  }, [project]);
+
+  /**
+   * 保存したタイムラインを開く。
+   *
+   * 🔴 中身を確かめてから入れること。
+   *    書類は人が触れる場所にある。そのまま入れると、壊れた1件で
+   *    画面が真っ白になり、何が起きたか分からなくなる。
+   */
+  const openTimeline = useCallback(async () => {
+    const api = window.app;
+    if (!api?.openTimeline) {
+      setNotice('この画面からは開けません（アプリ版で開いてください）');
+      return;
+    }
+    const got = await api.openTimeline();
+    if (!got) return;
+    const next = fromSaved(got.data);
+    if (!next) {
+      setNotice('この書類は開けませんでした（PAC のタイムラインではないようです）');
+      return;
+    }
+    apply(next, '開きました');
+    setSelected(null);
+  }, [apply]);
+
   /* ------------------------------------------------------------ キー操作 */
 
   const onKeyDown = useCallback(
@@ -362,6 +401,12 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
         </button>
         <button onClick={() => remove(true)} disabled={!selected} title="その場に穴を空けて消す（Shift+Delete）">
           穴を空けて消す
+        </button>
+        <button onClick={openTimeline} title="保存したタイムラインを開きます">
+          開く
+        </button>
+        <button onClick={saveTimeline} title="並べたものを保存します">
+          保存
         </button>
         <span className="tl-sep" />
         <button

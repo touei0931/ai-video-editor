@@ -188,6 +188,48 @@ ipcMain.handle('app:saveFCPXML', async (_e, payload: { xml: string; defaultName:
   return result.filePath;
 });
 
+/**
+ * 並べたタイムラインを保存する。
+ *
+ * 🔴 素材そのものは入れないこと。
+ *    入っているのは「どのファイルの、どこを、どこへ置いたか」だけ。
+ *    動画を抱え込むと、保存のたびに数GBを書くことになる。
+ *
+ * 🔴 上書きの確認は OS に任せること（showSaveDialog がやる）。
+ *    自前で聞くと、キャンセルの扱いが OS の作法とずれる。
+ */
+ipcMain.handle('app:saveTimeline', async (_e, payload: { data: unknown; defaultName: string }) => {
+  const result = await dialog.showSaveDialog({
+    title: 'タイムラインの保存先',
+    defaultPath: payload.defaultName.endsWith('.pacproj')
+      ? payload.defaultName
+      : `${payload.defaultName}.pacproj`,
+    filters: [{ name: 'PAC のタイムライン', extensions: ['pacproj'] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  writeFileSync(result.filePath, JSON.stringify(payload.data, null, 2), 'utf8');
+  return result.filePath;
+});
+
+/** 保存したタイムラインを開く。中身の形はレンダラ側で確かめる */
+ipcMain.handle('app:openTimeline', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'タイムラインを開く',
+    properties: ['openFile'],
+    filters: [{ name: 'PAC のタイムライン', extensions: ['pacproj'] }],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  try {
+    return {
+      path: result.filePaths[0],
+      data: JSON.parse(readFileSync(result.filePaths[0], 'utf8')),
+    };
+  } catch {
+    // 壊れた書類。ここで落とさず、レンダラに知らせて案内させる
+    return { path: result.filePaths[0], data: null };
+  }
+});
+
 /** 進捗はレンダラへ素通しする。解析中に画面が固まらないことが体験の要（§8.6） */
 function forwardProgress(win: BrowserWindow | null) {
   return sidecar.onProgress((p) => {
