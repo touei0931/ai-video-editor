@@ -189,9 +189,28 @@ eq('本編のレーンが無い',
 
   // 往復して変わらないこと
   const project = emptyProject();
-  project.settings = { width: 1080, height: 1080, fps: 24 };
+  project.settings = { ...project.settings, width: 1080, height: 1080, fps: 24 };
   const round = fromSaved(JSON.parse(JSON.stringify(toSaved(project))));
-  eq('往復しても変わらない', round.settings, { width: 1080, height: 1080, fps: 24 });
+  eq('往復しても変わらない', round.settings, project.settings);
+
+  /*
+    🔴 書き出しの選択も往復すること。
+       毎回入れ直させると、字幕だけ欲しい人が毎回同じ操作をすることになる。
+  */
+  const picked = emptyProject();
+  picked.settings = { ...picked.settings, burnTelops: false, writeSrt: false, loudnorm: false };
+  const back2 = fromSaved(JSON.parse(JSON.stringify(toSaved(picked))));
+  eq('切った選択が残る',
+     [back2.settings.burnTelops, back2.settings.writeSrt, back2.settings.loudnorm],
+     [false, false, false]);
+
+  // 🔴 入っていない項目は既定へ。古い書類が開けなくなる
+  const oldDoc = fromSaved({ ...bare, project: {
+    ...bare.project, settings: { width: 1280, height: 720, fps: 30 },
+  } });
+  eq('古い書類は既定の選択で開く',
+     [oldDoc.settings.burnTelops, oldDoc.settings.writeSrt, oldDoc.settings.loudnorm],
+     [true, true, true]);
 }
 
 /* ------------------------------------------------ 素材の画の大きさ */
