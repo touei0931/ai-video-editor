@@ -31,6 +31,7 @@ import {
   type Project,
 } from './project';
 import { ProbeError, probeAsset } from './probe';
+import { buildFCPXML } from './fcpxml';
 import { useTimelinePlayer } from './useTimelinePlayer';
 import { Viewer } from './Viewer';
 import './timeline-screen.css';
@@ -228,6 +229,33 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
     }
   }, [pickFile, busy, project, selectedLane, time, apply]);
 
+  /**
+   * Final Cut に読み込む XML を書き出す。
+   *
+   * 🔴 何も置かれていないときは押させないこと。
+   *    中身の無い XML を読み込ませても、Final Cut では空の project が
+   *    増えるだけで、何が起きたのか分からない。
+   */
+  const exportXML = useCallback(async () => {
+    if (!project.clips.length) return;
+    const api = window.app;
+    if (!api?.saveFCPXML) {
+      setNotice('この画面からは書き出せません（アプリ版で開いてください）');
+      return;
+    }
+    try {
+      const xml = buildFCPXML(project, { name: 'PAC', fps });
+      const saved = await api.saveFCPXML({ xml, defaultName: 'PAC.fcpxml' });
+      setNotice(
+        saved
+          ? '書き出しました。Final Cut の「ファイル > 読み込む > XML」から開いてください'
+          : '中止しました',
+      );
+    } catch {
+      setNotice('書き出しに失敗しました');
+    }
+  }, [project, fps]);
+
   /* ------------------------------------------------------------ キー操作 */
 
   const onKeyDown = useCallback(
@@ -334,6 +362,14 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
         </button>
         <button onClick={() => remove(true)} disabled={!selected} title="その場に穴を空けて消す（Shift+Delete）">
           穴を空けて消す
+        </button>
+        <span className="tl-sep" />
+        <button
+          onClick={exportXML}
+          disabled={!project.clips.length}
+          title="Final Cut Pro に読み込む XML を書き出します"
+        >
+          FCPXML を書き出す
         </button>
         <span className="tl-spacer" />
         <span className="tl-len">{clock(duration)}</span>

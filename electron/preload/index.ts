@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld('app', {
   confirmResume: (info: { savedAt: string; decided: number }) =>
     ipcRenderer.invoke('app:confirmResume', info),
   revealFile: (filePath: string) => ipcRenderer.invoke('app:revealFile', filePath),
+  saveFCPXML: (payload: { xml: string; defaultName: string }) =>
+    ipcRenderer.invoke('app:saveFCPXML', payload),
   uiInfo: () => ipcRenderer.invoke('app:uiInfo'),
   /** Final Cut 用のタイムラインの隣に、使った書体のファイルを置く */
   exportFonts: (payload: { nextTo: string; files: string[] }) =>

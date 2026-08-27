@@ -37,6 +37,9 @@ jobs:
       #    置く場所の計算がずれると、映像が1コマ抜ける・音がずれるといった
       #    **書き出すまで気づけない**壊れ方をする。
       - run: npm run test:timeline
+      # 🔴 書き出した XML の中身の並び。違うと Final Cut は
+      #    「DTD の検証でエラー」とだけ言って、丸ごと読み込みを断る。
+      - run: npm run test:tlxml
       # 元素材の時刻とカット後の時刻の変換。ここがずれると全部ずれる
       - run: npm run test:time
 

@@ -65,6 +65,8 @@ declare global {
         decided: number;
       }) => Promise<'resume' | 'fresh' | 'cancel'>;
       revealFile: (filePath: string) => Promise<void>;
+      /** 並べたタイムラインを Final Cut の XML として保存する。保存先を返す */
+      saveFCPXML: (payload: { xml: string; defaultName: string }) => Promise<string | null>;
       uiInfo: () => Promise<{ isMac: boolean }>;
       /** Final Cut 用のタイムラインの隣に書体を置く。置いたフォルダを返す */
       exportFonts: (payload: { nextTo: string; files: string[] }) => Promise<string | null>;

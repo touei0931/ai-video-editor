@@ -165,6 +165,29 @@ ipcMain.handle('app:pickOutput', async (_e, defaultPath: string) => {
   return result.canceled ? null : result.filePath;
 });
 
+/**
+ * 並べたタイムラインを Final Cut の XML として保存する。
+ *
+ * 🔴 保存先はここで選ばせること。
+ *    レンダラは file:// の外に書けない。渡されたパスにそのまま書く作りにすると、
+ *    どこへでも書ける口を開けることになる。
+ *
+ * 🔴 拡張子を .fcpxml に寄せること。
+ *    Final Cut は「ファイル > 読み込む > XML」でこの拡張子を探す。
+ */
+ipcMain.handle('app:saveFCPXML', async (_e, payload: { xml: string; defaultName: string }) => {
+  const result = await dialog.showSaveDialog({
+    title: 'Final Cut に読み込む XML の保存先',
+    defaultPath: payload.defaultName.endsWith('.fcpxml')
+      ? payload.defaultName
+      : `${payload.defaultName}.fcpxml`,
+    filters: [{ name: 'Final Cut XML', extensions: ['fcpxml'] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  writeFileSync(result.filePath, payload.xml, 'utf8');
+  return result.filePath;
+});
+
 /** 進捗はレンダラへ素通しする。解析中に画面が固まらないことが体験の要（§8.6） */
 function forwardProgress(win: BrowserWindow | null) {
   return sidecar.onProgress((p) => {
