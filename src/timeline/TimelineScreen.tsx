@@ -164,10 +164,19 @@ export function TimelineScreen({
   */
   const [dirty, setDirty] = useState(false);
 
+  /*
+    やり直し（⌘⇧Z）の控え。
+    🔴 新しい操作をしたら捨てること。
+       残すと、戻して別のことをしたあとに「やり直し」で
+       **もう存在しない枝**へ飛ぶことになる。
+  */
+  const future = useRef<Project[]>([]);
+
   const apply = useCallback(
     (next: Project, message?: string) => {
       if (next === project) return;
       past.current = [...past.current.slice(-49), project];
+      future.current = [];
       setDirty(true);
       onChange(next);
       if (message) setNotice(message);
@@ -190,9 +199,23 @@ export function TimelineScreen({
       setNotice('これ以上戻せません');
       return;
     }
+    future.current = [...future.current.slice(-49), project];
+    setDirty(true);
     onChange(prev);
     setNotice('1つ戻しました');
-  }, [onChange]);
+  }, [onChange, project]);
+
+  const redo = useCallback(() => {
+    const next = future.current.pop();
+    if (!next) {
+      setNotice('やり直せるものがありません');
+      return;
+    }
+    past.current = [...past.current.slice(-49), project];
+    setDirty(true);
+    onChange(next);
+    setNotice('1つやり直しました');
+  }, [onChange, project]);
 
   const duration = useMemo(() => timelineDuration(project), [project]);
   const placed = useMemo(() => layout(project), [project]);
@@ -776,7 +799,9 @@ export function TimelineScreen({
         blade();
       } else if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        undo();
+        // 🔴 Shift 付きはやり直し。Final Cut と同じ割り当て
+        if (e.shiftKey) redo();
+        else undo();
       } else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) {
         e.preventDefault();
         remove(e.shiftKey);
@@ -844,7 +869,7 @@ export function TimelineScreen({
       }
     },
     [
-      blade, undo, remove, addTelopHere, seekBy, seekEdit,
+      blade, undo, redo, remove, addTelopHere, seekBy, seekEdit,
       copyClip, paste, duplicate, saveTimeline, clearRange, time,
       fps, duration, project, apply, player,
     ],
@@ -1100,6 +1125,7 @@ export function TimelineScreen({
             <div><dt>Shift+Delete</dt><dd>その場を空きにする</dd></div>
             <div><dt>N</dt><dd>詰める の入 / 切</dd></div>
             <div><dt>⌘Z / Ctrl+Z</dt><dd>ひとつ戻す</dd></div>
+            <div><dt>⌘⇧Z</dt><dd>ひとつやり直す</dd></div>
             <div><dt>T</dt><dd>再生位置にテロップを足す</dd></div>
             <div><dt>I / O</dt><dd>区間の始まり / 終わりを決める</dd></div>
             <div><dt>Esc</dt><dd>区間と選択を外す</dd></div>
