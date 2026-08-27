@@ -32,14 +32,43 @@ const GRAB_TIMEOUT_MS = 6000;
  * その拡大率で、何秒ごとにコマを置くか。
  *
  * 半端な刻みだと拡大のたびに全部作り直しになるので、決まった段階に丸める。
- * 🔴 段階は細かめに持つこと。粗いと、選ばれた刻みが必要な幅よりだいぶ大きくなり、
- *    コマとコマの間が**絵1枚分ちかく空く**（コマが飛び飛びに見える）。
+ * 🔴 段階は細かめに持つこと。粗いと、選ばれた刻みが必要な幅よりだいぶ大きくなる。
  */
-const STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300];
+const STEPS = [
+  1 / 30, 0.05, 0.0667, 0.1, 0.133, 0.2, 0.25, 0.333, 0.5, 0.75,
+  1, 1.5, 2, 3, 5, 7.5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300,
+];
 
+/**
+ * 🔴 「必要な幅**以下**」でいちばん大きい刻みを選ぶこと。
+ *
+ *    以前は「以上」で選んでいた。すると1枚あたりの枠が絵より広くなり、
+ *    絵を**引き伸ばして**埋めることになる。拡大するほど伸びるので、
+ *    寄れば寄るほど何のコマなのか分からなくなっていた（実機で指摘された）。
+ *
+ *    以下で選べば枠は絵より狭くなり、はみ出す分を切って表示する（object-fit: cover）。
+ *    切るぶんには画質が落ちない。
+ *
+ *    枚数が増えすぎる心配は要らない。枠の幅は必ず絵1枚ぶん以下なので、
+ *    見えている枚数は「見えている幅 ÷ 絵の幅」で頭打ちになる（拡大しても増えない）。
+ */
 export function stepFor(scale: number, thumbW: number): number {
   const sec = thumbW / scale;
-  return STEPS.find((s) => s >= sec) ?? STEPS[STEPS.length - 1];
+  for (let i = STEPS.length - 1; i >= 0; i--) {
+    if (STEPS[i] <= sec) return STEPS[i];
+  }
+  return STEPS[0];
+}
+
+/**
+ * 取り出すときの倍率。
+ *
+ * 🔴 見た目の大きさちょうどで取り出さないこと。
+ *    画素の細かい画面では、CSS の 1px が実際には 2px なので、
+ *    等倍で取ると**そのぶんだけぼやける**。
+ */
+function sharpness(): number {
+  return Math.min(2, Math.max(1, window.devicePixelRatio || 1));
 }
 
 /**
@@ -185,7 +214,8 @@ export function requestFrames(
 ): void {
   const s = storeFor(path);
   if (s.failed) return;
-  s.size = size;
+  const k = sharpness();
+  s.size = { w: Math.round(size.w * k), h: Math.round(size.h * k) };
   s.step = step;
 
   const seen = new Set<number>();

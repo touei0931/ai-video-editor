@@ -27,6 +27,7 @@
     "test:tlxml": "node --import ./scripts/ts-resolve.mjs scripts/test-timeline-fcpxml.mjs",
     "test:tlsave": "node --import ./scripts/ts-resolve.mjs scripts/test-timeline-persist.mjs",
     "test:asseturl": "node --import ./scripts/ts-resolve.mjs scripts/test-asset-url.mjs",
+    "test:framestep": "node --import ./scripts/ts-resolve.mjs scripts/test-frame-step.mjs",
     "test:lanes": "python scripts/test_telop_lanes.py",
     "test:align": "node scripts/test-telop-align.mjs",
     "smoke": "electron . --smoke-test",
