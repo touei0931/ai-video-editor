@@ -23,20 +23,20 @@ const LIMITS = {
   timeline: { min: 150, max: 760 },
 };
 
-function load(): Layout {
+function load(key: string, defaults: Layout): Layout {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = localStorage.getItem(key);
     if (raw) {
       const p = JSON.parse(raw) as Partial<Layout>;
       return {
-        inspector: clamp('inspector', p.inspector ?? DEFAULTS.inspector),
-        timeline: clamp('timeline', p.timeline ?? DEFAULTS.timeline),
+        inspector: clamp('inspector', p.inspector ?? defaults.inspector),
+        timeline: clamp('timeline', p.timeline ?? defaults.timeline),
       };
     }
   } catch {
     /* 壊れていても既定で続ける */
   }
-  return DEFAULTS;
+  return defaults;
 }
 
 function clamp(which: keyof Layout, v: number): number {
@@ -48,22 +48,27 @@ function clamp(which: keyof Layout, v: number): number {
  * 骨格の幅・高さを持つ。EditorShell から使う。
  * 値は CSS 変数として渡すので、レイアウトの計算は CSS 側に任せられる。
  */
-export function useLayout() {
-  const [layout, setLayout] = useState<Layout>(load);
+export function useLayout(storeKey: string = STORE_KEY, defaults: Layout = DEFAULTS) {
+  /*
+    🔴 画面ごとに覚え先を分けられるようにすること。
+       子画面と並べる画面では要る幅が違う。同じ場所に覚えると、
+       行き来するたびにどちらかが崩れる。
+  */
+  const [layout, setLayout] = useState<Layout>(() => load(storeKey, defaults));
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(layout));
+      localStorage.setItem(storeKey, JSON.stringify(layout));
     } catch {
       /* 保存できなくても操作は続く */
     }
-  }, [layout]);
+  }, [layout, storeKey]);
 
   const set = useCallback((which: keyof Layout, v: number) => {
     setLayout((l) => ({ ...l, [which]: clamp(which, v) }));
   }, []);
 
-  const reset = useCallback(() => setLayout(DEFAULTS), []);
+  const reset = useCallback(() => setLayout(defaults), [defaults]);
 
   return { layout, set, reset };
 }

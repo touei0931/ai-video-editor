@@ -50,8 +50,8 @@
     🔴 場所は明示して置くこと。JSX に書いた順で流し込むと、
        要素を1つ足すだけで並びが崩れる。
   */
-  grid-template-columns: minmax(0, 1fr) 300px;
-  grid-template-rows: auto minmax(0, 1fr) minmax(160px, 40%);
+  grid-template-columns: minmax(0, 1fr) 4px var(--tl-inspector, 300px);
+  grid-template-rows: auto minmax(0, 1fr) 4px var(--tl-timeline, 310px);
   height: 100%;
   min-height: 0;
   background: var(--s0);
@@ -71,8 +71,26 @@
 .tl-screen > .fcp-timeline {
   grid-area: auto;
   grid-column: 1 / -1;
-  grid-row: 3;
+  grid-row: 4;
   min-height: 0;
+}
+
+/*
+  分割バー。
+  🔴 grid-area を打ち消すこと。shell.css の .fcp-resizer は
+     別の格子（vsplit / hsplit という名前の場所）に置く前提になっている。
+     打ち消さないと、その名前の場所を作ろうとして余計な行が生まれる。
+*/
+.tl-screen > .fcp-resizer.col {
+  grid-area: auto;
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.tl-screen > .fcp-resizer.row {
+  grid-area: auto;
+  grid-column: 1 / -1;
+  grid-row: 3;
 }
 
 .tl-screen > .tl-bar {
@@ -86,7 +104,7 @@
 }
 
 .tl-screen > .tl-inspector {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 2;
 }
 
@@ -888,8 +906,9 @@
      外側に暗い線を回して、どちらの絵でも縁が立つようにする。
 */
 .tl-screen .fcp-track-body.on-film .fcp-clip {
-  border-width: 2px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8);
+  /* 🔴 太くしすぎないこと。中の絵が枠に食われる */
+  border-width: 1px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.85);
 }
 
 .tl-screen .fcp-track-body.on-film .fcp-clip.kind-keep {
@@ -905,7 +924,7 @@
 .tl-screen .fcp-track-body.on-film .fcp-clip.selected,
 .tl-screen .fcp-track-body.on-film .fcp-clip.kind-keep.selected {
   border-color: var(--sel);
-  border-width: 4px;
+  border-width: 2px;
   outline: none;
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.9),
@@ -915,7 +934,7 @@
 
 /* コマの上ではないレーン（音・テロップ）でも、選んだら太くする */
 .tl-screen .fcp-clip.selected {
-  border-width: 3px;
+  border-width: 2px;
 }
 
 /* ============================================ 1本の背の高いレーン */

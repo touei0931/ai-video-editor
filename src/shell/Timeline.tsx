@@ -81,6 +81,14 @@ export interface TimelineTrack {
   /** 1 / 2 キーで高さを変えられるレーンか（素材のコマ） */
   scalable?: boolean;
   /**
+   * 縦にスクロールしても、いちばん上に貼り付けておくか。
+   *
+   * 🔴 テロップの段に使う。クリップを重ねていくと段が増えて、
+   *    テロップが画面の外へ出てしまう。何が書いてあるかは
+   *    常に見えていないと、合わせて切ることができない。
+   */
+  sticky?: boolean;
+  /**
    * 段を自分で決めるとき、その数。
    *
    * 🔴 これを渡すときは、区間の側にも row を入れること。
@@ -107,6 +115,14 @@ export interface TimelineBand {
   laneId: string;
   /** 土台（本編）の段か。ここだけ濃くして、重ねる場所と分ける */
   main?: boolean;
+  /**
+   * その段の高さ。省くとレーンの高さと同じ。
+   *
+   * 🔴 空の段（放す先を用意しているだけの段）は細くすること。
+   *    全部同じ高さにすると、段が増えたときに土台がタイムラインの
+   *    外へ押し出されて、掴むことも放すこともできなくなる（実際にそうなった）。
+   */
+  height?: number;
 }
 
 export interface TimelineView {
@@ -193,6 +209,9 @@ const GRABBABLE = 64;
  */
 export const ABOVE_LANE = '__above__';
 
+/** 「いちばん下の段より下」を表す行き先。音を足す場所 */
+export const BELOW_LANE = '__below__';
+
 /** 0:00.0 形式。タイムラインの目盛りは短いほうが読みやすい */
 function tick(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -234,7 +253,7 @@ const MIN_LEN = 0.04; // 区間の下限（秒）。潰れると掴めなくな�
  * 🔴 段の高さそのものを詰めても、ここが広いと帯が細くならない。
  *    段の高さと合わせて詰めること。
  */
-const ROW_INSET = 3;
+export const ROW_INSET = 3;
 
 export function Timeline({
   duration,
@@ -314,6 +333,14 @@ export function Timeline({
    *    「ずれた」のか「吸い付いた」のか分からず、原因を探すことになる。
    */
   const [snappedAt, setSnappedAt] = useState<number | null>(null);
+  /*
+    掴んでいる間、いま指している段。
+
+    🔴 放すまで分からない、にしないこと。
+       上へ運んでいるつもりなのに、放すまでクリップが本編の上を
+       横に滑るだけだと、上へ行くのかどうかが分からない。
+  */
+  const [hoverLane, setHoverLane] = useState<string | null>(null);
 
   /**
    * 掴んでいる位置を確定させる。吸い付いたかどうかも返す。
@@ -539,6 +566,23 @@ export function Timeline({
     };
   }, []);
 
+  /**
+   * その場所にある段の名前を探す。
+   *
+   * 🔴 いちばん上の要素だけを見ないこと。
+   *    段の帯はクリップの**下**にあるので、そこにクリップがあると
+   *    帯まで届かない。重なっている要素を上から順に見て、
+   *    名前の付いた最初のものを採る。
+   */
+  const laneAtPoint = useCallback((x: number, y: number): string | null => {
+    const hits = document.elementsFromPoint(x, y) as HTMLElement[];
+    for (const hit of hits) {
+      const found = hit.closest('[data-lane]') as HTMLElement | null;
+      if (found?.dataset.lane) return found.dataset.lane;
+    }
+    return null;
+  }, []);
+
   /** 押して離すまでに動いていなければ「移動」とみなさない */
   const panned = () => pan.current?.moved === true;
 
@@ -578,6 +622,10 @@ export function Timeline({
     if (!drag) return;
 
     const move = (e: PointerEvent) => {
+      // 掴んでいる間も、いま指している段を見せる（放してから驚かないように）
+      if (drag.edge === 'move' && onMoveToLane) {
+        setHoverLane(laneAtPoint(e.clientX, e.clientY));
+      }
       const d = (e.clientX - drag.originX) / scale;
       const fine = e.shiftKey; // Shift で吸着を外す
       setDrag((cur) => {
@@ -632,6 +680,7 @@ export function Timeline({
     */
     const up = (e: PointerEvent) => {
       setSnappedAt(null);
+      setHoverLane(null);
       const cur = dragRef.current;
       if (cur) {
         /*
@@ -648,17 +697,7 @@ export function Timeline({
              帯まで届かない。重なっている要素を上から順に見て、
              名前の付いた最初のものを採る。
         */
-        let laneId: string | null = null;
-        if (onMoveToLane) {
-          const hits = document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[];
-          for (const hit of hits) {
-            const found = hit.closest('[data-lane]') as HTMLElement | null;
-            if (found?.dataset.lane) {
-              laneId = found.dataset.lane;
-              break;
-            }
-          }
-        }
+        const laneId = onMoveToLane ? laneAtPoint(e.clientX, e.clientY) : null;
         const fromLane = laneOf.current.get(cur.id) ?? null;
 
         if (cur.edge === 'move' && onMoveToLane && laneId && laneId !== fromLane) {
@@ -1016,8 +1055,26 @@ export function Timeline({
               : null;
             const rows = fixedRows ?? (track.stack ? assignRows(track.regions) : null);
             const rowCount = fixedRows ? (track.rowCount ?? countRows(rows)) : countRows(rows);
+
+            /*
+              段ごとの高さと、その上端。
+              🔴 全部を同じ高さにしないこと。空の段まで太いと、
+                 段が増えたときに土台がタイムラインの外へ押し出される。
+            */
+            const bandH = track.bands
+              ? track.bands.map((b) => b.height ?? rowH)
+              : Array.from({ length: rowCount }, () => rowH);
+            const bandTop: number[] = [];
+            bandH.reduce((acc, h) => {
+              bandTop.push(acc);
+              return acc + h;
+            }, 0);
+            const totalH = bandH.reduce((a, b) => a + b, 0);
             return (
-            <div className="fcp-track" key={track.id}>
+            <div
+              className={`fcp-track${track.sticky ? ' sticky' : ''}`}
+              key={track.id}
+            >
               <span className="fcp-track-label">{track.label}</span>
               <div
                 /*
@@ -1033,7 +1090,7 @@ export function Timeline({
                 */
                 data-lane={track.bands ? undefined : track.id}
                 className={`fcp-track-body${track.overlay ? ' on-film' : ''}`}
-                style={{ ['--track-h' as string]: `${rowH * rowCount}px` }}
+                style={{ ['--track-h' as string]: `${totalH}px` }}
 
               >
                 {/*
@@ -1046,7 +1103,7 @@ export function Timeline({
                     key={band.laneId}
                     className={`fcp-band${band.main ? ' main' : ''}`}
                     data-lane={band.laneId}
-                    style={{ top: i * rowH, height: rowH }}
+                    style={{ top: bandTop[i], height: bandH[i] }}
                   />
                 ))}
 
@@ -1056,13 +1113,22 @@ export function Timeline({
                   scale,
                   from: view.left / scale,
                   to: (view.left + view.width) / scale,
-                  height: rowH * rowCount,
+                  height: totalH,
                   duration,
                 })}
 
                 {track.regions.map((r) => {
                   const v = shown(r);
-                  const row = rows?.get(r.id) ?? 0;
+                  /*
+                    掴んでいる間は、いま指している段へ付いていく。
+                    🔴 放すまで本編の上を横に滑るだけ、にしないこと。
+                       上へ運んでいるつもりなのかどうかが分からない。
+                  */
+                  const hoverRow =
+                    drag?.id === r.id && hoverLane
+                      ? track.bands?.findIndex((b) => b.laneId === hoverLane) ?? -1
+                      : -1;
+                  const row = hoverRow >= 0 ? hoverRow : rows?.get(r.id) ?? 0;
                   const left = v.start * scale;
                   const w = Math.max(3, (v.end - v.start) * scale);
                   const isDragging = drag?.id === r.id;
@@ -1098,7 +1164,12 @@ export function Timeline({
                              別の計算にすると、1段目の見た目が段数で変わる。
                         */
                         rows
-                          ? { left, width: w, top: row * rowH + ROW_INSET, height: rowH - ROW_INSET * 2 }
+                          ? {
+                              left,
+                              width: w,
+                              top: (bandTop[row] ?? row * rowH) + ROW_INSET,
+                              height: (bandH[row] ?? rowH) - ROW_INSET * 2,
+                            }
                           : { left, width: w }
                       }
                       onPointerDown={(e) => {
@@ -1155,7 +1226,7 @@ export function Timeline({
                         className="fcp-flag"
                         style={{
                           left: left + w + 6,
-                          top: rows ? row * rowH + ROW_INSET : 8,
+                          top: rows ? (bandTop[row] ?? row * rowH) + ROW_INSET : 8,
                         }}
                       >
                         {r.label}

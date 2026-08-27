@@ -12,8 +12,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Resizer, useLayout } from '../shell/Resizer';
 import {
   ABOVE_LANE,
+  BELOW_LANE,
+  ROW_INSET,
   Timeline,
   clock,
   type TimelineBand,
@@ -40,6 +43,7 @@ import {
   removeTelop,
   moveTelopEdge,
   removeRange,
+  pruneEmptyLanes,
   importCutResult,
   type CutResult,
   duplicateClip,
@@ -128,6 +132,24 @@ const FPS_PRESETS = [24, 25, 29.97, 30, 60];
  */
 const LANE_ROW_H = 64;
 
+/**
+ * 空の段（放す先を用意しているだけの段）の高さ。
+ *
+ * 🔴 細くすること。ここまで太くすると、段が増えたときに
+ *    土台がタイムラインの外へ押し出されて、掴むことも放すこともできなくなる。
+ */
+const EMPTY_ROW_H = 22;
+
+/**
+ * パネルの初期の大きさ。
+ *
+ * 🔴 タイムラインは、段が1つ増えても収まる高さにしておくこと。
+ *    足りないと縦スクロールが出て、**土台の段が画面の外へ出る**。
+ *    そうなると掴むことも放すこともできない（実際にそうなった）。
+ *    目安: 目盛り25 + テロップ60 + レーン(見出し26 + 段の合計) + 余白。
+ */
+const TL_PANES = { inspector: 340, timeline: 400 };
+
 
 export function TimelineScreen({
   project,
@@ -149,6 +171,14 @@ export function TimelineScreen({
     🔴 素材から決めないこと。素材を1本足すたびに書き出しのコマ数が変わる。
   */
   const fps = project.settings.fps;
+  /*
+    パネルの幅と高さ。
+    🔴 覚え先を子画面と分けること。要る幅が違うので、同じ所に覚えると
+       行き来するたびにどちらかが崩れる。
+  */
+  // 🔴 project.ts の layout() と名前がぶつかるので、別の名前で受ける
+  const { layout: panes, set: setPane } = useLayout('pac.layout.timeline', TL_PANES);
+
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -363,18 +393,7 @@ export function TimelineScreen({
     setSelected(`telop:${added.id}:${clip.id}`);
   }, [project, time, apply]);
 
-  /** 上に重ねるレーンを1本足す */
-  const addLaneAbove = useCallback(
-    (kind: 'video' | 'audio') => {
-      const lane: Lane = {
-        id: newId('lane'),
-        kind,
-        name: kind === 'video' ? '重ね' : '音',
-      };
-      apply({ ...project, lanes: [...project.lanes, lane] }, 'レーンを足しました');
-    },
-    [project, apply],
-  );
+
 
   /**
    * 端をドラッグし終えたとき。
@@ -448,15 +467,24 @@ export function TimelineScreen({
            編集ソフトでは、上へ放れば重なるのが当たり前。
            手順が1つ増えるだけで、その機能は使われなくなる。
       */
-      if (laneId === ABOVE_LANE) {
-        const lane: Lane = { id: newId('lane'), kind: 'video', name: '重ね' };
-        apply(moveClip(addLane(project, lane), id, lane.id, start), '上に重ねました');
+      if (laneId === ABOVE_LANE || laneId === BELOW_LANE) {
+        const kind = laneId === ABOVE_LANE ? 'video' : 'audio';
+        const lane: Lane = { id: newId('lane'), kind, name: kind === 'video' ? '重ね' : '音' };
+        apply(
+          pruneEmptyLanes(moveClip(addLane(project, lane), id, lane.id, start)),
+          kind === 'video' ? '上に重ねました' : '音のレーンへ移しました',
+        );
         return;
       }
 
-      // 見るだけの段（テロップ・音の波）へは落とせない。行き先が無い
+      // 見るだけの段（テロップ）へは落とせない。行き先が無い
       if (!project.lanes.some((l) => l.id === laneId)) return;
-      apply(moveClip(project, id, laneId, start), 'レーンを移しました');
+      /*
+        🔴 移したあとに、空になったレーンを片付けること。
+           片付けないと、本編へ戻したあとも増えた段が空のまま残り続け、
+           段が増えるほどテロップが下へ押し出される。
+      */
+      apply(pruneEmptyLanes(moveClip(project, id, laneId, start)), 'レーンを移しました');
     },
     [project, apply],
   );
@@ -934,6 +962,12 @@ export function TimelineScreen({
           id: 'telops',
           label: 'テロップ',
           height: 26,
+          /*
+            🔴 縦にスクロールしても消えないようにすること。
+               クリップを重ねると段が増えて、テロップが画面の外へ出る。
+               何が書いてあるかは常に見えていないと、合わせて切れない。
+          */
+          sticky: true,
           regions: telops.map((t) => ({
             id: `telop:${t.id}:${t.clipId}`,
             start: t.start,
@@ -974,7 +1008,12 @@ export function TimelineScreen({
     const main = project.lanes.find((l) => l.kind === 'main');
     if (!main) return telopTrack ? [telopTrack] : [];
 
-    const order: (Lane | null)[] = [null, ...above, main, ...below];
+    /*
+      上下に**空の段**を必ず置く。
+      🔴 これが無いと、重ねる先／音を置く先が無い状態では運べない。
+         「先にレーンを足してください」を人にやらせない。
+    */
+    const order: (Lane | null)[] = [null, ...above, main, ...below, null];
     const rowOf = new Map<string, number>();
     order.forEach((l, i) => {
       if (l) rowOf.set(l.id, i);
@@ -985,9 +1024,10 @@ export function TimelineScreen({
          段の意味は背景の濃さで分かるので、文字を置くと
          クリップの上に常に文字が2つ（帯の名前とクリップの名前）並ぶことになる。
     */
-    const bands: TimelineBand[] = order.map((l) => ({
-      laneId: l ? l.id : ABOVE_LANE,
+    const bands: TimelineBand[] = order.map((l, i) => ({
+      laneId: l ? l.id : i === 0 ? ABOVE_LANE : BELOW_LANE,
       main: l?.kind === 'main',
+      height: l ? LANE_ROW_H : EMPTY_ROW_H,
     }));
 
     const regions: TimelineRegion[] = placed.map((c) => ({
@@ -1015,11 +1055,21 @@ export function TimelineScreen({
       overlay: true,
       scalable: true,
       render: (v: TimelineView) => {
-        const rowH = v.height / order.length;
+        /*
+          🔴 段の高さは一定ではない（空の段は細い）。
+             均等割りにすると、絵と波がクリップの枠からずれる。
+        */
+        const tops: number[] = [];
+        order.reduce((acc, l) => {
+          tops.push(acc);
+          return acc + (l ? LANE_ROW_H : EMPTY_ROW_H);
+        }, 0);
         return (
           <>
             {order.map((lane, i) => {
               if (!lane) return null;
+              const rowH = LANE_ROW_H;
+              const innerH = rowH - ROW_INSET * 2;
               const mine = placed.filter((c) => c.laneId === lane.id);
               if (mine.length === 0) return null;
               /*
@@ -1029,13 +1079,18 @@ export function TimelineScreen({
                    切れ目の良し悪しが分からない。波なら
                    「立ち上がる直前で切れているか」を再生せずに判断できる。
               */
-              const filmH = lane.kind === 'audio' ? 0 : Math.round(rowH * 0.62);
-              const waveH = Math.max(12, Math.round(rowH - filmH - 4));
+              const filmH = lane.kind === 'audio' ? 0 : Math.round(innerH * 0.62);
+              const waveH = Math.max(10, Math.round(innerH - filmH));
               return (
+                /*
+                  🔴 クリップの枠と同じ場所に置くこと。
+                     段の高さそのままにすると、絵と波がクリップの枠から
+                     上下に少しはみ出して、枠がずれて見える。
+                */
                 <div
                   key={lane.id}
                   className="tl-lane-layer"
-                  style={{ top: i * rowH, height: rowH }}
+                  style={{ top: tops[i] + ROW_INSET, height: innerH }}
                 >
                   {filmH > 0 && (
                     <ClipFilmstrip
@@ -1085,7 +1140,18 @@ export function TimelineScreen({
   );
 
   return (
-    <div className="tl-screen" tabIndex={0} onKeyDown={onKeyDown} style={{ position: 'relative' }}>
+    <div
+      className="tl-screen"
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      style={
+        {
+          position: 'relative',
+          '--tl-inspector': `${panes.inspector}px`,
+          '--tl-timeline': `${panes.timeline}px`,
+        } as React.CSSProperties
+      }
+    >
       <div className="tl-bar">
         <button
           onClick={onImport}
@@ -1098,12 +1164,6 @@ export function TimelineScreen({
           {busy ? '読み込み中…' : '素材を追加'}
         </button>
         <span className="tl-sep" />
-        <button onClick={() => addLaneAbove('video')} title="B-roll や差し込みを重ねるレーン">
-          ＋重ねる
-        </button>
-        <button onClick={() => addLaneAbove('audio')} title="BGM や効果音のレーン">
-          ＋音
-        </button>
         <button onClick={addTelopHere} title="再生位置にテロップを1枚足す（T）">
           ＋テロップ
         </button>
@@ -1261,6 +1321,22 @@ export function TimelineScreen({
           {notice}
         </div>
       )}
+
+      <Resizer
+        direction="col"
+        value={panes.inspector}
+        onChange={(v) => setPane('inspector', v)}
+        invert
+        label="右のパネルの幅"
+      />
+
+      <Resizer
+        direction="row"
+        value={panes.timeline}
+        onChange={(v) => setPane('timeline', v)}
+        invert
+        label="タイムラインの高さ"
+      />
 
       <Inspector
         project={project}

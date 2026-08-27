@@ -26,6 +26,7 @@ const {
   duplicateClip, pasteClip, isGap,
   removeLane, renameLane, clipsOnLane, removeRange,
   setClipTransform, fillScale, NO_TRANSFORM, TRANSFORM_RANGE,
+  pruneEmptyLanes,
 } = m;
 
 let failed = 0;
@@ -798,6 +799,41 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   eq('横を縦の枠いっぱいにすると寄る', s > 3.15 && s < 3.17, true);
   eq('上限を超えない', fillScale({ width: 10000, height: 10 }, tate) <= TRANSFORM_RANGE.maxScale, true);
   eq('大きさが分からない素材は等倍', fillScale({}, tate), 1);
+}
+
+/* ============================================ 空のレーンの片付け */
+{
+  let p = importCutResult(emptyProject(), {
+    asset: { id: 'a', path: '/m/a.mp4', name: 'A', duration: 60, hasVideo: true, hasAudio: true },
+    keeps: [{ srcStart: 0, srcEnd: 5 }, { srcStart: 10, srcEnd: 15 }],
+  });
+  p = addLane(p, { id: 'v1', kind: 'video', name: '重ね' });
+  p = addLane(p, { id: 'm1', kind: 'audio', name: '音' });
+  const id = p.clips[0].id;
+  p = moveClip(p, id, 'v1', 3);
+
+  eq('置く前は3本', p.lanes.length, 3);
+  // 音のレーンは空なので片付く
+  let q = pruneEmptyLanes(p);
+  eq('空のレーンは消える', q.lanes.map((l) => l.id), ['main', 'v1']);
+
+  /*
+    🔴 本編は残すこと。土台なので、空でも無くならない。
+  */
+  const onlyMain = pruneEmptyLanes({ ...emptyProject(), lanes: [{ id: 'main', kind: 'main', name: '本編' }] });
+  eq('本編は空でも残る', onlyMain.lanes.length, 1);
+
+  /*
+    🔴 クリップを本編へ戻したら、そのレーンも片付くこと。
+       片付けないと、増えた段が空のまま残り続け、
+       段が増えるほどテロップが下へ押し出される。
+  */
+  const back = pruneEmptyLanes(moveClip(q, id, 'main', 0));
+  eq('戻したらレーンが減る', back.lanes.map((l) => l.id), ['main']);
+  eq('クリップは本編にある', back.clips.every((c) => c.laneId === 'main'), true);
+
+  // 変わらないときは作り直さない
+  eq('片付けるものが無ければ作り直さない', pruneEmptyLanes(back) === back, true);
 }
 
 if (failed > 0) {

@@ -917,6 +917,20 @@ export function removeLane(project: Project, laneId: string): Project {
   };
 }
 
+/**
+ * 空になった重ね／音のレーンを片付ける。
+ *
+ * 🔴 本編は残すこと。土台なので、空でも無くならない。
+ * 🔴 クリップを本編へ戻したあとに必ず通すこと。
+ *    通さないと、増えた段が空のまま残り続ける。
+ *    段が増えるほどテロップが下へ押し出されて見えなくなる。
+ */
+export function pruneEmptyLanes(project: Project): Project {
+  const used = new Set(project.clips.map((c) => c.laneId));
+  const lanes = project.lanes.filter((l) => l.kind === 'main' || used.has(l.id));
+  return lanes.length === project.lanes.length ? project : { ...project, lanes };
+}
+
 /** そのレーンに乗っているクリップの数（消す前に伝えるため） */
 export function clipsOnLane(project: Project, laneId: string): number {
   return project.clips.filter((c) => c.laneId === laneId && !isGap(c)).length;
