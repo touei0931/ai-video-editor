@@ -70,8 +70,15 @@ def main() -> int:
     original_probe = media.probe_video_info
     original_video_args = media.available_video_args
     original_decode = media.available_decode_args
+    original_find = media.find_ffmpeg
 
     media._run_with_progress = fake_run
+    # 🔴 find_ffmpeg も差し替えること。
+    #    このテストは ffmpeg を**動かさない**のが売りだが、
+    #    export_cut_video は最初に置き場所を探しに行く。
+    #    差し替え忘れると、実行しないのに「ffmpeg が見つかりません」で
+    #    落ちる。CI がずっと赤いまま放置される原因になっていた。
+    media.find_ffmpeg = lambda: "ffmpeg"
     media.probe_video_info = lambda _p: {
         "width": 1920, "height": 1080, "fps": 30.0, "duration": 2400.0, "rotation": 0,
     }
@@ -112,6 +119,7 @@ def main() -> int:
         media.probe_video_info = original_probe
         media.available_video_args = original_video_args
         media.available_decode_args = original_decode
+        media.find_ffmpeg = original_find
 
     print()
     print("test-export-graph: OK" if failed == 0 else f"test-export-graph: {failed} 件失敗")

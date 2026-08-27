@@ -85,10 +85,16 @@ if [ -e "$ENGINE" ] || [ -e "$FFMPEG_BIN" ]; then
   # 署名されていない Mach-O が残っていないか（残ると解析だけ動かない形で壊れる）
   UNSIGNED=0
   CHECKED=0
-  for f in $(find "$APP/Contents/Resources/engine" -type f -name "*.dylib" -o -type f -name "*.so" 2>/dev/null | head -60); do
+  # 🔴 $(find ...) をそのまま for に流さないこと。
+  #    アプリ名に空白が入った途端、1つのパスが4語に割れて
+  #    **1つも実在しないファイル**を検査することになる。
+  #    それでも数は数えるので「240 個が未署名」のような、
+  #    もっともらしい嘘の失敗が出る（2026-08-27 に踏んだ）。
+  while IFS= read -r -d '' f; do
+    [ "$CHECKED" -ge 60 ] && break
     CHECKED=$((CHECKED+1))
     codesign -v "$f" >/dev/null 2>&1 || UNSIGNED=$((UNSIGNED+1))
-  done
+  done < <(find "$APP/Contents/Resources/engine" -type f \( -name "*.dylib" -o -name "*.so" \) -print0 2>/dev/null)
   [ "$UNSIGNED" -eq 0 ] && ok "同梱ライブラリの署名が通っている（$CHECKED 個を抜き取り検査）" || ng "署名されていないライブラリが $UNSIGNED 個ある"
 fi
 
