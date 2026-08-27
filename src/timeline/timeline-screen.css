@@ -883,3 +883,25 @@
 .tl-screen .fcp-clip.selected {
   border-width: 3px;
 }
+
+/* ============================================ 1本の背の高いレーン */
+
+/*
+  レーンの中の1段ぶん。上が絵、下が波。
+
+  🔴 触れないようにすること。この上にクリップの帯が乗る。
+     絵や波がマウスを受けると、クリップを掴めない場所ができる。
+*/
+.tl-lane-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.tl-lane-wave {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}

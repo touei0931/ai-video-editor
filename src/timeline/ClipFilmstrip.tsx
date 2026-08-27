@@ -44,7 +44,7 @@ export function ClipFilmstrip({ clips, assets, scale, from, to, height }: Props)
     🔴 クリップごとに伝えないこと。あとから伝えたクリップが前のを打ち消して、
        画面の左半分だけ絵が出る、という形になる。
   */
-  const wants = new Map<string, { times: number[]; aspect: number }>();
+  const wants = new Map<string, { times: number[]; aspect: number; step: number }>();
   const placement: { clip: PlacedClip; path: string; step: number; slots: number[] }[] = [];
 
   for (const c of visible) {
@@ -65,7 +65,7 @@ export function ClipFilmstrip({ clips, assets, scale, from, to, height }: Props)
 
     placement.push({ clip: c, path: asset.path, step, slots });
 
-    const entry = wants.get(asset.path) ?? { times: [], aspect };
+    const entry = wants.get(asset.path) ?? { times: [], aspect, step };
     for (const at of slots) {
       // タイムラインの時刻 → 素材の中の時刻
       entry.times.push(Number((c.srcStart + (at - c.start)).toFixed(2)));
@@ -77,7 +77,12 @@ export function ClipFilmstrip({ clips, assets, scale, from, to, height }: Props)
 
   useEffect(() => {
     for (const [path, w] of wants) {
-      requestFrames(path, w.times, { w: Math.round(height * w.aspect), h: Math.round(height) });
+      requestFrames(
+        path,
+        w.times,
+        { w: Math.round(height * w.aspect), h: Math.round(height) },
+        w.step,
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantKey, height]);

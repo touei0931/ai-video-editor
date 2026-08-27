@@ -42,6 +42,17 @@ export function stepFor(scale: number, thumbW: number): number {
   return STEPS.find((s) => s >= sec) ?? STEPS[STEPS.length - 1];
 }
 
+/**
+ * これより粗い刻みで並べているときは、キーフレーム送り（fastSeek）を使う。
+ *
+ * 🔴 細かい刻みでは使わないこと。
+ *    fastSeek はいちばん近いキーフレームへ飛ぶので、
+ *    2秒ほど離れたコマが返ることがある。刻みが 0.5 秒なのに
+ *    2秒先の絵を出したら、**そこに無いものを見せている**ことになる。
+ *    刻みが十分粗ければ、ずれはこのレーンが元から持っている粗さに収まる。
+ */
+const FAST_SEEK_STEP = 2;
+
 interface Store {
   video: HTMLVideoElement;
   canvas: HTMLCanvasElement;
@@ -56,6 +67,8 @@ interface Store {
   misses: number;
   failed: boolean;
   size: { w: number; h: number };
+  /** いまの刻み（秒）。キーフレーム送りを使ってよいかの判断に使う */
+  step: number;
   listeners: Set<() => void>;
 }
 
@@ -106,6 +119,7 @@ function storeFor(path: string): Store {
     misses: 0,
     failed: false,
     size: { w: 160, h: 90 },
+    step: 1,
     listeners: new Set(),
   };
   stores.set(path, store);
@@ -167,10 +181,12 @@ export function requestFrames(
   path: string,
   times: readonly number[],
   size: { w: number; h: number },
+  step = 1,
 ): void {
   const s = storeFor(path);
   if (s.failed) return;
   s.size = size;
+  s.step = step;
 
   const seen = new Set<number>();
   const list: number[] = [];
@@ -205,7 +221,7 @@ async function pump(path: string, s: Store): Promise<void> {
       const next = s.wanted.find((t) => !s.shots.has(t));
       if (next === undefined) break;
 
-      const url = await grab(s, next);
+      const url = await grab(s, next, s.step >= FAST_SEEK_STEP);
       if (url) {
         s.misses = 0;
         s.shots.set(next, url);
@@ -242,7 +258,7 @@ function evict(s: Store): void {
   }
 }
 
-function grab(s: Store, at: number): Promise<string | null> {
+function grab(s: Store, at: number, fast: boolean): Promise<string | null> {
   return new Promise((resolve) => {
     let done = false;
     const fin = (r: string | null) => {
@@ -275,6 +291,15 @@ function grab(s: Store, at: number): Promise<string | null> {
     const timer = setTimeout(() => fin(null), GRAB_TIMEOUT_MS);
 
     const dur = Number.isFinite(s.video.duration) ? s.video.duration : at + 1;
-    s.video.currentTime = Math.max(0, Math.min(at, dur - 0.05));
+    const target = Math.max(0, Math.min(at, dur - 0.05));
+    /*
+      🔴 キーフレーム送りは速いが、正確ではない。
+         長い素材では seek のたびに数百ミリ秒かかることがあり、
+         コマが1枚ずつ遅れて出てくる原因になる。
+         粗く並べているときだけ使う（上の FAST_SEEK_STEP の注記）。
+    */
+    const v = s.video as HTMLVideoElement & { fastSeek?: (t: number) => void };
+    if (fast && typeof v.fastSeek === 'function') v.fastSeek(target);
+    else s.video.currentTime = target;
   });
 }

@@ -35,6 +35,14 @@ export interface TimelineRegion {
    *    切れ目の印は、まさに掴みたい端の真上に来る。
    */
   decor?: boolean;
+  /**
+   * 何段目に置くか。渡すと自動の段割りより優先する。
+   *
+   * 🔴 レーンの並びをそのまま段にしたいときに使う。
+   *    自動（重なりを見て振る）だと、上に重ねたクリップが
+   *    「重なっていないから」と本編と同じ段に落ちる。
+   */
+  row?: number;
 }
 
 export interface TimelineTrack {
@@ -72,6 +80,29 @@ export interface TimelineTrack {
   overlay?: boolean;
   /** 1 / 2 キーで高さを変えられるレーンか（素材のコマ） */
   scalable?: boolean;
+  /**
+   * 段を自分で決めるとき、その数。
+   *
+   * 🔴 これを渡すときは、区間の側にも row を入れること。
+   *    片方だけだと、置き場所が足りない段に区間が落ちる。
+   */
+  rowCount?: number;
+  /**
+   * 段の帯（背景と、放したときの行き先）。
+   *
+   * 🔴 これを渡したら、レーンの名前は**帯のほうに付ける**。
+   *    段ごとに行き先が違うので、レーン全体に1つ付けても指せない。
+   */
+  bands?: TimelineBand[];
+}
+
+/** 段の帯。1つのレーンを縦に分けて見せるときに使う */
+export interface TimelineBand {
+  /** 放したときの行き先（レーンの名前） */
+  laneId: string;
+  label: string;
+  /** 土台（本編）の段か。ここだけ黒くして、他は暗い灰にする */
+  main?: boolean;
 }
 
 export interface TimelineView {
@@ -605,12 +636,25 @@ export function Timeline({
              同じレーンの中で動いただけになり、**掴んで放すと元に戻る**
              ように見える。
         */
-        const lane = onMoveToLane
-          ? (document
-              .elementFromPoint(e.clientX, e.clientY)
-              ?.closest('[data-lane]') as HTMLElement | null)
-          : null;
-        const laneId = lane?.dataset.lane ?? null;
+        /*
+          放した場所のレーンを探す。
+
+          🔴 いちばん上の要素だけを見ないこと。
+             段の帯はクリップの**下**にあるので、放した所にクリップがあると
+             帯まで届かない。重なっている要素を上から順に見て、
+             名前の付いた最初のものを採る。
+        */
+        let laneId: string | null = null;
+        if (onMoveToLane) {
+          const hits = document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[];
+          for (const hit of hits) {
+            const found = hit.closest('[data-lane]') as HTMLElement | null;
+            if (found?.dataset.lane) {
+              laneId = found.dataset.lane;
+              break;
+            }
+          }
+        }
         const fromLane = laneOf.current.get(cur.id) ?? null;
 
         if (cur.edge === 'move' && onMoveToLane && laneId && laneId !== fromLane) {
@@ -953,26 +997,21 @@ export function Timeline({
             ))}
           </div>
 
-          {/*
-            クリップを掴んでいる間だけ出す「上に重ねる」置き場。
-
-            🔴 これが無いと、先にレーンを足さないと上へ運べない。
-               編集ソフトでは上へ放れば重なるのが当たり前で、
-               「先に段を作ってください」は手順が1つ多い。
-            🔴 掴んでいる間だけ出すこと。常に出すと段が1つ増えたのと同じで
-               縦が狭くなる。
-          */}
-          {drag?.edge === 'move' && onMoveToLane && (
-            <div className="fcp-drop-above" data-lane={ABOVE_LANE}>
-              ここへ放すと上に重ねます
-            </div>
-          )}
-
           {tracks.map((track) => {
             const rowH = Math.round((track.height ?? 56) * (track.scalable ? laneScale : 1));
             // 重なりがあるときだけ段を増やす。重なっていなければ今までと同じ高さ
-            const rows = track.stack ? assignRows(track.regions) : null;
-            const rowCount = countRows(rows);
+            /*
+              段の決め方は2通り。
+              - stack: 重なりを見て自動で振る（テロップなど）
+              - row を自分で入れる: レーンの並びをそのまま段にする（並べる画面）
+              🔴 混ぜないこと。自動で振ると、上に重ねたクリップが
+                 「重なっていないから」と本編と同じ段に落ちる。
+            */
+            const fixedRows = track.regions.some((r) => r.row !== undefined)
+              ? new Map(track.regions.map((r) => [r.id, r.row ?? 0]))
+              : null;
+            const rows = fixedRows ?? (track.stack ? assignRows(track.regions) : null);
+            const rowCount = fixedRows ? (track.rowCount ?? countRows(rows)) : countRows(rows);
             return (
             <div className="fcp-track" key={track.id}>
               <span className="fcp-track-label">{track.label}</span>
@@ -983,11 +1022,32 @@ export function Timeline({
                      知る手立てがこれしかない。座標から段数を数える方法は、
                      レーンごとに高さが違う（コマは高く、音は低い）ので合わない。
                 */
-                data-lane={track.id}
+                /*
+                  🔴 帯があるときは、ここに名前を付けないこと。
+                     段ごとに行き先が違うので、レーン全体に1つ付けると
+                     どの段へ放しても同じ場所へ行ってしまう。
+                */
+                data-lane={track.bands ? undefined : track.id}
                 className={`fcp-track-body${track.overlay ? ' on-film' : ''}`}
                 style={{ ['--track-h' as string]: `${rowH * rowCount}px` }}
 
               >
+                {/*
+                  段の帯。背景と、放したときの行き先を兼ねる。
+                  🔴 区間より先に置くこと。あとに置くと帯がクリップの上に乗り、
+                     クリップを掴めなくなる。
+                */}
+                {track.bands?.map((band, i) => (
+                  <div
+                    key={band.laneId}
+                    className={`fcp-band${band.main ? ' main' : ''}`}
+                    data-lane={band.laneId}
+                    style={{ top: i * rowH, height: rowH }}
+                  >
+                    <span className="fcp-band-label">{band.label}</span>
+                  </div>
+                ))}
+
                 {track.showSource && <div className="fcp-source" />}
 
                 {track.render?.({

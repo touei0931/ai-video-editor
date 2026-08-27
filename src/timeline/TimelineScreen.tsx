@@ -16,6 +16,7 @@ import {
   ABOVE_LANE,
   Timeline,
   clock,
+  type TimelineBand,
   type TimelineRegion,
   type TimelineTrack,
   type TimelineView,
@@ -118,6 +119,14 @@ const SIZE_PRESETS = [
 
 /** よく使うコマ数。29.97 は放送・iPhone 由来の素材で要る */
 const FPS_PRESETS = [24, 25, 29.97, 30, 60];
+
+/**
+ * 段1つぶんの高さ。
+ *
+ * 🔴 1つのクリップに絵と波を両方入れるので、細いと両方とも読めなくなる。
+ *    ここを削るくらいなら段の数を減らす。
+ */
+const LANE_ROW_H = 64;
 
 /** レーンの見出しに出す言葉 */
 const LANE_LABEL: Record<Lane['kind'], string> = {
@@ -919,13 +928,6 @@ export function TimelineScreen({
 
   const tracks = useMemo<TimelineTrack[]>(() => {
     /*
-      🔴 上のレーンを先に出すこと。
-         編集ソフトは、重ねたものが上に見える。ここだけ逆にすると、
-         同じ絵が別の位置にあるように見える。
-    */
-    const lanes = [...project.lanes].reverse();
-
-    /*
       テロップは専用の段に出す。
       🔴 素材の段に重ねないこと。
          あの段には素材のコマとクリップの帯が既にある。そこへテロップまで
@@ -958,75 +960,115 @@ export function TimelineScreen({
          同じ場所で3つの意味が押し合って、どれを掴んだのか分からなくなる。
          Final Cut でも音は別の帯として見える。
     */
-    const out: TimelineTrack[] = [];
-    for (const lane of lanes) {
-      const regions: TimelineRegion[] = placed
-        .filter((c) => c.laneId === lane.id)
-        .map((c) => ({
-          id: c.id,
-          start: c.start,
-          end: c.end,
-          // 空きは切る所と同じ色にする。「ここには何も映らない」が一目で分かる
-          kind: isGap(c) ? ('cut' as const) : ('keep' as const),
-          label: c.name,
-        }));
+    /*
+      レーンは1本の背の高い段にまとめる（Final Cut と同じ見え方）。
 
-      const mine = placed.filter((c) => c.laneId === lane.id);
-      const hasSound = mine.some((c) => {
-        if (isGap(c)) return false;
-        return project.assets.find((a) => a.id === c.assetId)?.hasAudio ?? false;
-      });
+      🔴 レーンごとに段を分けないこと。
+         分けると、同じクリップの絵と音が別の場所に離れ、
+         「この絵のところを触っている」の対応を目で追うことになる。
+         1つのクリップは1つのかたまりとして見せる（上が絵、下が波）。
 
-      out.push({
-        id: lane.id,
-        label: lane.name || LANE_LABEL[lane.kind],
-        regions,
-        height: lane.kind === 'audio' ? 40 : 56,
-        /*
-          🔴 コマはクリップの上に重ねること。別のレーンに分けない。
-             縦に離れていると、「この絵のところを触っている」の対応を
-             目で追わないと分からない。
-        */
-        overlay: lane.kind !== 'audio',
-        scalable: lane.kind !== 'audio',
-        render:
-          lane.kind === 'audio'
-            ? (v: TimelineView) => (
-                <ClipWaveform {...v} clips={mine} assets={project.assets} />
-              )
-            : (v: TimelineView) => (
-                <ClipFilmstrip {...v} clips={mine} assets={project.assets} />
-              ),
-      });
+      🔴 土台（本編）は真ん中に置き、そこだけ背景を黒くする。
+         上下は重ねる場所（暗い灰）。どこが土台なのかが背景で分かる。
 
+      🔴 いちばん上には**空の段**を必ず置くこと。
+         これが無いと、重ねる先が無い状態では上へ運べない。
+         「先にレーンを足してください」を人にやらせない。
+    */
+    const above = [...project.lanes].filter((l) => l.kind === 'video').reverse();
+    const below = project.lanes.filter((l) => l.kind === 'audio');
+    const main = project.lanes.find((l) => l.kind === 'main');
+    if (!main) return telopTrack ? [telopTrack] : [];
+
+    const order: (Lane | null)[] = [null, ...above, main, ...below];
+    const rowOf = new Map<string, number>();
+    order.forEach((l, i) => {
+      if (l) rowOf.set(l.id, i);
+    });
+
+    const bands: TimelineBand[] = order.map((l, i) => ({
+      laneId: l ? l.id : ABOVE_LANE,
+      label: l ? l.name || LANE_LABEL[l.kind] : '重ねる（ここへ放す）',
+      main: l?.kind === 'main',
+      // 並びを覚えておく（帯の高さを決めるのに使う）
+      ...(i < 0 ? {} : {}),
+    }));
+
+    const regions: TimelineRegion[] = placed.map((c) => ({
+      id: c.id,
+      start: c.start,
+      end: c.end,
+      // 空きは切る所と同じ色にする。「ここには何も映らない」が一目で分かる
+      kind: isGap(c) ? ('cut' as const) : ('keep' as const),
+      label: c.name,
+      row: rowOf.get(c.laneId) ?? order.length - 1,
+    }));
+
+    const laneTrack: TimelineTrack = {
+      id: 'lanes',
+      label: '本編',
+      regions,
+      rowCount: order.length,
+      bands,
+      height: LANE_ROW_H,
       /*
-        🔴 喋り主体では、コマより波形のほうが効く。
-           同じ人が10分喋っている素材のコマはどこを見ても同じ顔で、
-           切れ目の良し悪しが分からない。波なら
-           「立ち上がる直前で切れているか」を再生せずに判断できる。
-        🔴 この段は見るだけ。帯（regions）を置かないこと。
-           置くと、同じクリップが2か所で掴めることになり、
-           どちらを動かしたのか分からなくなる。
+        🔴 コマはクリップの上に重ねること。別の段に分けない。
+           縦に離れていると、「この絵のところを触っている」の対応を
+           目で追わないと分からない。
       */
-      if (lane.kind !== 'audio' && hasSound) {
-        out.push({
-          id: `${lane.id}:wave`,
-          label: `${lane.name || LANE_LABEL[lane.kind]} の音`,
-          regions: [],
-          height: 34,
-          render: (v: TimelineView) => (
-            <ClipWaveform
-              {...v}
-              clips={mine}
-              assets={project.assets}
-              color="rgba(120, 220, 170, 0.85)"
-            />
-          ),
-        });
-      }
-    }
-    return telopTrack ? [telopTrack, ...out] : out;
+      overlay: true,
+      scalable: true,
+      render: (v: TimelineView) => {
+        const rowH = v.height / order.length;
+        return (
+          <>
+            {order.map((lane, i) => {
+              if (!lane) return null;
+              const mine = placed.filter((c) => c.laneId === lane.id);
+              if (mine.length === 0) return null;
+              /*
+                1つのクリップの中で、上が絵・下が波。
+                🔴 喋り主体では、コマより波形のほうが効く。
+                   同じ人が10分喋っている素材のコマはどこを見ても同じ顔で、
+                   切れ目の良し悪しが分からない。波なら
+                   「立ち上がる直前で切れているか」を再生せずに判断できる。
+              */
+              const filmH = lane.kind === 'audio' ? 0 : Math.round(rowH * 0.62);
+              const waveH = Math.max(12, Math.round(rowH - filmH - 4));
+              return (
+                <div
+                  key={lane.id}
+                  className="tl-lane-layer"
+                  style={{ top: i * rowH, height: rowH }}
+                >
+                  {filmH > 0 && (
+                    <ClipFilmstrip
+                      {...v}
+                      height={filmH}
+                      clips={mine}
+                      assets={project.assets}
+                    />
+                  )}
+                  <div className="tl-lane-wave" style={{ top: filmH, height: waveH }}>
+                    <ClipWaveform
+                      {...v}
+                      height={waveH}
+                      clips={mine}
+                      assets={project.assets}
+                      color="rgba(120, 220, 170, 0.9)"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        );
+      },
+    };
+
+    return telopTrack ? [telopTrack, laneTrack] : [laneTrack];
   }, [project.lanes, project.assets, placed, telops]);
+
 
   /**
    * 吸い付く先。

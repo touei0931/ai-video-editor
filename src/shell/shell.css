@@ -1354,3 +1354,39 @@
   font-size: 11px;
   letter-spacing: 0.04em;
 }
+
+/*
+  段の帯。1つのレーンを縦に分けて見せるときの背景と、放したときの行き先。
+
+  🔴 土台（本編）だけ黒くして、重ねる場所は暗い灰にすること。
+     どこが土台なのかを背景で分からせる。色を揃えると、
+     上に置いたのか土台に置いたのかが見ただけでは分からない。
+  🔴 触れる状態にしておくこと（pointer-events を切らない）。
+     放した場所の判定は重なった要素を上から見ていくので、
+     触れない帯は行き先として拾われない。
+*/
+.fcp-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: #17171c;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.6);
+}
+
+.fcp-band.main {
+  background: #000;
+}
+
+.fcp-band-label {
+  position: sticky;
+  left: 6px;
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--muted, #9aa0a6);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
