@@ -20,6 +20,7 @@ const {
   emptyProject, addAsset, addLane, appendToMain, placeOnLane,
   layout, timelineDuration, clipAt, videoAt, toSourceTime,
   bladeAt, removeClip, trimClip, moveClip, setMagnetic,
+  importCutResult, placedTelops, telopsAt,
 } = m;
 
 let failed = 0;
@@ -261,6 +262,96 @@ const mainSpans = (p) =>
   eq('空では引けない', clipAt(p, 'main', 0), null);
   eq('空では映らない', videoAt(p, 0), null);
   eq('空で切っても何も起きない', bladeAt(p, 'main', 1).clips.length, 0);
+}
+
+
+/* -------------------------------------------- 下ごしらえ（子画面）の取り込み */
+
+const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: true, hasAudio: true };
+
+{
+  // 自動カットで 0-5 / 20-30 / 50-55 が残った、という結果
+  const result = {
+    asset: ASSET_C,
+    keeps: [
+      { srcStart: 0, srcEnd: 5 },
+      { srcStart: 20, srcEnd: 30 },
+      { srcStart: 50, srcEnd: 55 },
+    ],
+    telops: [
+      { srcStart: 1, srcEnd: 3, text: 'はじめまして', style: 'normal' },
+      { srcStart: 22, srcEnd: 24, text: 'ここが本題', style: 'emphasis' },
+    ],
+  };
+
+  let p = importCutResult(emptyProject(), result);
+
+  // 🔴 残す区間1つが、クリップ1つ
+  eq('残す区間の数だけクリップができる', p.clips.length, 3);
+  eq('切った分は詰まっている', mainSpans(p), [[0, 5], [5, 15], [15, 20]]);
+  near('長さは残した分だけ', timelineDuration(p), 20);
+  eq('素材も登録される', p.assets.map((a) => a.id), ['c']);
+
+  // 🔴 テロップは素材の時刻で持ち、出る場所は計算で出す
+  const tel = placedTelops(p);
+  eq('テロップの出る場所', tel.map((t) => [t.start, t.end]), [[1, 3], [7, 9]]);
+  eq('テロップの中身', tel.map((t) => t.text), ['はじめまして', 'ここが本題']);
+  eq('その時刻のテロップ', telopsAt(p, 8).map((t) => t.text), ['ここが本題']);
+  eq('何も無い時刻', telopsAt(p, 5).length, 0);
+
+  // 🔴 2本目を取り込んでも1本目は消えない
+  let q = importCutResult(p, {
+    asset: { id: 'd', path: '/d.mp4', name: 'D', duration: 20, hasVideo: true, hasAudio: true },
+    keeps: [{ srcStart: 0, srcEnd: 4 }],
+  });
+  eq('末尾に足される', mainSpans(q), [[0, 5], [5, 15], [15, 20], [20, 24]]);
+  eq('素材が2本になる', q.assets.length, 2);
+
+  // 🔴 クリップを動かしてもテロップが付いてくる
+  const movedP = moveClip(p, p.clips[1].id, 'main', 0);
+  eq('動かしてもテロップが付いてくる',
+     placedTelops(movedP).map((t) => [t.text, t.start]),
+     [['ここが本題', 2], ['はじめまして', 11]]);
+
+  // 🔴 クリップを分けてもテロップは1つのまま（跨いでいなければ）
+  const bladed = bladeAt(p, 'main', 12);
+  eq('分けてもテロップの位置は変わらない',
+     placedTelops(bladed).map((t) => [t.start, t.end]), [[1, 3], [7, 9]]);
+
+  // 🔴 端を縮めたら、外に出た分は消える
+  const trimmed = trimClip(p, p.clips[0].id, 'start', 2);
+  eq('縮めた外のテロップは切り詰められる',
+     placedTelops(trimmed).map((t) => [t.text, t.start, t.end]),
+     [['はじめまして', 0, 1], ['ここが本題', 5, 7]]);
+
+  // 消したクリップの上のテロップは出ない
+  const dropped = removeClip(p, p.clips[1].id);
+  eq('消したクリップのテロップは出ない',
+     placedTelops(dropped).map((t) => t.text), ['はじめまして']);
+}
+
+{
+  // 🔴 同じ素材を2回使ったら、テロップも2回出る
+  let p = emptyProject();
+  p = importCutResult(p, {
+    asset: ASSET_C,
+    keeps: [{ srcStart: 0, srcEnd: 10 }],
+    telops: [{ srcStart: 2, srcEnd: 4, text: '繰り返し', style: 'normal' }],
+  });
+  p = appendToMain(p, 'c', 0, 10);
+
+  eq('同じ素材を2回使えば2回出る',
+     placedTelops(p).map((t) => [t.start, t.end]), [[2, 4], [12, 14]]);
+}
+
+{
+  // 長さ0の区間は取り込まない
+  const p = importCutResult(emptyProject(), {
+    asset: ASSET_C,
+    keeps: [{ srcStart: 5, srcEnd: 5 }, { srcStart: 10, srcEnd: 12 }],
+  });
+  eq('長さ0の区間は捨てる', p.clips.length, 1);
+  eq('テロップを渡さなくても落ちない', p.telops, []);
 }
 
 if (failed > 0) {

@@ -62,10 +62,29 @@ export interface Clip {
   at?: number;
 }
 
+/**
+ * テロップ。
+ *
+ * 🔴 タイムライン上の位置ではなく「素材の中の時刻」で持つこと。
+ *    テロップは**喋った言葉に付いている**もの。タイムラインの位置で持つと、
+ *    クリップを動かす・端を縮める・分ける、のたびに全部ずれる。
+ *    素材側に結び付けておけば、同じ素材を2回使ってもどちらにも出る。
+ */
+export interface Telop {
+  id: string;
+  assetId: string;
+  /** 素材の中での範囲（秒） */
+  srcStart: number;
+  srcEnd: number;
+  text: string;
+  style: 'normal' | 'emphasis';
+}
+
 export interface Project {
   assets: Asset[];
   lanes: Lane[];
   clips: Clip[];
+  telops: Telop[];
   /** メインレーンで隙間を詰めるか（Final Cut のマグネティックタイムライン） */
   magnetic: boolean;
 }
@@ -159,6 +178,7 @@ export function emptyProject(): Project {
     assets: [],
     lanes: [{ id: 'main', kind: 'main', name: '本編' }],
     clips: [],
+    telops: [],
     magnetic: true,
   };
 }
@@ -421,4 +441,93 @@ export function setMagnetic(project: Project, on: boolean): Project {
     .map((c) => ({ ...c, at: undefined }));
   const others = project.clips.filter((c) => !mainIds.has(c.laneId));
   return { ...project, clips: [...main, ...others], magnetic: true };
+}
+
+/* ---------------------------------------------------- 下ごしらえの取り込み */
+
+/** 子画面（自動カット）から返ってくるもの */
+export interface CutResult {
+  asset: Asset;
+  /** 残す区間。素材の中の時刻 */
+  keeps: readonly { srcStart: number; srcEnd: number }[];
+  /** テロップ。素材の中の時刻 */
+  telops?: readonly Omit<Telop, 'id' | 'assetId'>[];
+}
+
+/**
+ * 自動カットの結果を、メインレーンのクリップとして流し込む。
+ *
+ * 🔴 残す区間1つを、クリップ1つにすること。
+ *    1本の長いクリップにして「切る所」を別に覚えておく形にはしない。
+ *    そうすると、取り込んだ後に手で編集した瞬間に、
+ *    タイムラインの見た目と切る所の指定が食い違う。
+ *    最初からクリップに割っておけば、あとは普通の編集になる。
+ *
+ * 🔴 テロップは素材に結び付けること。クリップには結び付けない。
+ *    クリップは分けたり消したりされる。素材の時刻で持っていれば、
+ *    残ったクリップの上に自動で出る。
+ *
+ * 🔴 末尾に足すこと。いま組んであるものを消さない。
+ *    「取り込む＝作り直し」にすると、2本目を取り込んだ時に1本目が消える。
+ */
+export function importCutResult(project: Project, result: CutResult): Project {
+  let next = addAsset(project, result.asset);
+  const id = result.asset.id;
+
+  for (const k of result.keeps) {
+    if (k.srcEnd - k.srcStart <= 0) continue;
+    next = appendToMain(next, id, k.srcStart, k.srcEnd);
+  }
+
+  const telops: Telop[] = (result.telops ?? []).map((t) => ({
+    ...t,
+    id: newId('telop'),
+    assetId: id,
+  }));
+  return { ...next, telops: [...next.telops, ...telops] };
+}
+
+/* -------------------------------------------------------------- テロップ */
+
+/** タイムライン上に出るテロップ1つ */
+export interface PlacedTelop extends Telop {
+  start: number;
+  end: number;
+  /** どのクリップの上に出ているか */
+  clipId: string;
+}
+
+/**
+ * テロップを、タイムライン上のどこに出るかまで解いたもの。
+ *
+ * 🔴 クリップからはみ出す分は切り詰めること。
+ *    端を縮めたクリップの外にテロップが残ると、**切ったはずの言葉の字幕**が
+ *    次のクリップの上に出る。
+ *
+ * 🔴 同じ素材を2回使っていれば、2回出るのが正しい。
+ *    「1つのテロップは1回しか出ない」と決め打つと、繰り返し使った素材で
+ *    片方だけ字幕が出ない。
+ */
+export function placedTelops(project: Project): PlacedTelop[] {
+  const out: PlacedTelop[] = [];
+  for (const c of layout(project)) {
+    for (const t of project.telops) {
+      if (t.assetId !== c.assetId) continue;
+      const s = Math.max(t.srcStart, c.srcStart);
+      const e = Math.min(t.srcEnd, c.srcEnd);
+      if (e - s <= 0.001) continue;
+      out.push({
+        ...t,
+        clipId: c.id,
+        start: Number((c.start + (s - c.srcStart)).toFixed(4)),
+        end: Number((c.start + (e - c.srcStart)).toFixed(4)),
+      });
+    }
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+/** その時刻に出ているテロップ */
+export function telopsAt(project: Project, t: number): PlacedTelop[] {
+  return placedTelops(project).filter((x) => t >= x.start - 0.0005 && t < x.end - 0.0005);
 }
