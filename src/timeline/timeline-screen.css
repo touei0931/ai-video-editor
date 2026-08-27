@@ -385,3 +385,31 @@
   position: relative;
   height: 100%;
 }
+
+/*
+  クリップの名前は左上に置く（Final Cut と同じ）。
+
+  🔴 中央に置かないこと。クリップの上にはコマが敷いてあるので、
+     中央だと絵の一番見たいところに文字がかぶる。
+  🔴 この画面だけに効かせること。カット画面・テロップ画面の帯は
+     中身が違う（カットの種類や本文）ので、揃える必要がない。
+*/
+.tl-screen .fcp-clip {
+  align-items: flex-start;
+}
+
+.tl-screen .fcp-clip .name {
+  padding: 3px 8px 0 8px;
+  font-weight: 600;
+}
+
+/* テロップの段は細いので、上下の余白を詰める */
+.tl-screen .fcp-track-body .fcp-clip.kind-telop {
+  top: 3px;
+  bottom: 3px;
+}
+
+.tl-screen .fcp-clip.kind-telop .name {
+  padding-top: 1px;
+  font-weight: 400;
+}

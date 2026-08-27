@@ -40,6 +40,13 @@ const ALLOWED_PREFIX = 'media://local/';
 const EXEMPT = [
   // Final Cut Pro に渡す XML。src は file:// でなければならない
   'src/timeline/fcpxml.ts',
+  /*
+    素材の URL を作る本人。「そのまま通してよい入れ物」の一覧を持つので、
+    ここに入れ物の名前が並ぶのは当たり前。
+    🔴 この検査の狙いは「うっかり別のプロトコルを書くこと」を防ぐこと。
+       作っている当人を対象にすると、正しい実装ができない。
+  */
+  'src/timeline/assetUrl.ts',
 ];
 
 /** src={...} の中に出てくる `なにか://` を拾う */

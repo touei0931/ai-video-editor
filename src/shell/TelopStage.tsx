@@ -717,7 +717,16 @@ export function TelopStage({
       */
       cutRegions.map((r) => {
         const start = toAxis(r.start);
-        const end = applyCuts ? start + 6 / 40 : toAxis(r.end);
+        /*
+          🔴 「カット後」の印に**長さを持たせないこと**。
+             以前は 6/40 秒（40px/秒 のときの 6px 相当）にしていたが、
+             幅を秒で決めると倍率で見た目が変わる。拡大すると
+             400px/秒 では 60px にもなり、**切っていない所が暗く塗られている**
+             ように見える。非表示にしているのに切る所が見えるのはおかしい。
+             線1本でよいので、長さ 0 にして幅は CSS に任せる。
+             （カット画面では同じ理由で先に直してある）
+        */
+        const end = applyCuts ? start : toAxis(r.end);
         return {
           id: `cut-${r.id}`,
           start,
@@ -731,6 +740,11 @@ export function TelopStage({
                直すのは「元の素材」の目盛りに切り替えてから。
           */
           fixed: applyCuts,
+          /*
+            🔴 掴みたい端の真上に来るので、押下を受け取らせない。
+               受け取ると、その下にあるテロップの端が掴めなくなる。
+          */
+          decor: applyCuts,
         };
       }),
     [cutRegions, applyCuts, toAxis],

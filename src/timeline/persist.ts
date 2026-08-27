@@ -78,6 +78,8 @@ function toClip(v: unknown, assets: Set<string>, lanes: Set<string>): Clip | nul
   const at = num(v.at);
   return {
     id,
+    // 🔴 古い書類には名前が無い。無いものは素材の名前で補う
+    name: str(v.name) ?? '素材',
     assetId,
     laneId,
     srcStart,

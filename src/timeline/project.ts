@@ -63,6 +63,14 @@ export function isGap(c: Clip): boolean {
 /** タイムラインに置かれたひとかたまり */
 export interface Clip {
   id: string;
+  /**
+   * 画面に出す名前。
+   *
+   * 🔴 素材の名前をそのまま出さないこと。
+   *    自動カットの結果は同じ素材から何十本もできる。全部が同じ名前だと、
+   *    「どれをどこへ動かしたのか」が一覧でも履歴でも追えない。
+   */
+  name: string;
   /** 素材の名前。GAP（空文字）なら「空き」 */
   assetId: string;
   laneId: string;
@@ -223,6 +231,25 @@ export function newId(prefix: string): string {
 }
 
 /**
+ * クリップに付ける名前を決める。「素材の名前 + 連番」。
+ *
+ * 🔴 そのレーンにある同じ素材の本数から数えること。
+ *    全体の本数で数えると、途中のクリップを消したときに
+ *    次に作るものが既にある番号とぶつかる。
+ *
+ * 🔴 拡張子は落とす。「トーク.mp4 1」より「トーク 1」のほうが読める。
+ */
+export function clipName(project: Project, assetId: string): string {
+  const asset = project.assets.find((a) => a.id === assetId);
+  const base = (asset?.name ?? '素材').replace(/\.[^.]+$/, '');
+  const used = new Set(project.clips.filter((c) => c.assetId === assetId).map((c) => c.name));
+  for (let n = 1; ; n += 1) {
+    const candidate = `${base} ${n}`;
+    if (!used.has(candidate)) return candidate;
+  }
+}
+
+/**
  * 素材をメインレーンの末尾に足す。
  *
  * 🔴 範囲を省いたら素材まるごと。0 を渡されたときと区別すること。
@@ -241,6 +268,7 @@ export function appendToMain(
   if (e - s <= 0) return project;
   const clip: Clip = {
     id: newId('clip'),
+    name: clipName(project, assetId),
     assetId,
     laneId: main.id,
     srcStart: round(s),
@@ -266,6 +294,7 @@ export function placeOnLane(
   if (e - s <= 0) return project;
   const clip: Clip = {
     id: newId('clip'),
+    name: clipName(project, assetId),
     assetId,
     laneId,
     srcStart: round(s),
@@ -295,10 +324,16 @@ export function bladeAt(project: Project, laneId: string, t: number): Project {
   if (i < 0) return project;
 
   const original = project.clips[i];
-  const head: Clip = { ...original, srcEnd: cutSrc };
+  /*
+    🔴 分けた両方に別の名前を付けること。
+       同じ名前が2つ並ぶと、どちらを消したのか分からない。
+       元の名前を残したまま枝番を足す（「トーク 2」→「トーク 2a」「トーク 2b」）。
+  */
+  const head: Clip = { ...original, name: `${original.name}a`, srcEnd: cutSrc };
   const tail: Clip = {
     ...original,
     id: newId('clip'),
+    name: `${original.name}b`,
     srcStart: cutSrc,
     at: original.at === undefined ? undefined : round(t),
   };
@@ -339,7 +374,7 @@ export function removeClip(
          押した瞬間にタイムライン全体の振る舞いが変わってしまう。
     */
     const clips = project.clips.map((c) =>
-      c.id === clipId ? { ...c, assetId: GAP, id: newId('gap') } : c,
+      c.id === clipId ? { ...c, assetId: GAP, id: newId('gap'), name: '空き' } : c,
     );
     return { ...project, clips };
   }

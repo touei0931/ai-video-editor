@@ -108,10 +108,6 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
   const duration = useMemo(() => timelineDuration(project), [project]);
   const placed = useMemo(() => layout(project), [project]);
   const telops = useMemo(() => placedTelops(project), [project]);
-  const assetName = useCallback(
-    (id: string) => project.assets.find((a) => a.id === id)?.name ?? '素材',
-    [project.assets],
-  );
 
   /** 選んでいるクリップが乗っているレーン */
   const selectedLane = useMemo(
@@ -340,7 +336,33 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
          同じ絵が別の位置にあるように見える。
     */
     const lanes = [...project.lanes].reverse();
-    return lanes.map((lane) => {
+
+    /*
+      テロップは専用の段に出す。
+      🔴 素材の段に重ねないこと。
+         あの段には素材のコマとクリップの帯が既にある。そこへテロップまで
+         重ねると、同じ場所で3つの意味の帯が押し合い、
+         **どれを掴んだのか分からなくなる**。
+         Final Cut でもテロップは別の段に乗る。
+    */
+    const telopTrack: TimelineTrack | null = telops.length
+      ? {
+          id: 'telops',
+          label: 'テロップ',
+          height: 26,
+          regions: telops.map((t) => ({
+            id: `telop:${t.id}:${t.clipId}`,
+            start: t.start,
+            end: t.end,
+            kind: 'telop' as const,
+            label: t.text,
+            // 直すのは下ごしらえの子画面。ここでは場所を見せるだけ
+            fixed: true,
+          })),
+        }
+      : null;
+
+    const out = lanes.map((lane) => {
       const regions: TimelineRegion[] = placed
         .filter((c) => c.laneId === lane.id)
         .map((c) => ({
@@ -349,23 +371,9 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
           end: c.end,
           // 空きは切る所と同じ色にする。「ここには何も映らない」が一目で分かる
           kind: isGap(c) ? ('cut' as const) : ('keep' as const),
-          label: isGap(c) ? '空き' : assetName(c.assetId),
+          label: c.name,
         }));
 
-      // 本編のレーンには、その上に出るテロップも見せる（触れない目印）
-      if (lane.kind === 'main') {
-        for (const t of telops) {
-          regions.push({
-            id: `telop:${t.id}:${t.clipId}`,
-            start: t.start,
-            end: t.end,
-            kind: 'hold',
-            label: t.text,
-            fixed: true,
-            decor: true,
-          });
-        }
-      }
       const mine = placed.filter((c) => c.laneId === lane.id);
       return {
         id: lane.id,
@@ -387,7 +395,8 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
               ),
       };
     });
-  }, [project.lanes, project.assets, placed, telops, assetName]);
+    return telopTrack ? [telopTrack, ...out] : out;
+  }, [project.lanes, project.assets, placed, telops]);
 
   /** 切れ目に吸い付かせる */
   const snapPoints = useMemo(

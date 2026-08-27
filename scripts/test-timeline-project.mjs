@@ -20,7 +20,7 @@ const {
   emptyProject, addAsset, addLane, appendToMain, placeOnLane,
   layout, timelineDuration, clipAt, videoAt, toSourceTime,
   bladeAt, removeClip, trimClip, moveClip, setMagnetic,
-  importCutResult, placedTelops, telopsAt,
+  importCutResult, placedTelops, telopsAt, clipName,
 } = m;
 
 let failed = 0;
@@ -381,6 +381,47 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
 
   // 空きを消せば詰まる
   eq('空きを消すと詰まる', mainSpans(removeClip(gapped, gapId)), [[0, 5]]);
+}
+
+
+/* ------------------------------------------------------------ クリップ名 */
+
+{
+  let p = base();
+  p = appendToMain(p, 'a', 0, 10);
+  p = appendToMain(p, 'a', 20, 30);
+  p = appendToMain(p, 'b', 0, 5);
+
+  // 🔴 素材の名前をそのまま使わない。同じ名前が並ぶと追えない
+  eq('素材ごとに連番が付く', p.clips.map((c) => c.name), ['A 1', 'A 2', 'B 1']);
+
+  // 拡張子は落とす
+  let q = emptyProject();
+  q = addAsset(q, { id: 'x', path: '/m/トーク.mp4', name: 'トーク.mp4', duration: 30, hasVideo: true, hasAudio: true });
+  q = appendToMain(q, 'x');
+  eq('拡張子を落とす', q.clips[0].name, 'トーク 1');
+
+  // 🔴 途中を消しても、次の番号が既にあるものとぶつからない
+  const dropped = removeClip(p, p.clips[0].id);
+  const added = appendToMain(dropped, 'a', 40, 45);
+  eq('消した後でも名前がぶつからない',
+     added.clips.filter((c) => c.assetId === 'a').map((c) => c.name).length,
+     new Set(added.clips.filter((c) => c.assetId === 'a').map((c) => c.name)).size);
+
+  // 分けたら枝番が付く
+  const bladed = bladeAt(p, 'main', 4);
+  eq('分けたら別の名前になる', bladed.clips.slice(0, 2).map((c) => c.name), ['A 1a', 'A 1b']);
+
+  // 空きには「空き」
+  const gapped = removeClip(p, p.clips[1].id, 'lift');
+  eq('空きの名前', gapped.clips[1].name, '空き');
+
+  // 上のレーンでも付く
+  const over = placeOnLane(p, 'v2', 'b', 3, 0, 2);
+  eq('上のレーンでも名前が付く', over.clips[over.clips.length - 1].name, 'B 2');
+
+  // 名前だけを引くこともできる
+  eq('次に付く名前が引ける', clipName(p, 'b'), 'B 2');
 }
 
 if (failed > 0) {

@@ -43,6 +43,9 @@ jobs:
       # 🔴 保存した書類は人が触れる場所にある。壊れたものを
       #    そのまま入れると、画面が真っ白になって原因が分からなくなる。
       - run: npm run test:tlsave
+      # 🔴 素材の URL 作り。Windows のパスを URL と見なすと
+      #    「今まで開けていた動画が開けない」になる（実際に出した）。
+      - run: npm run test:asseturl
       # 元素材の時刻とカット後の時刻の変換。ここがずれると全部ずれる
       - run: npm run test:time
 
