@@ -671,3 +671,22 @@
 .tl-inspector-empty {
   color: var(--muted, #9aa0a6);
 }
+
+/*
+  音の波。
+
+  🔴 触れないようにすること（pointer-events: none）。
+     この上にクリップの帯が乗る。波がマウスを受けると、
+     クリップを掴めない場所ができる。
+*/
+.tl-wave {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+}
+
+/* 映像のレーンでは下に寄せて、コマの絵を隠さない */
+.tl-wave-bottom {
+  top: auto;
+  bottom: 0;
+}

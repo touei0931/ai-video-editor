@@ -51,6 +51,7 @@ import { Inspector, parseSelection } from './Inspector';
 import { buildTimelineCards } from './telopCanvas';
 import { renderBlank, renderTelopPngs } from '../telop/rasterize';
 import { ClipFilmstrip } from './ClipFilmstrip';
+import { ClipWaveform } from './ClipWaveform';
 import { buildFCPXML } from './fcpxml';
 import { fromSaved, toSaved } from './persist';
 import { useTimelinePlayer } from './useTimelinePlayer';
@@ -545,6 +546,44 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
 
   /* ------------------------------------------------------------ キー操作 */
 
+  /**
+   * 編集点（クリップの切れ目）の一覧。
+   *
+   * 🔴 全レーンの切れ目を混ぜること。
+   *    本編だけ見ていると、上に重ねた差し込みの頭へ行けない。
+   *    Final Cut の ↑↓ も、全レーンの編集点を渡り歩く。
+   */
+  const editPoints = useMemo(() => {
+    const set = new Set<number>([0, Number(duration.toFixed(4))]);
+    for (const c of placed) {
+      set.add(Number(c.start.toFixed(4)));
+      set.add(Number(c.end.toFixed(4)));
+    }
+    return [...set].sort((a, b) => a - b);
+  }, [placed, duration]);
+
+  /** 再生位置を動かす。行き過ぎないように端で止める */
+  const seekBy = useCallback(
+    (delta: number) => {
+      player.seek(Math.max(0, Math.min(duration, time + delta)));
+    },
+    [player, time, duration],
+  );
+
+  /** 次（前）の編集点へ */
+  const seekEdit = useCallback(
+    (dir: 1 | -1) => {
+      // 🔴 わずかな誤差で「今いる所」に吸い戻されないよう、少し余裕を取る
+      const next =
+        dir > 0
+          ? editPoints.find((p) => p > time + 0.004)
+          : [...editPoints].reverse().find((p) => p < time - 0.004);
+      if (next === undefined) return;
+      player.seek(next);
+    },
+    [editPoints, time, player],
+  );
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       const el = e.target as HTMLElement;
@@ -572,9 +611,38 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
       } else if (!mod && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         apply(setMagnetic(project, !project.magnetic));
+      } else if (!mod && e.key === 'ArrowLeft') {
+        /*
+          🔴 1コマ単位を用意すること。
+             テロップの出だしが1コマ早いだけで、声より先に文字が出る。
+             マウスのドラッグでは 1/30 秒には届かない。
+        */
+        e.preventDefault();
+        seekBy(e.shiftKey ? -1 : -1 / fps);
+      } else if (!mod && e.key === 'ArrowRight') {
+        e.preventDefault();
+        seekBy(e.shiftKey ? 1 : 1 / fps);
+      } else if (!mod && e.key === 'ArrowUp') {
+        e.preventDefault();
+        seekEdit(-1);
+      } else if (!mod && e.key === 'ArrowDown') {
+        e.preventDefault();
+        seekEdit(1);
+      } else if (!mod && e.key === 'Home') {
+        e.preventDefault();
+        player.seek(0);
+      } else if (!mod && e.key === 'End') {
+        e.preventDefault();
+        player.seek(duration);
+      } else if (!mod && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        player.pause();
+      } else if (!mod && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        player.play();
       }
     },
-    [blade, undo, remove, addTelopHere, project, apply, player],
+    [blade, undo, remove, addTelopHere, seekBy, seekEdit, fps, duration, project, apply, player],
   );
 
   /* ------------------------------------------------------------- 見た目 */
@@ -637,11 +705,30 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
         */
         overlay: lane.kind !== 'audio',
         scalable: lane.kind !== 'audio',
+        /*
+          🔴 喋り主体では、コマより波形のほうが効く。
+             同じ人が10分喋っている素材のコマはどこを見ても同じ顔で、
+             切れ目の良し悪しが分からない。波なら
+             「立ち上がる直前で切れているか」を再生せずに判断できる。
+             コマも残すのは、差し込み映像や画の切り替わりを探すときに要るため。
+        */
         render:
           lane.kind === 'audio'
-            ? undefined
+            ? (v: TimelineView) => (
+                <ClipWaveform {...v} clips={mine} assets={project.assets} />
+              )
             : (v: TimelineView) => (
-                <ClipFilmstrip {...v} clips={mine} assets={project.assets} />
+                <>
+                  <ClipFilmstrip {...v} clips={mine} assets={project.assets} />
+                  <ClipWaveform
+                    {...v}
+                    clips={mine}
+                    assets={project.assets}
+                    height={Math.max(14, Math.round(v.height * 0.38))}
+                    align="bottom"
+                    color="rgba(120, 220, 170, 0.85)"
+                  />
+                </>
               ),
       };
     });
@@ -765,6 +852,11 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
             <div><dt>N</dt><dd>詰める の入 / 切</dd></div>
             <div><dt>⌘Z / Ctrl+Z</dt><dd>ひとつ戻す</dd></div>
             <div><dt>T</dt><dd>再生位置にテロップを足す</dd></div>
+            <div><dt>← / →</dt><dd>1コマ戻す / 進める</dd></div>
+            <div><dt>Shift+← / →</dt><dd>1秒戻す / 進める</dd></div>
+            <div><dt>↑ / ↓</dt><dd>前 / 次の切れ目へ</dd></div>
+            <div><dt>Home / End</dt><dd>先頭 / 末尾</dd></div>
+            <div><dt>K / L</dt><dd>止める / 再生</dd></div>
             <div><dt>1 / 2</dt><dd>拡大 / 縮小</dd></div>
             <div><dt>Shift+1 / 2</dt><dd>コマを大きく / 小さく</dd></div>
           </dl>
