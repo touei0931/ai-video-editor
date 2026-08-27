@@ -11,7 +11,7 @@
  *    素材が移動・削除されていることはあるので、開いた側で確かめる。
  */
 
-import type { Asset, Clip, Lane, Project, Telop } from './project';
+import { DEFAULT_SETTINGS, type Asset, type Clip, type Lane, type Project, type ProjectSettings, type Telop } from './project';
 
 /** 書類の版。形を変えたら上げる */
 export const SAVE_VERSION = 1;
@@ -46,6 +46,8 @@ function toAsset(v: unknown): Asset | null {
   const path = str(v.path);
   const duration = num(v.duration);
   if (!id || !path || duration === null || duration <= 0) return null;
+  const width = num(v.width);
+  const height = num(v.height);
   return {
     id,
     path,
@@ -53,6 +55,30 @@ function toAsset(v: unknown): Asset | null {
     duration,
     hasVideo: v.hasVideo !== false,
     hasAudio: v.hasAudio !== false,
+    ...(width && width > 0 ? { width } : {}),
+    ...(height && height > 0 ? { height } : {}),
+  };
+}
+
+/**
+ * プロジェクトの決めごとを読む。
+ *
+ * 🔴 古い書類には無い。無いときは既定に落とすこと。
+ *    ここで null を返すと、以前保存したタイムラインが丸ごと開けなくなる。
+ * 🔴 大きさは偶数で、正の値であること。
+ *    奇数だと yuv420p にできず、書き出しの ffmpeg が落ちる。
+ *    人の手で書き換えられる書類なので、ここで直しておく。
+ */
+function toSettings(v: unknown): ProjectSettings {
+  if (!isObj(v)) return { ...DEFAULT_SETTINGS };
+  const w = num(v.width);
+  const h = num(v.height);
+  const fps = num(v.fps);
+  const even = (n: number) => Math.max(16, Math.round(n / 2) * 2);
+  return {
+    width: w && w > 0 ? even(w) : DEFAULT_SETTINGS.width,
+    height: h && h > 0 ? even(h) : DEFAULT_SETTINGS.height,
+    fps: fps && fps > 0 && fps <= 240 ? fps : DEFAULT_SETTINGS.fps,
   };
 }
 
@@ -138,5 +164,12 @@ export function fromSaved(raw: unknown): Project | null {
     .map((t) => toTelop(t, assetIds))
     .filter((t): t is Telop => t !== null);
 
-  return { assets, lanes, clips, telops, magnetic: body.magnetic !== false };
+  return {
+    assets,
+    lanes,
+    clips,
+    telops,
+    magnetic: body.magnetic !== false,
+    settings: toSettings(body.settings),
+  };
 }

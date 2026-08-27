@@ -138,6 +138,9 @@
   min-height: 180px;
   background: #000;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .tl-stage-empty {
@@ -156,38 +159,40 @@
 }
 
 /* テロップの重なり。下から積む */
-.tl-telops {
+/*
+  プロジェクトの枠。映像もテロップもこの中に置く。
+
+  🔴 素材の形ではなくプロジェクトの形に合わせること。
+     書き出しは素材をこの大きさに収めて（足りない分は黒の余白で埋めて）作る。
+     プレビューだけ素材の形に合わせると、縦の素材を置いたときに
+     テロップの位置が画面と書き出しでずれる。
+*/
+.tl-frame {
+  position: relative;
+  background: #000;
+  flex: 0 0 auto;
+  /* 実寸は Viewer.tsx が測って入れる。CSS だけでは決まらない（あちらの注記を読むこと） */
+}
+
+/*
+  テロップ。
+
+  🔴 CSS で描かないこと。書き出しと同じ drawTelop() を通して canvas に描く。
+     ここに見た目の指定を足すと、その分だけ書き出しとずれる。
+*/
+.tl-telop-canvas {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 6%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  padding: 0 6%;
 }
 
-.tl-telop {
-  max-width: 100%;
-  padding: 2px 10px;
-  font-weight: 700;
-  font-size: clamp(14px, 3.2vh, 30px);
-  line-height: 1.35;
-  color: #fff;
-  text-align: center;
-  /* 縁取り。背景の明暗に関わらず読めるようにする */
-  text-shadow:
-    0 0 4px rgba(0, 0, 0, 0.9),
-    1px 1px 0 rgba(0, 0, 0, 0.9),
-    -1px 1px 0 rgba(0, 0, 0, 0.9),
-    1px -1px 0 rgba(0, 0, 0, 0.9),
-    -1px -1px 0 rgba(0, 0, 0, 0.9);
-}
-
-.tl-telop.emphasis {
-  color: #ffd84a;
+.tl-frame-size {
+  margin-left: auto;
+  color: var(--muted, #9aa0a6);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .tl-transport {
@@ -412,4 +417,93 @@
 .tl-screen .fcp-clip.kind-telop .name {
   padding-top: 1px;
   font-weight: 400;
+}
+
+/*
+  書き出し中の知らせ。
+
+  🔴 画面の上に出し続けること。数分〜十数分かかるので、
+     進捗が見えないと固まったと判断されて強制終了される。
+*/
+.tl-exporting {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(20, 22, 26, 0.94);
+  border: 1px solid var(--line, #333);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.tl-exporting button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/*
+  書き出しの大きさとコマ数。
+
+  🔴 開いた中身は必ず浮かせること（position: absolute）。
+     流れの中に置くと <details> を開いた分だけツールバーが縦に伸び、
+     その下のプレビューが押し潰される（実際に 205px まで伸びた）。
+     キーの一覧（.tl-keys dl）が同じ理由で浮いている。
+*/
+.tl-settings-body {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #3a3a45);
+  border-radius: 6px;
+  background: var(--s2, #232329);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.tl-settings-now {
+  margin: 0 0 8px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  🔴 ボタンを縮めないこと。
+     flex の既定では最小幅まで潰れ、日本語のラベルが1文字ずつ改行される
+     （このファイルの .tl-bar で一度踏んでいる）。
+*/
+.tl-settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tl-settings-row button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.tl-settings-row button[aria-pressed='true'] {
+  border-color: var(--accent, #4a9eff);
+  color: var(--accent, #4a9eff);
+}
+
+.tl-settings-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted, #9aa0a6);
+  white-space: normal;
 }

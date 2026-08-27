@@ -533,6 +533,96 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     return result
 
 
+def _export_timeline(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
+    """親画面（NLE）のタイムラインを書き出す。
+
+    `_export` との違いは「素材が何本でもよい」こと。
+    あちらは子画面（下ごしらえ）用で、1本の素材を切り繋ぐ前提で組んである。
+
+    🔴 テロップの時刻は**タイムライン上の時刻**で来ること。
+       子画面のテロップは素材の中の時刻で持っているが、
+       親画面では同じ素材を何度も切って並べるので、素材の時刻だけでは
+       どこに出すか決まらない。呼ぶ側（画面）で置き場所に直してから渡す。
+    """
+    from .media import png_size, write_srt, write_telop_track
+    from .timeline_render import export_timeline
+
+    out_path = params["out_path"]
+    settings = params.get("settings") or {}
+    width = int(settings.get("width") or 1920)
+    height = int(settings.get("height") or 1080)
+    fps = float(settings.get("fps") or 30.0)
+    duration = float(params["duration"])
+
+    work_dir = Path(params.get("work_dir") or Path(out_path).parent / ".pac-work")
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    telops = params.get("telops") or []
+    burn = bool(params.get("burn_telops", True))
+    telop_tracks: list[str] = []
+    burned = 0
+    srt_path = None
+
+    if telops:
+        placed = [
+            {
+                "out_start": float(t["out_start"]),
+                "out_end": float(t["out_end"]),
+                "png": t.get("png"),
+                "text": t.get("text", ""),
+                "lane": int(t.get("lane") or 0),
+            }
+            for t in telops
+            if float(t["out_end"]) - float(t["out_start"]) >= 0.15
+        ]
+
+        if placed and params.get("write_srt", True):
+            srt_path = write_srt(str(Path(out_path).with_suffix(".srt")), placed)
+
+        if placed and burn:
+            # 🔴 テロップの大きさが書き出す映像と一致していることを確かめる。
+            #    ずれていても overlay は黙って左上に貼るだけなので、
+            #    書き出したあとに「テロップが見切れている」という形でしか分からない。
+            pw, ph = png_size(placed[0]["png"])
+            if (pw, ph) != (width, height):
+                raise ValueError(
+                    f"テロップの大きさが映像と違います（テロップ {pw}x{ph} / 映像 {width}x{height}）。"
+                    "プロジェクトの大きさを変えたなら、書き出し直してください。"
+                )
+            # 段ごとに1本の帯。1本にまとめると、同じ時間の2枚目が出せない
+            for lane in sorted({p["lane"] for p in placed}):
+                same = [p for p in placed if p["lane"] == lane]
+                telop_tracks.append(
+                    write_telop_track(
+                        str(work_dir / "telops" / f"track-{lane}.txt"),
+                        params["blank_png"],
+                        same,
+                        duration,
+                    )
+                )
+            burned = len(placed)
+
+    result = export_timeline(
+        {
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "duration": duration,
+            "clips": params.get("clips") or [],
+            "telop_tracks": telop_tracks,
+            "music": params.get("music") or None,
+            "loudnorm": bool(params.get("loudnorm", True)),
+        },
+        out_path,
+        on_progress=on_progress,
+        work_dir=str(work_dir),
+    )
+    result["cancelled"] = False
+    result["telop_count"] = burned
+    result["srt_path"] = srt_path
+    return result
+
+
 HEAVY_HANDLERS: dict[str, Callable[..., Any]] = {
     "transcribe": _transcribe,
     "analyze": _analyze,
@@ -540,6 +630,7 @@ HEAVY_HANDLERS: dict[str, Callable[..., Any]] = {
     "build_telops": _build_telops,
     "plan_framing": _plan_framing,
     "export": _export,
+    "export_timeline": _export_timeline,
 }
 
 

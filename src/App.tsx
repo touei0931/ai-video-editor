@@ -1352,6 +1352,9 @@ export function App({ onSendToTimeline }: AppProps = {}) {
                       duration: analysis.duration,
                       hasVideo: true,
                       hasAudio: true,
+                      // 並べる画面が、書き出しの大きさを決めるのに使う
+                      width: frame.width,
+                      height: frame.height,
                     },
                     keeps,
                     telops: finalState.cards.map((c) => ({

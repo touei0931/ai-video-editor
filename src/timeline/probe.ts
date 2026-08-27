@@ -72,6 +72,7 @@ export function probeAsset(path: string, timeoutMs = 20000): Promise<Asset> {
         return;
       }
       const width = (el as HTMLVideoElement).videoWidth ?? 0;
+      const height = (el as HTMLVideoElement).videoHeight ?? 0;
       finish(() =>
         resolve({
           id: newId('asset'),
@@ -79,6 +80,7 @@ export function probeAsset(path: string, timeoutMs = 20000): Promise<Asset> {
           name: baseName(path),
           duration: Number(duration.toFixed(3)),
           hasVideo: !audioOnly && width > 0,
+          ...(width > 0 && height > 0 ? { width, height } : {}),
           /*
             🔴 音の有無は当てにできない。
                ブラウザには「音の入っていない動画」を確かめる手立てが無い

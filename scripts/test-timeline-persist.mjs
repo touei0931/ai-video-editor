@@ -13,7 +13,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const P = await import(pathToFileURL(join(root, 'src/timeline/project.ts')).href);
 const S = await import(pathToFileURL(join(root, 'src/timeline/persist.ts')).href);
 
-const { emptyProject, addAsset, addLane, appendToMain, placeOnLane, importCutResult } = P;
+const { emptyProject, addAsset, addLane, appendToMain, placeOnLane, importCutResult,
+        adoptSettings } = P;
 const { toSaved, fromSaved } = S;
 
 let failed = 0;
@@ -135,6 +136,105 @@ eq('本編のレーンが無い',
       telops: [{ id: 't', assetId: 'a', srcStart: 0, srcEnd: 1, text: 'x', style: 'なにか' }],
     },
   }).telops[0].style, 'normal');
+}
+
+/* -------------------------------------------- プロジェクトの決めごと */
+{
+  const bare = {
+    kind: 'pac-timeline', version: 1,
+    project: {
+      assets: [], lanes: [{ id: 'main', kind: 'main' }], clips: [], telops: [],
+    },
+  };
+
+  /*
+    🔴 古い書類には settings が無い。無いときに null を返すと、
+       それまで保存したタイムラインが**丸ごと開けなくなる**。
+  */
+  const old = fromSaved(bare);
+  check('設定が無い古い書類も開ける', old !== null);
+  eq('無ければ 1920x1080 30fps', [old.settings.width, old.settings.height, old.settings.fps],
+     [1920, 1080, 30]);
+
+  const kept = fromSaved({ ...bare, project: {
+    ...bare.project, settings: { width: 1080, height: 1920, fps: 29.97 },
+  } });
+  eq('入っていればそのまま', [kept.settings.width, kept.settings.height, kept.settings.fps],
+     [1080, 1920, 29.97]);
+
+  /*
+    🔴 奇数の大きさを通さないこと。
+       yuv420p にできず、書き出しの ffmpeg が落ちる。
+       書類は人が手で書き換えられる場所にあるので、ここで直す。
+  */
+  const odd = fromSaved({ ...bare, project: {
+    ...bare.project, settings: { width: 1921, height: 1081, fps: 30 },
+  } });
+  eq('奇数の大きさは偶数に直す', [odd.settings.width, odd.settings.height], [1922, 1082]);
+
+  for (const [label, bad] of [
+    ['0 は通さない', { width: 0, height: 0, fps: 0 }],
+    ['負の値は通さない', { width: -100, height: -100, fps: -1 }],
+    ['数でないものは通さない', { width: '横', height: null, fps: 'にじゅう' }],
+    ['ありえないコマ数は通さない', { width: 1920, height: 1080, fps: 100000 }],
+  ]) {
+    const got = fromSaved({ ...bare, project: { ...bare.project, settings: bad } });
+    eq(label,
+       [got.settings.width > 0, got.settings.height > 0,
+        got.settings.fps > 0 && got.settings.fps <= 240],
+       [true, true, true]);
+  }
+
+  // 往復して変わらないこと
+  const project = emptyProject();
+  project.settings = { width: 1080, height: 1080, fps: 24 };
+  const round = fromSaved(JSON.parse(JSON.stringify(toSaved(project))));
+  eq('往復しても変わらない', round.settings, { width: 1080, height: 1080, fps: 24 });
+}
+
+/* ------------------------------------------------ 素材の画の大きさ */
+{
+  const withSize = fromSaved({
+    kind: 'pac-timeline', version: 1,
+    project: {
+      assets: [{ id: 'a', path: '/m/a.mp4', duration: 10, width: 1920, height: 1080 }],
+      lanes: [{ id: 'main', kind: 'main' }], clips: [], telops: [],
+    },
+  });
+  eq('素材の大きさは残る', [withSize.assets[0].width, withSize.assets[0].height], [1920, 1080]);
+
+  // 音だけの素材には無い。無いまま通せること
+  const noSize = fromSaved({
+    kind: 'pac-timeline', version: 1,
+    project: {
+      assets: [{ id: 'a', path: '/m/a.mp3', duration: 10, hasVideo: false }],
+      lanes: [{ id: 'main', kind: 'main' }], clips: [], telops: [],
+    },
+  });
+  eq('大きさが無くても通る', noSize.assets[0].width, undefined);
+}
+
+/* -------------------------------- 最初の素材に合わせて大きさを決める */
+{
+  const tate = { id: 'a', path: '/m/a.mp4', name: 'a', duration: 10,
+                 hasVideo: true, hasAudio: true, width: 1080, height: 1920 };
+
+  const fresh = adoptSettings(emptyProject(), tate);
+  eq('最初の素材に合わせる', [fresh.settings.width, fresh.settings.height], [1080, 1920]);
+
+  /*
+    🔴 決めるのは一度だけ。
+       横の素材で組み立てたあとに縦を1本足したら全部縦になった、では作業が壊れる。
+  */
+  const started = emptyProject();
+  started.clips = [{ id: 'c', name: 'c', assetId: 'x', laneId: 'main', srcStart: 0, srcEnd: 1 }];
+  const stay = adoptSettings(started, tate);
+  eq('もう並んでいるなら変えない', [stay.settings.width, stay.settings.height], [1920, 1080]);
+
+  const audio = { id: 'b', path: '/m/b.mp3', name: 'b', duration: 10,
+                  hasVideo: false, hasAudio: true };
+  eq('音だけの素材では変えない',
+     adoptSettings(emptyProject(), audio).settings.width, 1920);
 }
 
 if (failed > 0) {

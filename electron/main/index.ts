@@ -377,6 +377,30 @@ ipcMain.handle(
      書き出しは**原理的に中断できなかった**。
      M2 Air で20分素材なら数分〜十数分、その間ずっと 5% のまま止める手段が無い。
 */
+/**
+ * 親画面（NLE）のタイムラインを書き出す。
+ *
+ * app:export との違いは「素材が何本でもよい」こと。
+ * あちらは子画面（下ごしらえ）用で、1本の素材を切り繋ぐ前提。
+ *
+ * 🔴 こちらも必ず runCancellable を通すこと。中断できない書き出しは、
+ *    長い素材で「進まないまま待つしかない」状態を作る。
+ */
+ipcMain.handle('app:exportTimeline', async (e, params: Record<string, unknown>) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  try {
+    return await runCancellable(win, 'export_timeline', params);
+  } catch (error) {
+    recordFailure('export_timeline', error, {
+      ...params,
+      // クリップもテロップも数が多いので、記録には最初の3件だけ残す
+      clips: (params.clips as unknown[])?.slice(0, 3),
+      telops: (params.telops as unknown[])?.slice(0, 3),
+    });
+    throw error;
+  }
+});
+
 ipcMain.handle('app:export', async (e, params: Record<string, unknown>) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   try {

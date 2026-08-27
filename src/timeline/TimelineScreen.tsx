@@ -21,6 +21,7 @@ import {
 } from '../shell/Timeline';
 import {
   addAsset,
+  adoptSettings,
   appendToMain,
   bladeAt,
   clipAt,
@@ -30,14 +31,19 @@ import {
   placeOnLane,
   placedTelops,
   isGap,
+  clipLength,
   removeClip,
   setMagnetic,
   timelineDuration,
   trimClip,
   type Lane,
+  type PlacedClip,
   type Project,
+  type ProjectSettings,
 } from './project';
 import { ProbeError, probeAsset } from './probe';
+import { DEFAULT_STYLES, buildTimelineCards, type TelopStyles } from './telopCanvas';
+import { renderBlank, renderTelopPngs } from '../telop/rasterize';
 import { ClipFilmstrip } from './ClipFilmstrip';
 import { buildFCPXML } from './fcpxml';
 import { fromSaved, toSaved } from './persist';
@@ -48,7 +54,6 @@ import './timeline-screen.css';
 interface Props {
   project: Project;
   onChange(next: Project): void;
-  fps?: number;
   /**
    * 「素材を追加」で開くファイル選択。素材にして置くのはこちらでやる。
    *
@@ -59,7 +64,40 @@ interface Props {
   pickFile?(): Promise<string | null>;
   /** 「取り込み（自動カット）」を押したとき。子画面を開くのは呼び出し側の仕事 */
   onImport?(): void;
+  /**
+   * テロップの見た目。
+   * 🔴 プレビューと書き出しで**同じものを渡すこと**。片方だけ既定に落とすと、
+   *    画面で確かめた見た目と書き出した見た目が違うものになる。
+   */
+  styles?: TelopStyles;
 }
+
+/**
+ * そのファイルが入っているフォルダ。
+ *
+ * 🔴 区切りは / と \ の両方を見ること。Windows と mac で違う。
+ *    片方だけ見ると、もう片方でフォルダ名がファイル名ごと残り、
+ *    存在しない場所へ書こうとして失敗する。
+ */
+function dirOf(filePath: string): string {
+  const norm = filePath.replace(/\\/g, '/');
+  const cut = norm.lastIndexOf('/');
+  return cut <= 0 ? norm : norm.slice(0, cut);
+}
+
+/**
+ * よく使う大きさ。
+ * 🔴 幅も高さも偶数にすること。奇数だと yuv420p にできず、書き出しの ffmpeg が落ちる。
+ */
+const SIZE_PRESETS = [
+  { label: '横 1080p', width: 1920, height: 1080 },
+  { label: '縦 1080p', width: 1080, height: 1920 },
+  { label: '横 720p', width: 1280, height: 720 },
+  { label: '正方形', width: 1080, height: 1080 },
+];
+
+/** よく使うコマ数。29.97 は放送・iPhone 由来の素材で要る */
+const FPS_PRESETS = [24, 25, 29.97, 30, 60];
 
 /** レーンの見出しに出す言葉 */
 const LANE_LABEL: Record<Lane['kind'], string> = {
@@ -68,7 +106,18 @@ const LANE_LABEL: Record<Lane['kind'], string> = {
   audio: '音',
 };
 
-export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport }: Props) {
+export function TimelineScreen({
+  project,
+  onChange,
+  pickFile,
+  onImport,
+  styles = DEFAULT_STYLES,
+}: Props) {
+  /*
+    コマ数はプロジェクトが持つ（Final Cut の「プロジェクトのプロパティ」）。
+    🔴 素材から決めないこと。素材を1本足すたびに書き出しのコマ数が変わる。
+  */
+  const fps = project.settings.fps;
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -218,7 +267,8 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
     try {
       const asset = await probeAsset(path);
       const lane = project.lanes.find((l) => l.id === selectedLane) ?? null;
-      let next = addAsset(project, asset);
+      // 🔴 置く**前**に大きさを決める。置いたあとでは「もう並んでいる」と見なされる
+      let next = adoptSettings(addAsset(project, asset), asset);
       if (!lane || lane.kind === 'main') {
         next = appendToMain(next, asset.id);
       } else {
@@ -260,6 +310,132 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
       setNotice('書き出しに失敗しました');
     }
   }, [project, fps]);
+
+  /**
+   * 並べたものを1本の動画にする。
+   *
+   * 🔴 テロップは**タイムライン上の時刻**に直してから渡すこと。
+   *    Telop は素材の中の時刻で持っている（クリップを動かしても付いてくるように）。
+   *    そのまま渡すと、同じ素材を何度も切って並べた分だけ出る場所が食い違う。
+   *
+   * 🔴 PNG はプロジェクトの大きさちょうどで焼くこと。
+   *    違う大きさだと overlay は黙って左上に貼るだけで、
+   *    「テロップが見切れている」という形で書き出したあとに気づく。
+   *    サイドカー側にも同じ検査を置いてある。
+   *
+   * 🔴 中間ファイルを書き出し先に散らかさないこと。
+   *    テロップの PNG は数百枚になる。利用者が選んだフォルダにそのまま置くと、
+   *    書き出した動画がどれか分からなくなる。隠しフォルダにまとめる。
+   */
+  const [exporting, setExporting] = useState<string | null>(null);
+  const exportVideo = useCallback(async () => {
+    if (!project.clips.length || exporting) return;
+    const api = window.app;
+    if (!api?.exportTimeline || !api.pickOutput) {
+      setNotice('この画面からは書き出せません（アプリ版で開いてください）');
+      return;
+    }
+
+    const out = await api.pickOutput('PAC.mp4');
+    if (!out) return;
+
+    const workDir = `${dirOf(out)}/.pac-work`;
+    const frame = { width: project.settings.width, height: project.settings.height };
+    const assets = new Map(project.assets.map((a) => [a.id, a]));
+    const laneOf = new Map(project.lanes.map((l) => [l.id, l]));
+    // レーンの並び順がそのまま重なりの順。本編は必ず 0
+    const zOf = new Map(
+      project.lanes.map((l, i) => [l.id, l.kind === 'main' ? 0 : i + 1] as const),
+    );
+
+    const clips = placed
+      .filter((c): c is PlacedClip => !isGap(c) && clipLength(c) > 0)
+      .map((c) => {
+        const asset = assets.get(c.assetId);
+        const lane = laneOf.get(c.laneId);
+        if (!asset || !lane) return null;
+        return {
+          path: asset.path,
+          at: c.start,
+          src_start: c.srcStart,
+          src_end: c.srcEnd,
+          z: zOf.get(c.laneId) ?? 0,
+          // 音のレーンに置かれた映像素材は、音だけ使う（Final Cut と同じ）
+          video: lane.kind !== 'audio' && asset.hasVideo,
+          audio: asset.hasAudio,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+
+    if (!clips.length) {
+      setNotice('書き出せる中身がありません');
+      return;
+    }
+
+    const stop = api.onProgress?.((p) =>
+      setExporting(`${p.message}${p.value > 0 ? ` ${Math.round(p.value * 100)}%` : ''}`),
+    );
+    setExporting('書き出しの準備をしています');
+
+    try {
+      // ── テロップを焼く ──
+      let telops: unknown[] = [];
+      let blankPng = '';
+      const shown = placedTelops(project);
+      if (shown.length) {
+        const cards = buildTimelineCards(shown, frame, styles);
+        const rendered = await renderTelopPngs(cards, frame, styles, (done, total) =>
+          setExporting(`テロップを描いています ${done}/${total}`),
+        );
+        const saved = await api.saveTelopFrames({
+          dir: `${workDir}/telops`,
+          frames: [
+            ...rendered.map((r) => ({ name: r.name, base64: r.base64 })),
+            { name: '_blank.png', base64: renderBlank(frame) },
+          ],
+        });
+        blankPng = saved['_blank.png'];
+        telops = cards.map((c, i) => ({
+          out_start: c.srcStart,
+          out_end: c.srcEnd,
+          text: c.text,
+          png: saved[rendered[i].name],
+          lane: rendered[i].lane,
+        }));
+      }
+
+      const result = (await api.exportTimeline({
+        out_path: out,
+        work_dir: workDir,
+        settings: project.settings,
+        duration,
+        clips,
+        telops,
+        blank_png: blankPng,
+        burn_telops: telops.length > 0,
+        write_srt: telops.length > 0,
+      })) as { out_path?: string; telop_count?: number; size_mb?: number };
+
+      setNotice(
+        `書き出しました（${clock(duration)} / ${result.size_mb ?? '?'}MB` +
+          `${result.telop_count ? ` / テロップ ${result.telop_count} 枚` : ''}）`,
+      );
+      void api.revealFile?.(result.out_path ?? out);
+    } catch (e) {
+      setNotice(`書き出せませんでした: ${(e as Error).message}`);
+    } finally {
+      stop?.();
+      setExporting(null);
+    }
+  }, [project, placed, duration, styles, exporting]);
+
+  /** 書き出しの大きさ・コマ数を変える */
+  const setSettings = useCallback(
+    (patch: Partial<ProjectSettings>) => {
+      apply({ ...project, settings: { ...project.settings, ...patch } }, '設定を変えました');
+    },
+    [project, apply],
+  );
 
   /** タイムラインを保存する */
   const saveTimeline = useCallback(async () => {
@@ -442,12 +618,59 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
         </button>
         <span className="tl-sep" />
         <button
+          onClick={() => void exportVideo()}
+          disabled={!project.clips.length || !!exporting}
+          title="並べたものを1本の動画にします（テロップは焼き込みます）"
+        >
+          {exporting ? '書き出し中…' : '動画を書き出す'}
+        </button>
+        <button
           onClick={exportXML}
           disabled={!project.clips.length}
           title="Final Cut Pro に読み込む XML を書き出します"
         >
           FCPXML を書き出す
         </button>
+        {/*
+          プロジェクトの決めごと（Final Cut の「プロジェクトのプロパティ」）。
+          🔴 素材から自動で決めないこと。素材を1本足すたびに
+             書き出しの大きさが変わると、作業が壊れる。
+        */}
+        <details className="tl-keys tl-settings">
+          <summary title="書き出しの大きさとコマ数">設定</summary>
+          <div className="tl-settings-body">
+            <p className="tl-settings-now">
+              {project.settings.width}×{project.settings.height} / {project.settings.fps}fps
+            </p>
+            <div className="tl-settings-row">
+              {SIZE_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  onClick={() => setSettings({ width: p.width, height: p.height })}
+                  aria-pressed={
+                    project.settings.width === p.width && project.settings.height === p.height
+                  }
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="tl-settings-row">
+              {FPS_PRESETS.map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setSettings({ fps: f })}
+                  aria-pressed={project.settings.fps === f}
+                >
+                  {f}fps
+                </button>
+              ))}
+            </div>
+            <p className="tl-settings-note">
+              素材はこの大きさに収めて書き出します（足りない分は黒で埋めます）。
+            </p>
+          </div>
+        </details>
         <span className="tl-spacer" />
         <span className="tl-len">{clock(duration)}</span>
         {/*
@@ -476,7 +699,18 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
         </div>
       )}
 
-      <Viewer project={project} player={player} />
+      <Viewer project={project} player={player} styles={styles} />
+
+      {/*
+        🔴 書き出し中は何が起きているか出し続けること。
+           数分〜十数分かかるので、黙っていると固まったと思われる。
+      */}
+      {exporting && (
+        <div className="tl-exporting" role="status">
+          {exporting}
+          <button onClick={() => void window.app?.cancel?.()}>中止</button>
+        </div>
+      )}
 
       <Timeline
         /*

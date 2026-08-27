@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld('app', {
   saveTelopFrames: (payload: { dir: string; frames: { name: string; base64: string }[] }) =>
     ipcRenderer.invoke('app:saveTelopFrames', payload),
   exportVideo: (params: Record<string, unknown>) => ipcRenderer.invoke('app:export', params),
+  /** 親画面（NLE）のタイムラインを動画にする */
+  exportTimeline: (params: Record<string, unknown>) =>
+    ipcRenderer.invoke('app:exportTimeline', params),
   saveProject: (payload: { workDir: string; data: unknown; summary?: unknown }) =>
     ipcRenderer.invoke('app:saveProject', payload),
   loadProject: (workDir: string) => ipcRenderer.invoke('app:loadProject', workDir),

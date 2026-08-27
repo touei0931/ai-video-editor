@@ -47,6 +47,7 @@ declare global {
         frames: { name: string; base64: string }[];
       }) => Promise<Record<string, string>>;
       exportVideo: (params: Record<string, unknown>) => Promise<unknown>;
+      exportTimeline: (params: Record<string, unknown>) => Promise<unknown>;
       saveProject: (payload: {
         workDir: string;
         data: unknown;

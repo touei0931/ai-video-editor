@@ -136,6 +136,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "build_telops": _heavy("build_telops"),
     "plan_framing": _heavy("plan_framing"),
     "export": _heavy("export"),
+    "export_timeline": _heavy("export_timeline"),
 }
 
 

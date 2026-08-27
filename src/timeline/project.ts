@@ -36,7 +36,36 @@ export interface Asset {
   duration: number;
   hasVideo: boolean;
   hasAudio: boolean;
+  /**
+   * 素材そのものの画の大きさ。
+   * プロジェクトの大きさを決めるときの手掛かりにする。
+   * 🔴 音だけの素材や、読み取れなかった素材では無い。
+   */
+  width?: number;
+  height?: number;
 }
+
+/**
+ * プロジェクトの決めごと（Final Cut の「プロジェクトのプロパティ」）。
+ *
+ * 🔴 素材ではなくプロジェクトが持つこと。
+ *    素材から都度決めると、縦の素材を1本足しただけで書き出しの大きさが変わる。
+ *    どの大きさで仕上げるかは人が決めることで、素材が決めることではない。
+ */
+export interface ProjectSettings {
+  width: number;
+  height: number;
+  /**
+   * コマ数。
+   * 🔴 <video> からは読めない。人が決めるか、既定のままにする。
+   *    ブラウザには動画のコマ数を教える手立てが無く、
+   *    「1コマ進める」を実装する段でここが効いてくる。
+   */
+  fps: number;
+}
+
+/** 何も無いところから始めるときの大きさ。いちばん多い形 */
+export const DEFAULT_SETTINGS: ProjectSettings = { width: 1920, height: 1080, fps: 30 };
 
 export interface Lane {
   id: string;
@@ -112,6 +141,8 @@ export interface Project {
   telops: Telop[];
   /** メインレーンで隙間を詰めるか（Final Cut のマグネティックタイムライン） */
   magnetic: boolean;
+  /** 書き出しの大きさとコマ数 */
+  settings: ProjectSettings;
 }
 
 /** 位置が決まったクリップ */
@@ -210,7 +241,21 @@ export function emptyProject(): Project {
     clips: [],
     telops: [],
     magnetic: true,
+    settings: { ...DEFAULT_SETTINGS },
   };
+}
+
+/**
+ * 最初の映像素材に合わせてプロジェクトの大きさを決める。
+ *
+ * 🔴 決めるのは**一度だけ**。あとから素材を足したときに変えないこと。
+ *    横の素材で組み立てたあとに縦の素材を1本足したら全部縦になった、
+ *    では作業が壊れる。変えたいときは人が設定を触る。
+ */
+export function adoptSettings(project: Project, asset: Asset): Project {
+  if (project.clips.length > 0) return project;
+  if (!asset.hasVideo || !asset.width || !asset.height) return project;
+  return { ...project, settings: { ...project.settings, width: asset.width, height: asset.height } };
 }
 
 export function addAsset(project: Project, asset: Asset): Project {
@@ -534,6 +579,10 @@ export interface CutResult {
  *    「取り込む＝作り直し」にすると、2本目を取り込んだ時に1本目が消える。
  */
 export function importCutResult(project: Project, result: CutResult): Project {
+  // 🔴 最初の取り込みなら、その素材の大きさをプロジェクトの大きさにする。
+  //    ここで決めないと、縦動画を下ごしらえしても書き出しが横の 1920x1080 になり、
+  //    左右に黒い帯が付いたまま出てしまう。
+  project = adoptSettings(project, result.asset);
   let next = addAsset(project, result.asset);
   const id = result.asset.id;
 

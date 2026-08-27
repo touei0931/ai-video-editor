@@ -68,6 +68,13 @@ jobs:
       #    ffmpeg を動かさないので、どのOSでも即座に終わる。
       - name: 書き出しフィルタの長さ
         run: python scripts/test_export_graph.py
+      # 🔴 親画面（NLE）の書き出しフィルタの繋がり。
+      #    ラベルを1つ繋ぎ忘れても ffmpeg は動いてしまい、
+      #    「音がずれている」「重ねた映像が出しっぱなし」という形で、
+      #    書き出したものを最後まで見て初めて分かる。40分素材なら確認に40分かかる。
+      #    組み立てた文字列だけを見るので ffmpeg は要らず、どのOSでも即座に終わる。
+      - name: タイムラインの書き出しフィルタ
+        run: python scripts/test_timeline_graph.py
       # 🔴 確信度の3分割。「自動で見送り」が構造上ずっと空だったので数字で縛る
       - name: カット候補の確信度
         run: python scripts/test_cut_confidence.py
