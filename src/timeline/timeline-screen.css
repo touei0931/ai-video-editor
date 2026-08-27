@@ -1,0 +1,103 @@
+/*
+  メインの編集画面。色は shell.css の変数をそのまま使う。
+  🔴 ここで色を作らないこと。画面ごとに違う灰色が並ぶと、
+     同じアプリに見えなくなる。
+*/
+
+.tl-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--s0);
+  color: var(--fg);
+  /* 🔴 キーを受け取るために focus できる必要がある。
+        枠線は出さない（囲まれた見た目になる） */
+  outline: none;
+}
+
+.tl-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--s1);
+  border-bottom: 1px solid var(--s3);
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.tl-bar button {
+  padding: 5px 10px;
+  border: 1px solid var(--s4);
+  border-radius: 5px;
+  background: var(--s2);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tl-bar button:hover:not(:disabled) {
+  background: var(--s3);
+}
+
+.tl-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tl-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--s3);
+  margin: 0 4px;
+}
+
+.tl-spacer {
+  flex: 1 1 auto;
+}
+
+.tl-len {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--muted, #9aa0a6);
+}
+
+.tl-empty {
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--muted, #9aa0a6);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.tl-empty p {
+  margin: 0 0 6px;
+}
+
+/*
+  操作の結果を、その場に短く出す。
+  🔴 消えるまで場所を取らないこと。行が増えるとタイムラインが上下にずれ、
+     掴んでいたクリップを見失う。
+*/
+.tl-notice {
+  position: absolute;
+  left: 50%;
+  top: 52px;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+  animation: tl-fade 2.2s forwards;
+}
+
+@keyframes tl-fade {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}

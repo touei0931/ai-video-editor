@@ -6,6 +6,7 @@ import { T2Budoux } from './t2/T2Budoux';
 import { ReviewScreen } from './review/ReviewScreen';
 import { TelopE2E } from './telop/TelopE2E';
 import { ShellDemo } from './shell/ShellDemo';
+import { TimelineDemo } from './timeline/TimelineDemo';
 import { CutStage } from './shell/CutStage';
 import { TelopStage } from './shell/TelopStage';
 import { generateMockCandidates } from './review/mockCandidates';
@@ -65,6 +66,8 @@ function Root() {
   if (mode === 'telop-e2e') return <TelopE2E />;
   // 作り直した骨格の見た目と操作感を、実素材なしで確かめる（src/shell/ShellDemo.tsx）
   if (mode === 'shell') return <ShellDemo />;
+  // 作り直したメインの編集画面（素材を並べる方）を触る（src/timeline/）
+  if (mode === 'timeline') return <TimelineDemo />;
   if (mode === 'telop') return <TelopDemo />;
 
   // 作り直したカット画面を、モックの候補で触る

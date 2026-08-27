@@ -98,6 +98,14 @@ export interface TimelineProps {
   onSelect(id: string | null): void;
   /** 端をドラッグし終えたときに一度だけ呼ばれる */
   onTrim?(id: string, start: number, end: number): void;
+  /**
+   * 本体を掴んで別のレーンへ放したときに呼ばれる。
+   *
+   * 🔴 onTrim とは別にすること。
+   *    横に動かしただけなのか、レーンを移したのかは、
+   *    始まりと終わりの数字だけでは区別が付かない。
+   */
+  onMoveToLane?(id: string, start: number, laneId: string): void;
   /** 拡大率の初期値。省略すると尺全体が収まる倍率から始める */
   initialPxPerSec?: number;
   /**
@@ -187,6 +195,7 @@ export function Timeline({
   selectedId,
   onSelect,
   onTrim,
+  onMoveToLane,
   initialPxPerSec,
   focusId,
   extraControls,
@@ -204,6 +213,16 @@ export function Timeline({
   const [laneScale, setLaneScale] = useState(1);
   const [pxPerSec, setPxPerSec] = useState(initialPxPerSec ?? 0);
   const [drag, setDrag] = useState<Dragging | null>(null);
+
+  /*
+    どの区間がどのレーンにいるか。
+    🔴 掴んだ時ではなく、いつでも引けるようにしておくこと。
+       掴んだ時に覚えると、掴んでいる最中にレーンが増減したときに古い名前が残る。
+  */
+  const laneOf = useRef(new Map<string, string>());
+  laneOf.current = new Map(
+    tracks.flatMap((t) => t.regions.map((r) => [r.id, t.id] as [string, string])),
+  );
   // ドラッグ中の最新値。確定時に描画の外から読むために持つ（下の up を参照）
   const dragRef = useRef<Dragging | null>(null);
   dragRef.current = drag;
@@ -507,11 +526,29 @@ export function Timeline({
       動いてはいるが、描画の途中で親を書き換えているので、
       いつ壊れてもおかしくない状態になる。最新値は ref から読む。
     */
-    const up = () => {
+    const up = (e: PointerEvent) => {
       setSnappedAt(null);
       const cur = dragRef.current;
-      if (cur && onTrim && (cur.start !== cur.originStart || cur.end !== cur.originEnd)) {
-        onTrim(cur.id, cur.start, cur.end);
+      if (cur) {
+        /*
+          🔴 レーンが変わったかを先に見ること。
+             横の動きだけ見て onTrim を呼ぶと、上のレーンへ放しても
+             同じレーンの中で動いただけになり、**掴んで放すと元に戻る**
+             ように見える。
+        */
+        const lane = onMoveToLane
+          ? (document
+              .elementFromPoint(e.clientX, e.clientY)
+              ?.closest('[data-lane]') as HTMLElement | null)
+          : null;
+        const laneId = lane?.dataset.lane ?? null;
+        const fromLane = laneOf.current.get(cur.id) ?? null;
+
+        if (cur.edge === 'move' && onMoveToLane && laneId && laneId !== fromLane) {
+          onMoveToLane(cur.id, cur.start, laneId);
+        } else if (onTrim && (cur.start !== cur.originStart || cur.end !== cur.originEnd)) {
+          onTrim(cur.id, cur.start, cur.end);
+        }
       }
       setDrag(null);
     };
@@ -524,7 +561,7 @@ export function Timeline({
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
     };
-  }, [drag, duration, onTrim, scale, snapTo]);
+  }, [drag, duration, onTrim, onMoveToLane, scale, snapTo]);
 
   /* --- 拡大縮小 --- */
   const zoom = useCallback(
@@ -856,6 +893,13 @@ export function Timeline({
             <div className="fcp-track" key={track.id}>
               <span className="fcp-track-label">{track.label}</span>
               <div
+                /*
+                  🔴 レーンを名前で指せるようにしておくこと。
+                     クリップを上下に動かすとき、放した場所がどのレーンかを
+                     知る手立てがこれしかない。座標から段数を数える方法は、
+                     レーンごとに高さが違う（コマは高く、音は低い）ので合わない。
+                */
+                data-lane={track.id}
                 className={`fcp-track-body${track.overlay ? ' on-film' : ''}`}
                 style={{ ['--track-h' as string]: `${rowH * rowCount}px` }}
 
