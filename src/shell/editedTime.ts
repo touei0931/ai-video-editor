@@ -117,3 +117,45 @@ export function skipTarget(segments: readonly Segment[], srcTime: number): numbe
   }
   return null; // 最後の残る区間より後ろ = 終わり
 }
+
+/** 切り込みで分けた、残っている素材のひとかたまり */
+export interface Clip {
+  id: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * 残る区間を、切り込みの位置で割って「クリップ」にする。
+ *
+ * 🔴 切る区間はクリップにしないこと。
+ *    もう消える所を並べると、選んで消したときに二重に切ることになる。
+ *
+ * 🔴 端ちょうどの切り込みは無視すること。
+ *    長さ0のクリップができて、掴めないものがタイムラインに残る。
+ *
+ * 🔴 id は位置から作ること。連番にすると、前の方に1つ切り込みを
+ *    入れただけで後ろ全部の番号がずれ、選んでいたクリップが化ける。
+ */
+export function splitIntoClips(segments: readonly Segment[], blades: readonly number[]): Clip[] {
+  const sorted = [...blades].sort((a, b) => a - b);
+  const out: Clip[] = [];
+  for (const sg of segments) {
+    const inside = sorted.filter((b) => b > sg.srcStart + 0.001 && b < sg.srcEnd - 0.001);
+    let from = sg.srcStart;
+    for (const edge of [...inside, sg.srcEnd]) {
+      out.push({
+        id: `clip@${from.toFixed(3)}`,
+        start: Number(from.toFixed(3)),
+        end: Number(edge.toFixed(3)),
+      });
+      from = edge;
+    }
+  }
+  return out;
+}
+
+/** その時刻を含むクリップ。切り取られる所にいるなら null */
+export function clipContaining(clips: readonly Clip[], t: number): Clip | null {
+  return clips.find((c) => t >= c.start - 0.001 && t <= c.end + 0.001) ?? null;
+}

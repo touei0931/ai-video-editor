@@ -17,12 +17,17 @@ const src = readFileSync(join(root, 'src/shell/editedTime.ts'), 'utf8')
   .replace(/^export (interface|type)[\s\S]*?\n}\n/gm, '')
   .replace(/: readonly \w+\[\]/g, '')
   .replace(/: \w+\[\]/g, '')
-  .replace(/: number \| null/g, '')
+  .replace(/: \w+ \| null/g, '')
   .replace(/: (number|boolean|string|Segment|Cut)\b/g, '')
   .replace(/^export /gm, '');
 
-const mod = new Function(`${src}; return { buildSegments, outputDuration, toSource, toOutput, isCut, skipTarget };`)();
-const { buildSegments, outputDuration, toSource, toOutput, isCut, skipTarget } = mod;
+const mod = new Function(
+  `${src}; return { buildSegments, outputDuration, toSource, toOutput, isCut, skipTarget, splitIntoClips, clipContaining };`,
+)();
+const {
+  buildSegments, outputDuration, toSource, toOutput, isCut, skipTarget,
+  splitIntoClips, clipContaining,
+} = mod;
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -104,6 +109,48 @@ near('カット無しは素通し（逆）', toSource(none, 12.5), 12.5);
 const all = buildSegments(10, [{ srcStart: 0, srcEnd: 10 }]);
 eq('全部切ると残らない', all.length, 0);
 near('全部切ると長さ0', outputDuration(all), 0);
+
+
+/* ---------- 切り込み（ブレード）で分けたクリップ ---------- */
+
+{
+  const segs = buildSegments(30, [{ srcStart: 10, srcEnd: 12 }]);
+  // 残りは 0〜10 と 12〜30 の2本
+
+  const none = splitIntoClips(segs, []);
+  eq('切り込みが無ければ残る区間そのまま', none.map((c) => [c.start, c.end]), [[0, 10], [12, 30]]);
+
+  const one = splitIntoClips(segs, [20]);
+  eq('切り込みで分かれる', one.map((c) => [c.start, c.end]), [[0, 10], [12, 20], [20, 30]]);
+
+  const two = splitIntoClips(segs, [20, 25]);
+  eq('2つ入れれば間が1つのクリップ', two.map((c) => [c.start, c.end]),
+     [[0, 10], [12, 20], [20, 25], [25, 30]]);
+
+  // 🔴 切り取られる所に入れても、そこにクリップは生まれない
+  const inCut = splitIntoClips(segs, [11]);
+  eq('切る所への切り込みは効かない', inCut.map((c) => [c.start, c.end]), [[0, 10], [12, 30]]);
+
+  // 🔴 端ちょうどは無視する（長さ0のクリップを作らない）
+  const onEdge = splitIntoClips(segs, [12, 30]);
+  eq('端の切り込みは無視', onEdge.map((c) => [c.start, c.end]), [[0, 10], [12, 30]]);
+
+  // 🔴 id は位置から作る。前に足しても後ろの id が変わらないこと
+  const before = splitIntoClips(segs, [20]);
+  const after = splitIntoClips(segs, [5, 20]);
+  eq('前に足しても後ろの名前が変わらない',
+     after.some((c) => c.id === before[before.length - 1].id), true);
+
+  // 順序が入れ替わって渡されても同じ
+  eq('並びが逆でも同じ結果',
+     splitIntoClips(segs, [25, 20]).map((c) => [c.start, c.end]),
+     two.map((c) => [c.start, c.end]));
+
+  const clips = splitIntoClips(segs, [20]);
+  eq('その時刻のクリップが引ける', clipContaining(clips, 15)?.start, 12);
+  eq('切り取られる所は null', clipContaining(clips, 11), null);
+  eq('端は手前のクリップに入る', clipContaining(clips, 20)?.start, 12);
+}
 
 if (failed > 0) {
   console.error(`\ntest-edited-time: NG ${failed} 件`);

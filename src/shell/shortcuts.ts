@@ -21,6 +21,7 @@
  *   ⌘+ ⌘-      拡大 / 縮小
  *   N          吸着の切り替え
  *   Delete     選んだものを消す
+ *   ⌘B         白線の所で素材を分ける
  */
 
 export type ShortcutAction =
@@ -42,6 +43,8 @@ export type ShortcutAction =
   | 'zoomOut'
   | 'toggleSnap'
   | 'delete'
+  /** 白線の所で素材を分ける（Final Cut の ⌘B） */
+  | 'blade'
   // ── ここから下はこのアプリ独自。Final Cut には対応するものが無い ──
   /** 切る（承認） */
   | 'markCut'
@@ -81,12 +84,13 @@ export const SHORTCUT_HELP: { keys: string; label: string }[] = [
   { keys: 'Shift + Z', label: '全体を表示' },
   { keys: 'Ctrl + + / −', label: '拡大 / 縮小' },
   { keys: 'N', label: '吸着の切り替え' },
-  { keys: 'Delete', label: '選んだものを消す' },
+  { keys: 'Delete', label: '選んだクリップを消す（カット候補では「残す」）' },
   { keys: 'D', label: 'ここを切る' },
   { keys: 'F', label: 'ここは残す' },
   { keys: 'G', label: '保留にする' },
   { keys: '↓ / ↑', label: '次 / 前の保留へ' },
-  { keys: 'Q / W', label: '白線より前 / 後ろをまとめて切る（カット画面）' },
+  { keys: 'Ctrl + B', label: 'ここで素材を分ける（切り込み）' },
+  { keys: 'Q / W', label: 'クリップの先頭 / 末尾まで切る（カット画面）' },
   { keys: '1 / 2', label: '拡大 / 縮小（テロップ画面を除く）' },
   { keys: 'Shift + 1 / 2', label: '素材のコマを大きく / 小さく（テロップ画面を除く）' },
 ];
@@ -117,6 +121,9 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
   if (mod) {
     const k = key.toLowerCase();
     if (k === 'z') return 'undo';
+    // 🔴 Final Cut と同じ ⌘B。単独の B にしないこと。
+    //    再生しながら聞いている最中に、うっかり素材が分かれる。
+    if (k === 'b') return 'blade';
     if (key === '+' || key === '=' || key === ';') return 'zoomIn';
     if (key === '-' || key === '_') return 'zoomOut';
     return null;

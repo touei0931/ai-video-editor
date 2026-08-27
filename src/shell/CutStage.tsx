@@ -32,7 +32,7 @@ import type { PacePreset, ReviewState } from '../review/ReviewScreen';
 import { mediaUrl } from './media';
 import { Transport } from './Transport';
 import { useEditedPlayer } from './useEditedPlayer';
-import { buildSegments, toOutput, toSource } from './editedTime';
+import { buildSegments, clipContaining, splitIntoClips, toOutput, toSource } from './editedTime';
 import { isTyping, matchShortcut, nextShuttle } from './shortcuts';
 
 const PACE_LABEL: Record<PacePreset, string> = {
@@ -143,6 +143,17 @@ export function CutStage({
   const clipRef = useRef<HTMLVideoElement | null>(null);
   const [clips, setClips] = useState<Record<string, ClipState>>({});
 
+  /*
+    切り込み（Final Cut のブレード）を入れた位置。元素材の秒。
+
+    🔴 カットとは別に持つこと。
+       切り込みは**何も削らない**。素材を分けるだけ。
+       分けた片方を選んで Delete したときに、初めてカットになる。
+       ここを manualCuts に混ぜると、切り込みを入れただけで
+       映像が消えることになる。
+  */
+  const [blades, setBlades] = useState<number[]>(initialState?.blades ?? []);
+
   const duration = useMemo(
     () => videoDuration ?? Math.max(60, Math.max(0, ...candidates.map((c) => c.srcEnd)) + 5),
     [videoDuration, candidates],
@@ -196,13 +207,14 @@ export function CutStage({
       history,
       autoOverride,
       manualCuts,
+      blades,
     });
-  }, [decisions, adjust, excludedFillers, history, autoOverride, manualCuts]);
+  }, [decisions, adjust, excludedFillers, history, autoOverride, manualCuts, blades]);
 
   /* ---------- 取り消し（操作の前の状態を覚えておく）---------- */
 
-  const stateRef = useRef({ decisions, adjust, excludedFillers, autoOverride, manualCuts, history });
-  stateRef.current = { decisions, adjust, excludedFillers, autoOverride, manualCuts, history };
+  const stateRef = useRef({ decisions, adjust, excludedFillers, autoOverride, manualCuts, history, blades });
+  stateRef.current = { decisions, adjust, excludedFillers, autoOverride, manualCuts, history, blades };
 
   const past = useRef<(typeof stateRef.current)[]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -274,6 +286,7 @@ export function CutStage({
     setAutoOverride(prev.autoOverride);
     setManualCuts(prev.manualCuts);
     setHistory(prev.history);
+    setBlades(prev.blades);
     setCanUndo(past.current.length > 0);
     setNotice('1つ戻しました');
   }, []);
@@ -396,6 +409,28 @@ export function CutStage({
   const { videoRef, seek } = player;
   /** 「カット後」で見るときの残る区間。プレビューと同じ区切りを使う */
   const segments = useMemo(() => buildSegments(duration, previewCuts), [duration, previewCuts]);
+
+  /* ---------- クリップ（切り込みで分けた、残っている素材）---------- */
+
+  /**
+   * 残っている素材を、切り込みの位置で割ったもの。
+   *
+   * 🔴 カットで消える所はクリップにしないこと。
+   *    消える所まで並べると、選んで Delete したときに
+   *    「もう消えているものをもう一度消す」ことになる。
+   *
+   * 🔴 id は位置から作ること（連番にしない）。
+   *    連番だと、前の方に切り込みを1つ入れただけで後ろ全部の番号がずれ、
+   *    選んでいたクリップが**別のクリップに化ける**。
+   */
+  const clipRanges = useMemo(() => splitIntoClips(segments, blades), [segments, blades]);
+
+  /** 選ばれているのがクリップか（カット候補ではなく） */
+  const isClipId = useCallback((id: string | null): boolean => !!id && id.startsWith('clip@'), []);
+
+  /** その時刻を含むクリップ */
+  const clipAt = useCallback((t: number) => clipContaining(clipRanges, t), [clipRanges]);
+
 
   /**
    * タイムラインに置く区間を、いま見ている目盛りに合わせる。
@@ -664,44 +699,99 @@ export function CutStage({
     setSelected(id);
   }, [markIn, markOut, remember]);
 
+  /* ---------- 切り込み（ブレード）---------- */
+
   /**
-   * 白線より前（後ろ）を、まとめて切る。
+   * 白線の所で素材を分ける（Final Cut の ⌘B）。
+   *
+   * 🔴 ここでは何も消さない。分けるだけ。
+   *    2回入れれば、その間が1つのクリップになる。
+   *    要らない方を選んで Delete したときに、初めてカットになる。
+   *
+   * 🔴 クリップの端に重ねて入れないこと。
+   *    長さ0のクリップができて、掴めないものがタイムラインに残る。
+   */
+  const blade = useCallback(() => {
+    const t = Number(fromPlayTime(player.time).toFixed(3));
+    const clip = clipAt(t);
+    if (!clip) {
+      setNotice('ここは切り取られる所なので、分けられません');
+      return;
+    }
+    if (t - clip.start < 0.02 || clip.end - t < 0.02) {
+      setNotice('すでにここが切れ目です');
+      return;
+    }
+    remember();
+    setBlades((b) => [...b, t].sort((x, y) => x - y));
+    setSelected(`clip@${clip.start.toFixed(3)}`);
+    setNotice(`${clock(t)} で分けました`);
+  }, [player.time, fromPlayTime, clipAt, remember]);
+
+  /**
+   * 選んでいるクリップを消す（Delete）。
+   *
+   * 🔴 消すのではなく「カットとして足す」こと。
+   *    素材そのものには手を付けない。あとから Ctrl+Z でも、
+   *    カットの端を伸ばしても戻せる。
+   */
+  const deleteClip = useCallback(
+    (id: string) => {
+      const clip = clipRanges.find((c) => c.id === id);
+      if (!clip) return;
+      if (clip.end - clip.start < 0.02) return;
+      remember();
+      const newId = `manual-clip-${Date.now()}`;
+      setManualCuts((m) =>
+        [...m, { id: newId, srcStart: clip.start, srcEnd: clip.end }].sort(
+          (a, b) => a.srcStart - b.srcStart,
+        ),
+      );
+      setSelected(null);
+      setNotice(`${clock(clip.start)} 〜 ${clock(clip.end)} を切りました`);
+    },
+    [clipRanges, remember],
+  );
+
+  /**
+   * 白線より前（後ろ）を、**いま居るクリップの端まで**切る。
+   *
+   * 🔴 素材の先頭・末尾ではなくクリップの端まで。
+   *    以前は必ず 0 から（または末尾まで）切っていた。切り込みを入れて
+   *    素材を分けられるようになると、これは**意図しない所まで消す**。
+   *    Final Cut の ⌥[ / ⌥] と同じで、切るのは今いるクリップの中だけ。
    *
    * 🔴 素材の頭と尻を落とす操作は、範囲を指定するまでもない。
    *    I → O → Enter の3手を1手にする。聞きながら押せる。
-   *
-   * 🔴 押すたびに足さないこと。もう頭からのカットがあるなら、その終わりを
-   *    動かす。押し直すたびに区間が増えると、どれが効いているのか分からなくなる。
    */
   const cutOutside = useCallback(
     (side: 'before' | 'after') => {
       const t = Number(fromPlayTime(player.time).toFixed(3));
+      const clip = clipAt(t);
+      if (!clip) {
+        setNotice('ここは切り取られる所なので、切る所がありません');
+        return;
+      }
+      const from = side === 'before' ? clip.start : t;
+      const to = side === 'before' ? t : clip.end;
+      if (to - from < 0.02) {
+        setNotice(side === 'before' ? 'クリップの先頭にいます' : 'クリップの末尾にいます');
+        return;
+      }
       remember();
-      if (side === 'before' && t <= 0.05) {
-        setNotice('先頭にいるので、切る所がありません');
-        return;
-      }
-      if (side === 'after' && t >= duration - 0.05) {
-        setNotice('末尾にいるので、切る所がありません');
-        return;
-      }
-      setManualCuts((m) => {
-        const head = side === 'before'
-          ? m.find((x) => x.srcStart <= 0.001)
-          : m.find((x) => x.srcEnd >= duration - 0.001);
-        const rest = m.filter((x) => x !== head);
-        const next = side === 'before'
-          ? { id: head?.id ?? `manual-head-${Date.now()}`, srcStart: 0, srcEnd: t }
-          : { id: head?.id ?? `manual-tail-${Date.now()}`, srcStart: t, srcEnd: duration };
-        return [...rest, next].sort((a, b) => a.srcStart - b.srcStart);
-      });
+      const id = `manual-${side}-${Date.now()}`;
+      setManualCuts((m) =>
+        [...m, { id, srcStart: Number(from.toFixed(3)), srcEnd: Number(to.toFixed(3)) }].sort(
+          (a, b) => a.srcStart - b.srcStart,
+        ),
+      );
       setNotice(
         side === 'before'
-          ? `先頭から ${clock(t)} までを切りました`
-          : `${clock(t)} から末尾までを切りました`,
+          ? `クリップの先頭から ${clock(t)} までを切りました`
+          : `${clock(t)} からクリップの末尾までを切りました`,
       );
     },
-    [player.time, fromPlayTime, duration, remember],
+    [player.time, fromPlayTime, clipAt, remember],
   );
 
   /**
@@ -801,15 +891,29 @@ export function CutStage({
         case 'undo':
           undo();
           break;
+        /*
+          🔴 クリップを選んでいるときは「消す」。
+             カット候補を選んでいるときの Delete は前から「残す（却下）」で、
+             ここを一緒くたにすると、候補を却下したつもりで映像が消える。
+        */
         case 'delete':
+          if (isClipId(selected)) {
+            deleteClip(selected!);
+          } else if (selected) {
+            decide(selected, 'keep');
+          }
+          break;
         case 'markKeep':
-          if (selected) decide(selected, 'keep');
+          if (selected && !isClipId(selected)) decide(selected, 'keep');
           break;
         case 'markCut':
-          if (selected) decide(selected, 'cut');
+          if (selected && !isClipId(selected)) decide(selected, 'cut');
           break;
         case 'markHold':
-          if (selected) decide(selected, 'hold');
+          if (selected && !isClipId(selected)) decide(selected, 'hold');
+          break;
+        case 'blade':
+          blade();
           break;
         case 'cutBefore':
           cutOutside('before');
@@ -832,7 +936,7 @@ export function CutStage({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, decide, undo, player, fps, goPending, cutOutside]);
+  }, [selected, decide, undo, player, fps, goPending, cutOutside, blade, deleteClip, isClipId]);
 
   /* ---------- 手で範囲を足す（Enter / Esc）---------- */
 
@@ -1212,6 +1316,42 @@ export function CutStage({
                 />
               ),
             },
+            /*
+              切り込みで分けたクリップ。
+
+              🔴 コマとは別のレーンにすること。
+                 コマの上には「切る所」を重ねている。そこへクリップまで
+                 重ねると、同じ場所で2つの意味の帯が押し合い、
+                 どちらを掴んだのか分からなくなる。
+
+              🔴 切り込みを入れるまでは出さないこと。
+                 1本しかないクリップを並べても、素材の帯と同じものが
+                 2段に見えるだけで、意味が無い。
+            */
+            /*
+              🔴 「非表示」で見ているときは出さないこと。
+                 あちらは切る所を詰めた**出来上がりの時間**で並べている。
+                 クリップは元素材の時間で持っているので、そのまま置くと
+                 詰めた分だけ横にずれた場所に帯が出る。
+            */
+            ...(blades.length > 0 && axis === 'source'
+              ? [
+                  {
+                    id: 'clip',
+                    label: 'クリップ',
+                    height: 30,
+                    regions: clipRanges.map((c) => ({
+                      id: c.id,
+                      start: c.start,
+                      end: c.end,
+                      kind: 'keep' as const,
+                      label: clock(c.end - c.start),
+                      // 端の伸縮はカットの端で行う。ここで二重に持たせない
+                      fixed: true,
+                    })),
+                  },
+                ]
+              : []),
             {
               id: 'wave',
               label: '音',
