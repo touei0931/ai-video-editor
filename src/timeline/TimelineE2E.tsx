@@ -23,6 +23,7 @@ import {
   layout,
   placeOnLane,
   placedTelops,
+  removeClip,
   isGap,
   type Project,
 } from './project';
@@ -71,8 +72,16 @@ export function TimelineE2E() {
           p = addLane(p, { id: 'v1', kind: 'video', name: '重ね' });
           p = placeOnLane(p, 'v1', b.id, 1.0, 0, 1.5);
         }
-        // 末尾にもう1本足して、空きを挟む
+        // 末尾にもう1本足す
         p = appendToMain(p, a.id, 12, 14);
+
+        /*
+          真ん中を空きにする。
+          🔴 「黒くないこと」だけを見ると、逆方向（空きなのに絵が出ている）を見逃す。
+             空きが本当に黒いことも確かめる。
+        */
+        const mainClips = p.clips.filter((c) => c.laneId === p.lanes[0].id);
+        p = removeClip(p, mainClips[1].id, 'lift');
 
         const placed = layout(p);
         const duration = Math.max(...placed.map((c) => c.end), 0);
@@ -125,9 +134,20 @@ export function TimelineE2E() {
           write_srt: true,
         });
 
+        /*
+          どの時点に絵があり、どこが黒いはずかを、**並べた結果から**出す。
+          🔴 検査する側に数字を書き写さないこと。
+             並べ方を変えたときに、検査だけ古い数字のまま緑になる。
+        */
+        const middleOf = (c: { start: number; end: number }) => (c.start + c.end) / 2;
+        const expectBright = placed.filter((c) => !isGap(c) && c.laneId === p.lanes[0].id).map(middleOf);
+        const expectDark = placed.filter((c) => isGap(c)).map(middleOf);
+
         await api.submit({
           outPath,
           duration,
+          expectBright,
+          expectDark,
           settings: p.settings,
           assets: p.assets.map((x) => ({ name: x.name, duration: x.duration, w: x.width, h: x.height })),
           clips: clips.length,

@@ -22,6 +22,10 @@ interface Submission {
   stack?: string;
   outPath?: string;
   duration?: number;
+  /** 絵が出ているはずの時刻 */
+  expectBright?: number[];
+  /** 黒いはずの時刻（空き） */
+  expectDark?: number[];
   settings?: { width: number; height: number; fps: number };
   assets?: { name: string; duration: number; w?: number; h?: number }[];
   clips?: number;
@@ -171,21 +175,36 @@ export async function runTimelineE2E(appRoot: string, devUrl?: string): Promise<
          この検証で並べているのは 0〜7秒すべて映像なので、
          どの時点を見ても黒くないはず。
     */
-    if (ffmpeg && submission.duration) {
-      const at = [0.5, submission.duration / 2, submission.duration - 0.5];
-      const values = at.map((t) => Number(brightnessAt(ffmpeg, outPath, t).toFixed(1)));
-      facts.明るさ = Object.fromEntries(at.map((t, i) => [`${t.toFixed(1)}秒`, values[i]]));
+    if (ffmpeg) {
+      const measure = (list: number[]) =>
+        list.map((t) => ({ 秒: Number(t.toFixed(2)), 明るさ: Number(brightnessAt(ffmpeg, outPath, t).toFixed(1)) }));
 
-      if (values.some((v) => v < 0)) {
-        problems.push('コマを取り出せません（中身が壊れている可能性）');
+      const bright = measure(submission.expectBright ?? []);
+      const dark = measure(submission.expectDark ?? []);
+      facts.明るさ = { クリップの所: bright, 空きの所: dark };
+
+      if (bright.length === 0) problems.push('絵があるはずの時点が渡されていません');
+
+      for (const m of bright) {
+        if (m.明るさ < 0) {
+          problems.push(`${m.秒}秒: コマを取り出せません（中身が壊れている可能性）`);
+        } else if (m.明るさ < 20) {
+          problems.push(
+            `${m.秒}秒: クリップがあるのに映像が黒い（明るさ ${m.明るさ}）。` +
+              '素材が「映像なし」と判定されていないか確かめること',
+          );
+        }
       }
-      // 真っ黒は 0 付近。絵が出ていれば数十以上になる
-      const dark = values.filter((v) => v >= 0 && v < 20).length;
-      if (dark > 0) {
-        problems.push(
-          `映像が黒いところがあります（明るさ ${values.join(' / ')}）。` +
-            '素材が「映像なし」と判定されていないか確かめること',
-        );
+
+      /*
+        🔴 逆方向も見ること。
+           「黒くない」だけを見ると、空きなのに前のコマが出しっぱなし、という
+           繋ぎの不具合を見逃す。空きは黒いのが正しい。
+      */
+      for (const m of dark) {
+        if (m.明るさ > 20) {
+          problems.push(`${m.秒}秒: 空きのはずなのに映像が出ています（明るさ ${m.明るさ}）`);
+        }
       }
     }
   }
