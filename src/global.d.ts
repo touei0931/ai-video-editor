@@ -84,7 +84,13 @@ declare global {
       /** 保存してある既定。形は信用できないので sanitizeStyles を通すこと */
       loadTelopStyles: () => Promise<unknown | null>;
       saveTelopStyles: (styles: unknown) => Promise<boolean>;
-      setContext: (ctx: { phase: string; workDir?: string | null; outPath?: string | null }) => void;
+      setContext: (ctx: {
+        phase: string;
+        workDir?: string | null;
+        outPath?: string | null;
+        /** 並べた結果に、保存していない変更があるか */
+        unsaved?: boolean;
+      }) => void;
       onMenu: (cb: (action: string) => void) => () => void;
       onProgress: (cb: (p: { value: number; message: string }) => void) => () => void;
     };

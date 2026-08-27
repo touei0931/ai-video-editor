@@ -58,6 +58,15 @@ let menuContext: MenuContext = { phase: 'idle' };
 /** 編集の途中か。窓を閉じるときに確認を出すかの判断に使う。 */
 let editingInProgress = false;
 
+/**
+ * 並べた結果に、保存していない変更があるか。
+ *
+ * 🔴 下ごしらえの下書きとは別物。
+ *    並べた結果は書類として保存するまでどこにも残らないので、
+ *    閉じたら本当に消える。
+ */
+let unsavedTimeline = false;
+
 const EDITING_PHASES = new Set([
   'review',
   'telops-building',
@@ -70,6 +79,7 @@ const EDITING_PHASES = new Set([
 ipcMain.on('app:context', (e, ctx: MenuContext) => {
   menuContext = { ...ctx, isDev, logDir: logDir(), appMenu: needsAppMenu() };
   editingInProgress = EDITING_PHASES.has(ctx.phase);
+  unsavedTimeline = ctx.unsaved === true;
   buildMenu(BrowserWindow.fromWebContents(e.sender), menuContext);
 });
 
@@ -97,7 +107,36 @@ function createWindow(): void {
   */
   let closing = false;
   win.on('close', (e) => {
-    if (closing || !editingInProgress) return;
+    if (closing) return;
+
+    /*
+      並べた結果に保存していない変更があるとき。
+      🔴 「保存して閉じる」を出さないこと。
+         保存先を選ぶ窓が出るので、閉じる処理の中では待ちきれない。
+         ここでは引き止めるだけにして、保存は本人にやってもらう。
+    */
+    if (unsavedTimeline) {
+      e.preventDefault();
+      void dialog
+        .showMessageBox(win, {
+          type: 'warning',
+          buttons: ['閉じない（戻って保存する）', '保存せずに閉じる'],
+          defaultId: 0,
+          cancelId: 0,
+          message: '並べたものが保存されていません',
+          detail:
+            '閉じると、並べた順番・切った所・テロップの直しが失われます。\n' +
+            '「保存」で書類にしてから閉じてください。',
+        })
+        .then((result) => {
+          if (result.response !== 1) return;
+          closing = true;
+          win.close();
+        });
+      return;
+    }
+
+    if (!editingInProgress) return;
     e.preventDefault();
     void dialog
       .showMessageBox(win, {

@@ -31,6 +31,7 @@ export function PacEditor() {
         <TimelineScreen
           project={project}
           onChange={setProject}
+          active={!importing}
           pickFile={window.app ? () => window.app.pickVideo() : undefined}
           onImport={() => setImporting(true)}
         />

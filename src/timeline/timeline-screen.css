@@ -711,3 +711,14 @@
   flex: 0 0 auto;
   margin: 0;
 }
+
+/*
+  保存していない変更があることの印。
+
+  🔴 色だけで示さないこと。ボタンの文言にも「（未保存）」を出す。
+     色の違いに気づけない人には、何も伝わっていないのと同じになる。
+*/
+.tl-dirty {
+  border-color: var(--accent, #4a9eff);
+  color: var(--accent, #4a9eff);
+}

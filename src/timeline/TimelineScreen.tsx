@@ -11,7 +11,7 @@
  *    見えているものは全部 project から計算して出す。
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Timeline,
   clock,
@@ -74,6 +74,14 @@ interface Props {
   pickFile?(): Promise<string | null>;
   /** 「取り込み（自動カット）」を押したとき。子画面を開くのは呼び出し側の仕事 */
   onImport?(): void;
+  /**
+   * この画面が前面にあるか。
+   *
+   * 🔴 子画面（下ごしらえ）が出ている間は false にすること。
+   *    メニューの中身は「今どの画面か」で決まる。裏から上書きすると、
+   *    子画面のメニューが使えなくなる。
+   */
+  active?: boolean;
 }
 
 /**
@@ -110,7 +118,13 @@ const LANE_LABEL: Record<Lane['kind'], string> = {
   audio: '音',
 };
 
-export function TimelineScreen({ project, onChange, pickFile, onImport }: Props) {
+export function TimelineScreen({
+  project,
+  onChange,
+  pickFile,
+  onImport,
+  active = true,
+}: Props) {
   /*
     テロップの見た目はプロジェクトが持つ。
     🔴 画面側で既定に落とさないこと。子画面で整えた見た目が
@@ -139,15 +153,36 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
     🔴 操作の**前**を積むこと。後を積むと、1回目の取り消しで何も変わらない。
   */
   const past = useRef<Project[]>([]);
+
+  /*
+    保存していない変更があるか。
+
+    🔴 これを持たないと、並べたものは無警告で消える。
+       子画面（下ごしらえ）には下書きの自動保存があるが、
+       並べた結果は書類として保存するまでどこにも残らない。
+  */
+  const [dirty, setDirty] = useState(false);
+
   const apply = useCallback(
     (next: Project, message?: string) => {
       if (next === project) return;
       past.current = [...past.current.slice(-49), project];
+      setDirty(true);
       onChange(next);
       if (message) setNotice(message);
     },
     [project, onChange],
   );
+
+  /*
+    閉じるときに引き止められるよう、状態を本体へ伝える。
+    🔴 変わったときだけ送ること。毎回描くたびに送ると、
+       メニューの組み立てが1操作ごとに走る。
+  */
+  useEffect(() => {
+    if (!active) return;
+    window.app?.setContext?.({ phase: 'timeline', unsaved: dirty });
+  }, [dirty, active]);
   const undo = useCallback(() => {
     const prev = past.current.pop();
     if (!prev) {
@@ -582,6 +617,7 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
       data: toSaved(project),
       defaultName: 'タイムライン.pacproj',
     });
+    if (saved) setDirty(false);
     setNotice(saved ? '保存しました' : '中止しました');
   }, [project]);
 
@@ -606,6 +642,9 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
       return;
     }
     apply(next, '開きました');
+    // 🔴 開いた直後は「保存済み」。ここで下げないと、
+    //    何も触っていないのに閉じるときに引き止められる
+    setDirty(false);
     setSelected(null);
   }, [apply]);
 
@@ -714,11 +753,14 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
       } else if (mod && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         duplicate();
+      } else if (mod && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void saveTimeline();
       }
     },
     [
       blade, undo, remove, addTelopHere, seekBy, seekEdit,
-      copyClip, paste, duplicate,
+      copyClip, paste, duplicate, saveTimeline,
       fps, duration, project, apply, player,
     ],
   );
@@ -855,8 +897,12 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
         <button onClick={openTimeline} title="保存したタイムラインを開きます">
           開く
         </button>
-        <button onClick={saveTimeline} title="並べたものを保存します">
-          保存
+        <button
+          onClick={saveTimeline}
+          title="並べたものを保存します（⌘S / Ctrl+S）"
+          className={dirty ? 'tl-dirty' : undefined}
+        >
+          保存{dirty ? '（未保存）' : ''}
         </button>
         <span className="tl-sep" />
         <button
@@ -962,6 +1008,7 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
             <div><dt>N</dt><dd>詰める の入 / 切</dd></div>
             <div><dt>⌘Z / Ctrl+Z</dt><dd>ひとつ戻す</dd></div>
             <div><dt>T</dt><dd>再生位置にテロップを足す</dd></div>
+            <div><dt>⌘S</dt><dd>保存する</dd></div>
             <div><dt>⌘C / ⌘V</dt><dd>控える / 貼る</dd></div>
             <div><dt>⌘D</dt><dd>複製して後ろに置く</dd></div>
             <div><dt>← / →</dt><dd>1コマ戻す / 進める</dd></div>

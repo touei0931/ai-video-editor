@@ -72,8 +72,12 @@ contextBridge.exposeInMainWorld('app', {
   loadTelopStyles: () => ipcRenderer.invoke('app:loadTelopStyles'),
   saveTelopStyles: (styles: unknown) => ipcRenderer.invoke('app:saveTelopStyles', styles),
   /** 画面の段階を知らせる。メニューの有効/無効はこれで決まる */
-  setContext: (ctx: { phase: string; workDir?: string | null; outPath?: string | null }) =>
-    ipcRenderer.send('app:context', ctx),
+  setContext: (ctx: {
+    phase: string;
+    workDir?: string | null;
+    outPath?: string | null;
+    unsaved?: boolean;
+  }) => ipcRenderer.send('app:context', ctx),
   onMenu: (cb: (action: string) => void) => {
     const listener = (_e: unknown, action: string) => cb(action);
     ipcRenderer.on('app:menu', listener);

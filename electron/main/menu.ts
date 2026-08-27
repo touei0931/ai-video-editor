@@ -28,7 +28,9 @@ export type Phase =
   | 'framing'
   | 'fullpreview'
   | 'exporting'
-  | 'done';
+  | 'done'
+  /** 素材を並べる画面（メインの編集画面） */
+  | 'timeline';
 
 export interface MenuContext {
   phase: Phase;
@@ -42,6 +44,14 @@ export interface MenuContext {
   logDir?: string | null;
   /** 先頭にアプリメニューが要るか（macOS）。paths.ts が判断する */
   appMenu?: boolean;
+  /**
+   * 保存していない変更があるか（並べる画面）。
+   *
+   * 🔴 これが無いと、並べたものは無警告で消える。
+   *    子画面（下ごしらえ）には下書きの自動保存があるが、
+   *    並べた結果は書類として保存するまでどこにも残らない。
+   */
+  unsaved?: boolean;
 }
 
 function send(win: BrowserWindow | null, action: string): void {
