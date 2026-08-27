@@ -313,40 +313,31 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   eq('何も無い時刻', telopsAt(p, 5).length, 0);
 
   /*
-    🔴 2本目からは**上に重ねる**（Final Cut の接続クリップと同じ）。
-       本編の後ろに足すと、「重ねたい」ときに毎回運び直すことになる。
-       重ねてあれば、繋ぎたいときは本編へ落とすだけで済む。
-    🔴 置き始めは再生位置。0 から置くと本編の頭が丸ごと隠れる。
+    🔴 2本目も本編に詰めて足すこと。
+       「繋ぎたい」のか「重ねたい」のかは人が決める。本編に並んでいれば、
+       重ねたいものだけ上へ運べばよい。逆だと、繋ぎたいだけの人が毎回下ろすことになる。
   */
   let q = importCutResult(p, {
     asset: { id: 'd', path: '/d.mp4', name: 'D', duration: 20, hasVideo: true, hasAudio: true },
     keeps: [{ srcStart: 0, srcEnd: 4 }, { srcStart: 10, srcEnd: 13 }],
-  }, 6);
-
-  eq('本編は変わらない', mainSpans(q), [[0, 5], [5, 15], [15, 20]]);
-  eq('重ねるレーンが増える', q.lanes.length, 2);
-  eq('増えたレーンは重ね', q.lanes[1].kind, 'video');
-  eq('レーンの名前は素材の名前', q.lanes[1].name, 'D');
-
-  const over = layout(q).filter((c) => c.laneId === q.lanes[1].id);
-  eq('再生位置から続けて置かれる', over.map((c) => [c.start, c.end]), [[6, 10], [10, 13]]);
-  eq('素材の中の範囲もそのまま', over.map((c) => [c.srcStart, c.srcEnd]), [[0, 4], [10, 13]]);
+  });
+  eq('末尾に詰めて足される', mainSpans(q), [[0, 5], [5, 15], [15, 20], [20, 24], [24, 27]]);
+  eq('レーンは増えない', q.lanes.length, 1);
 
   /*
-    🔴 上のレーンが優先されること。
-       「上に置いたものが映る」が成り立たないと、重ねる意味が無い。
+    上へ運んだら、そこが映ること。
+    🔴 「上に置いたものが映る」が成り立たないと、重ねる意味が無い。
   */
+  q = addLane(q, { id: 'v9', kind: 'video', name: '重ね' });
+  const moved = q.clips[3].id;
+  q = moveClip(q, moved, 'v9', 6);
+
+  eq('本編から抜ける', mainSpans(q), [[0, 5], [5, 15], [15, 20], [20, 23]]);
+  const up = layout(q).find((c) => c.laneId === 'v9');
+  eq('運んだ先の位置', [up.start, up.end], [6, 10]);
   eq('重ねた所は上が映る', videoAt(q, 7)?.assetId, 'd');
   eq('重ねていない所は本編', videoAt(q, 2)?.assetId, 'c');
   eq('重ねが終われば本編に戻る', videoAt(q, 16)?.assetId, 'c');
-
-  // はじめの1本は土台（本編）に置く
-  const first = importCutResult(emptyProject(), {
-    asset: { id: 'e', path: '/e.mp4', name: 'E', duration: 20, hasVideo: true, hasAudio: true },
-    keeps: [{ srcStart: 0, srcEnd: 4 }],
-  }, 99);
-  eq('1本目は本編へ（再生位置は見ない）', first.lanes.length, 1);
-  eq('1本目は0から', mainSpans(first), [[0, 4]]);
   eq('素材が2本になる', q.assets.length, 2);
 
   // 🔴 クリップを動かしてもテロップが付いてくる

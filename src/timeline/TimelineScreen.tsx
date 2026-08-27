@@ -194,13 +194,12 @@ export function TimelineScreen({
   /*
     子画面から来た下ごしらえを並べる。
 
-    🔴 2本目からは上に重ねる（Final Cut の接続クリップと同じ）。
-       置き始めは再生位置。0 から置くと本編の頭が丸ごと隠れる。
+    🔴 本編に詰めて足す。上のレーンへ置くのは人がドラッグで決めること。
     🔴 apply を通すこと。直接 onChange すると取り消し（⌘Z）に乗らない。
   */
   useEffect(() => {
     if (!incoming) return;
-    const next = importCutResult(project, incoming, time);
+    const next = importCutResult(project, incoming);
     onIncomingDone?.();
     if (next === project) return;
     apply(next, `${incoming.asset.name} を取り込みました`);

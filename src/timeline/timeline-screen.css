@@ -831,3 +831,49 @@
   font-size: 13px;
   line-height: 1;
 }
+
+/* ======================================== クリップの区切りを見せる */
+
+/*
+  🔴 並べる画面では、クリップ1つ1つの区切りをはっきり出すこと。
+
+     カット画面（子画面）とは事情が違う。あちらは1本の素材の上に
+     「切る／残す」を描くので、残す所まで囲むと線だらけになって絵が読めない。
+     こちらはクリップ1つ1つが**動かせる別々のもの**なので、
+     どこからどこまでが1つなのか読めないと、そもそも掴めない。
+     実機で「クリップの区切りが分かりにくい」と指摘された。
+
+  🔴 明るい絵の上でも暗い絵の上でも見えるようにすること。
+     明るい線だけだと白い砂浜の上で消え、暗い線だけだと影の中で消える。
+     外側に暗い線を回して、どちらの絵でも縁が立つようにする。
+*/
+.tl-screen .fcp-track-body.on-film .fcp-clip {
+  border-width: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8);
+}
+
+.tl-screen .fcp-track-body.on-film .fcp-clip.kind-keep {
+  border-color: rgba(150, 200, 255, 0.95);
+}
+
+/*
+  選んでいるクリップは太枠。
+
+  🔴 色だけで示さないこと。色の違いに気づけない人には伝わらないし、
+     絵の上では色そのものが埋もれる。太さなら形で分かる。
+*/
+.tl-screen .fcp-track-body.on-film .fcp-clip.selected,
+.tl-screen .fcp-track-body.on-film .fcp-clip.kind-keep.selected {
+  border-color: var(--sel);
+  border-width: 4px;
+  outline: none;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.9),
+    0 0 10px rgba(242, 193, 78, 0.45);
+  z-index: 3;
+}
+
+/* コマの上ではないレーン（音・テロップ）でも、選んだら太くする */
+.tl-screen .fcp-clip.selected {
+  border-width: 3px;
+}
