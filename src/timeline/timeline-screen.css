@@ -4,9 +4,14 @@
      同じアプリに見えなくなる。
 */
 
+/*
+  上からツールバー・プレビュー・タイムライン。
+  🔴 タイムラインの高さを決めておくこと。
+     成り行きにすると、クリップが増えたときにプレビューを押し潰す。
+*/
 .tl-screen {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) minmax(160px, 40%);
   height: 100%;
   min-height: 0;
   background: var(--s0);
@@ -14,6 +19,18 @@
   /* 🔴 キーを受け取るために focus できる必要がある。
         枠線は出さない（囲まれた見た目になる） */
   outline: none;
+}
+
+/*
+  🔴 持ち込まれた grid-area を打ち消すこと。
+     shell.css の .fcp-timeline は「.fcp という別の格子の timeline という場所」に
+     置かれる前提で grid-area: timeline を持っている。別の格子に入れると、
+     その名前の場所を作ろうとして**余計な行が生まれ**、高さの取り合いになる。
+     実際、指定した 160px の行があるのに中身は 40px しか出なかった。
+*/
+.tl-screen > .fcp-timeline {
+  grid-area: auto;
+  min-height: 0;
 }
 
 .tl-bar {
@@ -27,7 +44,17 @@
   flex-wrap: wrap;
 }
 
+/*
+  🔴 ボタンを縮ませないこと。
+     flex の既定は「中身より小さく縮んでよい」。右端の伸び縮みする隙間
+     （.tl-spacer）が幅を取ると、ボタンが min-content まで潰れ、
+     日本語のラベルが**1文字ずつ縦に折り返される**。
+     実際に「取り込み（自動カット・自動テロップ）」が幅46px・高さ201px になった。
+     shell.css の .fcp-transport にも同じ注意書きがある。同じ罠を2度踏んだ。
+*/
 .tl-bar button {
+  flex: 0 0 auto;
+  white-space: nowrap;
   padding: 5px 10px;
   border: 1px solid var(--s4);
   border-radius: 5px;
@@ -63,18 +90,6 @@
   color: var(--muted, #9aa0a6);
 }
 
-.tl-empty {
-  padding: 28px 20px;
-  text-align: center;
-  color: var(--muted, #9aa0a6);
-  font-size: 13px;
-  line-height: 1.8;
-}
-
-.tl-empty p {
-  margin: 0 0 6px;
-}
-
 /*
   操作の結果を、その場に短く出す。
   🔴 消えるまで場所を取らないこと。行が増えるとタイムラインが上下にずれ、
@@ -100,4 +115,108 @@
   12% { opacity: 1; }
   75% { opacity: 1; }
   100% { opacity: 0; }
+}
+
+/* ---------------- プレビュー ---------------- */
+
+.tl-viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  background: var(--s0);
+}
+
+/*
+  🔴 高さを必ず確定させること。
+     中の映像は position: absolute なので、この箱の中身はレイアウト上は空。
+     max-height だけだと縦が 0 に潰れ、**音だけ鳴って何も映らない**。
+*/
+.tl-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 180px;
+  background: #000;
+  overflow: hidden;
+}
+
+.tl-stage-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1.9;
+  text-align: center;
+  color: var(--muted, #9aa0a6);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* テロップの重なり。下から積む */
+.tl-telops {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 6%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  padding: 0 6%;
+}
+
+.tl-telop {
+  max-width: 100%;
+  padding: 2px 10px;
+  font-weight: 700;
+  font-size: clamp(14px, 3.2vh, 30px);
+  line-height: 1.35;
+  color: #fff;
+  text-align: center;
+  /* 縁取り。背景の明暗に関わらず読めるようにする */
+  text-shadow:
+    0 0 4px rgba(0, 0, 0, 0.9),
+    1px 1px 0 rgba(0, 0, 0, 0.9),
+    -1px 1px 0 rgba(0, 0, 0, 0.9),
+    1px -1px 0 rgba(0, 0, 0, 0.9),
+    -1px -1px 0 rgba(0, 0, 0, 0.9);
+}
+
+.tl-telop.emphasis {
+  color: #ffd84a;
+}
+
+.tl-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--s2);
+  border-top: 1px solid var(--s3);
+  flex: 0 0 auto;
+}
+
+.tl-transport button {
+  padding: 4px 12px;
+  border: 1px solid var(--s4);
+  border-radius: 5px;
+  background: var(--s3);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tl-transport button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tl-clock {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--muted, #9aa0a6);
 }

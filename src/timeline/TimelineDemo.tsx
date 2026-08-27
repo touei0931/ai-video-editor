@@ -58,7 +58,12 @@ export function TimelineDemo() {
       <TimelineScreen
         project={project}
         onChange={setProject}
-        onAddAsset={() => window.alert('素材の追加は次の段階で作ります')}
+        /*
+          🔴 ブラウザで開いているときは押させないこと。
+             ファイル選択は Electron の口（window.app）でしかできない。
+             無い所で押せると、押しても何も起きない不具合に見える。
+        */
+        pickFile={window.app ? () => window.app.pickVideo() : undefined}
         onImport={() => window.alert('取り込みの子画面は次の段階でつなぎます')}
       />
     </div>

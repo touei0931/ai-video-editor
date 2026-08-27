@@ -14,11 +14,14 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Timeline, clock, type TimelineRegion, type TimelineTrack } from '../shell/Timeline';
 import {
+  addAsset,
+  appendToMain,
   bladeAt,
   clipAt,
   layout,
   moveClip,
   newId,
+  placeOnLane,
   placedTelops,
   removeClip,
   setMagnetic,
@@ -27,14 +30,23 @@ import {
   type Lane,
   type Project,
 } from './project';
+import { ProbeError, probeAsset } from './probe';
+import { useTimelinePlayer } from './useTimelinePlayer';
+import { Viewer } from './Viewer';
 import './timeline-screen.css';
 
 interface Props {
   project: Project;
   onChange(next: Project): void;
   fps?: number;
-  /** 「素材を追加」を押したとき。ファイルを選ばせるのは呼び出し側の仕事 */
-  onAddAsset?(): void;
+  /**
+   * 「素材を追加」で開くファイル選択。素材にして置くのはこちらでやる。
+   *
+   * 🔴 置き場所を呼び出し側に決めさせないこと。
+   *    どのレーンへ・どの位置へ、は選んでいるものと再生位置で決まる。
+   *    外から渡すと、画面の状態を持ち回すことになる。
+   */
+  pickFile?(): Promise<string | null>;
   /** 「取り込み（自動カット）」を押したとき。子画面を開くのは呼び出し側の仕事 */
   onImport?(): void;
 }
@@ -46,10 +58,18 @@ const LANE_LABEL: Record<Lane['kind'], string> = {
   audio: '音',
 };
 
-export function TimelineScreen({ project, onChange, fps = 30, onAddAsset, onImport }: Props) {
+export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
-  const [time, setTime] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+
+  /*
+    🔴 再生位置は再生器が持つこと。画面側にもう1つ持たない。
+       2つ持つと、タイムラインを掴んで動かしたのに映像が付いてこない、
+       という食い違いが必ず起きる。
+  */
+  const player = useTimelinePlayer(project);
+  const time = player.time;
+  const setTime = player.seek;
 
   /*
     取り消し。
@@ -170,6 +190,44 @@ export function TimelineScreen({ project, onChange, fps = 30, onAddAsset, onImpo
     [project, apply],
   );
 
+  /**
+   * 素材を選んで置く。
+   *
+   * 🔴 置き先は「選んでいるレーン」。本編を選んでいるなら末尾に足す。
+   *    どこに置かれたか分からないのがいちばん困るので、置いたら選んで知らせる。
+   */
+  const [busy, setBusy] = useState(false);
+  const addAssetHere = useCallback(async () => {
+    if (!pickFile || busy) return;
+    let path: string | null = null;
+    try {
+      path = await pickFile();
+    } catch {
+      return;
+    }
+    if (!path) return;
+
+    setBusy(true);
+    setNotice('素材を読み込んでいます…');
+    try {
+      const asset = await probeAsset(path);
+      const lane = project.lanes.find((l) => l.id === selectedLane) ?? null;
+      let next = addAsset(project, asset);
+      if (!lane || lane.kind === 'main') {
+        next = appendToMain(next, asset.id);
+      } else {
+        next = placeOnLane(next, lane.id, asset.id, time);
+      }
+      const added = next.clips[next.clips.length - 1];
+      apply(next, `${asset.name} を置きました`);
+      setSelected(added?.id ?? null);
+    } catch (e) {
+      setNotice(e instanceof ProbeError ? e.message : '素材を読み込めませんでした');
+    } finally {
+      setBusy(false);
+    }
+  }, [pickFile, busy, project, selectedLane, time, apply]);
+
   /* ------------------------------------------------------------ キー操作 */
 
   const onKeyDown = useCallback(
@@ -187,12 +245,15 @@ export function TimelineScreen({ project, onChange, fps = 30, onAddAsset, onImpo
       } else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) {
         e.preventDefault();
         remove(e.shiftKey);
+      } else if (!mod && e.key === ' ') {
+        e.preventDefault();
+        player.toggle();
       } else if (!mod && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         apply(setMagnetic(project, !project.magnetic));
       }
     },
-    [blade, undo, remove, project, apply],
+    [blade, undo, remove, project, apply, player],
   );
 
   /* ------------------------------------------------------------- 見た目 */
@@ -244,49 +305,47 @@ export function TimelineScreen({ project, onChange, fps = 30, onAddAsset, onImpo
     [placed],
   );
 
-  const empty = project.clips.length === 0;
-
   return (
     <div className="tl-screen" tabIndex={0} onKeyDown={onKeyDown} style={{ position: 'relative' }}>
       <div className="tl-bar">
-        <button onClick={onImport} disabled={!onImport}>
-          取り込み（自動カット・自動テロップ）
+        <button
+          onClick={onImport}
+          disabled={!onImport}
+          title="動画を選んで、自動カットと自動テロップの下ごしらえをしてから並べます"
+        >
+          取り込み
         </button>
-        <button onClick={onAddAsset} disabled={!onAddAsset}>
-          素材を追加
+        <button onClick={addAssetHere} disabled={!pickFile || busy}>
+          {busy ? '読み込み中…' : '素材を追加'}
         </button>
         <span className="tl-sep" />
-        <button onClick={() => addLaneAbove('video')}>重ねるレーンを足す</button>
-        <button onClick={() => addLaneAbove('audio')}>音のレーンを足す</button>
+        <button onClick={() => addLaneAbove('video')} title="B-roll や差し込みを重ねるレーン">
+          ＋重ねる
+        </button>
+        <button onClick={() => addLaneAbove('audio')} title="BGM や効果音のレーン">
+          ＋音
+        </button>
         <span className="tl-sep" />
-        <button onClick={blade} title="⌘B / Ctrl+B">
-          ここで分ける
+        <button onClick={blade} title="再生位置で素材を分ける（⌘B / Ctrl+B）">
+          分ける
         </button>
-        <button onClick={() => remove(false)} disabled={!selected} title="Delete">
-          消して詰める
+        <button onClick={() => remove(false)} disabled={!selected} title="消して後ろを詰める（Delete）">
+          消す
         </button>
-        <button onClick={() => remove(true)} disabled={!selected} title="Shift+Delete">
-          消して穴を空ける
+        <button onClick={() => remove(true)} disabled={!selected} title="その場に穴を空けて消す（Shift+Delete）">
+          穴を空けて消す
         </button>
         <span className="tl-spacer" />
         <span className="tl-len">{clock(duration)}</span>
       </div>
-
-      {empty ? (
-        <div className="tl-empty">
-          <p>まだ何も置かれていません。</p>
-          <p>
-            「取り込み」で動画の下ごしらえ（自動カット・自動テロップ）をしてから
-            並べるか、「素材を追加」でそのまま置いてください。
-          </p>
-        </div>
-      ) : null}
 
       {notice && (
         <div className="tl-notice" onAnimationEnd={() => setNotice(null)}>
           {notice}
         </div>
       )}
+
+      <Viewer project={project} player={player} />
 
       <Timeline
         duration={Math.max(duration, 1)}
