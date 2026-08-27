@@ -37,6 +37,8 @@ interface Props {
   time: number;
   onChange(next: Project, message?: string): void;
   onSelect(id: string | null): void;
+  /** 素材の一覧から「置く」を押したとき */
+  onPlaceAsset?(assetId: string): void;
 }
 
 /**
@@ -56,7 +58,16 @@ export function parseSelection(
   return { kind: 'clip', clipId: selected };
 }
 
-export function Inspector({ project, placed, telops, selected, time, onChange, onSelect }: Props) {
+export function Inspector({
+  project,
+  placed,
+  telops,
+  selected,
+  time,
+  onChange,
+  onSelect,
+  onPlaceAsset,
+}: Props) {
   const sel = parseSelection(selected);
   const fps = project.settings.fps;
   const frame = 1 / fps;
@@ -69,7 +80,7 @@ export function Inspector({ project, placed, telops, selected, time, onChange, o
     const telop = project.telops.find((t) => t.id === sel.telopId);
     const clip = clipOf(sel.clipId);
     if (!shown || !telop || !clip) {
-      return <Empty note="選んでいたテロップが無くなりました" />;
+      return <Empty project={project} onPlaceAsset={onPlaceAsset} note="選んでいたテロップが無くなりました" />;
     }
 
     const edge = (which: 'start' | 'end', delta: number) =>
@@ -145,7 +156,9 @@ export function Inspector({ project, placed, telops, selected, time, onChange, o
   /* ------------------------------------------------------------ クリップ */
   if (sel?.kind === 'clip') {
     const clip = clipOf(sel.clipId);
-    if (!clip) return <Empty note="選んでいたクリップが無くなりました" />;
+    if (!clip) {
+      return <Empty project={project} onPlaceAsset={onPlaceAsset} note="選んでいたクリップが無くなりました" />;
+    }
     if (isGap(clip)) {
       return (
         <aside className="tl-inspector">
@@ -238,16 +251,75 @@ export function Inspector({ project, placed, telops, selected, time, onChange, o
     );
   }
 
-  return <Empty note="タイムラインでクリップかテロップを選ぶと、ここで直せます。" />;
+  return (
+    <Empty
+      project={project}
+      onPlaceAsset={onPlaceAsset}
+      note="タイムラインでクリップかテロップを選ぶと、ここで直せます。"
+    />
+  );
 }
 
-function Empty({ note }: { note: string }) {
+/**
+ * 何も選んでいないとき。素材の一覧を出す。
+ *
+ * 🔴 一度読んだ素材を、もう一度使えるようにしておくこと。
+ *    これが無いと、同じ動画をもう一度置くのに
+ *    ファイル選択からやり直すことになる（読み込みも待ち直しになる）。
+ *
+ * 🔴 空きの余白に置くこと。列を増やすとプレビューが狭くなる。
+ */
+function Empty({
+  note,
+  project,
+  onPlaceAsset,
+}: {
+  note: string;
+  project: Project;
+  onPlaceAsset?(assetId: string): void;
+}) {
+  const used = new Map<string, number>();
+  for (const c of project.clips) {
+    if (!isGap(c)) used.set(c.assetId, (used.get(c.assetId) ?? 0) + 1);
+  }
+
   return (
     <aside className="tl-inspector tl-inspector-empty">
       <h2>インスペクタ</h2>
       <p className="tl-hint">{note}</p>
+
+      {project.assets.length > 0 && (
+        <>
+          <h2>素材</h2>
+          <ul className="tl-assets">
+            {project.assets.map((a) => (
+              <li key={a.id}>
+                <div className="tl-asset-name" title={a.path}>
+                  {a.name}
+                </div>
+                <div className="tl-asset-facts">
+                  {fmtLen(a.duration)}
+                  {a.width && a.height ? ` / ${a.width}×${a.height}` : ''}
+                  {!a.hasVideo ? ' / 音だけ' : ''}
+                  {used.get(a.id) ? ` / ${used.get(a.id)} 本使用中` : ' / 未使用'}
+                </div>
+                <button disabled={!onPlaceAsset} onClick={() => onPlaceAsset?.(a.id)}>
+                  置く
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </aside>
   );
+}
+
+/** 分:秒 */
+function fmtLen(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec - m * 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 /**

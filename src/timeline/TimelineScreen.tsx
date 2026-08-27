@@ -588,6 +588,32 @@ export function TimelineScreen({
     setSelected(added?.id ?? null);
   }, [clipboard, project, selectedLane, time, apply]);
 
+  /**
+   * 一度読んだ素材を、もう一度置く。
+   *
+   * 🔴 置き先は「素材を追加」と同じ決まりにすること。
+   *    ここだけ別の決まりにすると、同じ操作なのに置かれる場所が変わる。
+   */
+  const placeAsset = useCallback(
+    (assetId: string) => {
+      const asset = project.assets.find((a) => a.id === assetId);
+      if (!asset) return;
+      const lane = project.lanes.find((l) => l.id === selectedLane) ?? null;
+      const next =
+        !lane || lane.kind === 'main'
+          ? appendToMain(project, assetId)
+          : placeOnLane(project, lane.id, assetId, time);
+      if (next === project) {
+        setNotice('ここには置けません');
+        return;
+      }
+      const added = next.clips[next.clips.length - 1];
+      apply(next, `${asset.name} を置きました`);
+      setSelected(added?.id ?? null);
+    },
+    [project, selectedLane, time, apply],
+  );
+
   const duplicate = useCallback(() => {
     const sel = parseSelection(selected);
     if (sel?.kind !== 'clip') return;
@@ -1036,6 +1062,7 @@ export function TimelineScreen({
         time={time}
         onChange={apply}
         onSelect={setSelected}
+        onPlaceAsset={placeAsset}
       />
 
       <Viewer project={project} player={player} />

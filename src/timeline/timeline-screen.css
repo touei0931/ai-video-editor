@@ -722,3 +722,49 @@
   border-color: var(--accent, #4a9eff);
   color: var(--accent, #4a9eff);
 }
+
+/* 素材の一覧 */
+.tl-assets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tl-assets li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 8px;
+  border: 1px solid var(--s4, #34343e);
+  border-radius: 5px;
+  background: var(--s0, #131317);
+}
+
+.tl-asset-name {
+  grid-column: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.tl-asset-facts {
+  grid-column: 1;
+  color: var(--muted, #9aa0a6);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 🔴 ボタンを縮めないこと（このファイルで三度踏んでいる） */
+.tl-assets button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 4px 10px;
+}
