@@ -24,6 +24,7 @@ const {
   addTelop, updateTelop, removeTelop, moveTelopEdge,
   renameClip, setClipGain, GAIN_RANGE,
   duplicateClip, pasteClip, isGap,
+  removeLane, renameLane, clipsOnLane, removeRange,
 } = m;
 
 let failed = 0;
@@ -641,6 +642,85 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   eq('既定は焼き込む', s.burnTelops, true);
   eq('既定は字幕も作る', s.writeSrt, true);
   eq('既定は音量をそろえる', s.loudnorm, true);
+}
+
+/* ================================================ レーンと区間 */
+{
+  const base = () => {
+    let p = importCutResult(emptyProject(), {
+      asset: { id: 'a', path: '/m/a.mp4', name: 'トーク', duration: 60, hasVideo: true, hasAudio: true },
+      keeps: [{ srcStart: 0, srcEnd: 5 }, { srcStart: 20, srcEnd: 25 }, { srcStart: 40, srcEnd: 45 }],
+    });
+    p = addLane(p, { id: 'v1', kind: 'video', name: '重ね' });
+    p = placeOnLane(p, 'v1', 'a', 2, 30, 33);
+    return p;
+  };
+
+  /* ------------------------------------------------------ レーンを消す */
+  let p = base();
+  eq('消す前の本数', p.clips.length, 4);
+  eq('乗っている数が引ける', clipsOnLane(p, 'v1'), 1);
+
+  const gone = removeLane(p, 'v1');
+  eq('レーンが減る', gone.lanes.length, 1);
+  eq('乗っていたクリップも消える', gone.clips.length, 3);
+
+  /*
+    🔴 本編は消せないこと。土台が無くなると、置き場所の無いクリップだけが残る。
+  */
+  eq('本編は消せない', removeLane(p, p.lanes[0].id) === p, true);
+  eq('知らないレーンでは作り直さない', removeLane(p, 'ない') === p, true);
+
+  /*
+    🔴 テロップは残すこと。素材に結び付いているので、レーンとは関係が無い。
+  */
+  let withTelop = importCutResult(base(), {
+    asset: { id: 'b', path: '/m/b.mp4', name: 'B', duration: 30, hasVideo: true, hasAudio: true },
+    keeps: [{ srcStart: 0, srcEnd: 5 }],
+    telops: [{ srcStart: 1, srcEnd: 3, text: 'x', style: 'normal' }],
+  });
+  eq('テロップは消えない', removeLane(withTelop, 'v1').telops.length, 1);
+
+  /* -------------------------------------------------- レーンの名前 */
+  eq('名前を変えられる', renameLane(p, 'v1', 'B ロール').lanes[1].name, 'B ロール');
+  eq('前後の空白は落とす', renameLane(p, 'v1', '  差し込み  ').lanes[1].name, '差し込み');
+  eq('同じ名前なら作り直さない', renameLane(p, 'v1', '重ね') === p, true);
+
+  /* ------------------------------------------------------ 区間を消す */
+  // 本編は 0-5 / 5-10 / 10-15 に並んでいる
+  const mainId = base().lanes[0].id;
+  eq('並び', layout(base()).filter((c) => c.laneId === mainId).map((c) => [c.start, c.end]),
+     [[0, 5], [5, 10], [10, 15]]);
+
+  /*
+    🔴 半分だけかかっているクリップを丸ごと消さないこと。
+       3〜7秒を指定したら、消えるのは3〜7秒だけ。
+  */
+  const cut = removeRange(base(), mainId, 3, 7, 'ripple');
+  const after = layout(cut).filter((c) => c.laneId === mainId);
+  eq('指定した4秒ぶんだけ短くなる', timelineDuration(cut), 11);
+  eq('前半の残り', [after[0].start, after[0].end], [0, 3]);
+  eq('残った所の中身（前）', [after[0].srcStart, after[0].srcEnd], [0, 3]);
+  // 5〜7秒は2本目の 20〜22 にあたるので、残るのは 22〜25
+  eq('残った所の中身（後）', [after[1].srcStart, after[1].srcEnd], [22, 25]);
+
+  /* -------------------------------------------- 空きにする（詰めない） */
+  const lift = removeRange(base(), mainId, 3, 7, 'lift');
+  eq('尺は変わらない', timelineDuration(lift), 15);
+  const lifted = layout(lift).filter((c) => c.laneId === mainId);
+  eq('間が空きになる', lifted.filter((c) => isGap(c)).map((c) => [c.start, c.end]), [[3, 5], [5, 7]]);
+
+  /* ---------------------------------------------------- 通さないもの */
+  const same = base();
+  eq('長さ0では作り直さない', removeRange(same, mainId, 4, 4) === same, true);
+
+  /*
+    🔴 区間の外は巻き込まないこと。
+       詰めながら消すと、後ろのクリップが前へ動いて区間に入り込む。
+  */
+  const one = removeRange(base(), mainId, 0, 5, 'ripple');
+  eq('1本ぶんだけ消える', layout(one).filter((c) => c.laneId === mainId).length, 2);
+  eq('残りの中身', layout(one).filter((c) => c.laneId === mainId).map((c) => c.srcStart), [20, 40]);
 }
 
 if (failed > 0) {

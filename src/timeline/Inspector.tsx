@@ -18,7 +18,10 @@ import { useCallback } from 'react';
 import { clock } from '../shell/Timeline';
 import {
   GAIN_RANGE,
+  clipsOnLane,
   isGap,
+  removeLane,
+  renameLane,
   moveTelopEdge,
   removeTelop,
   renameClip,
@@ -80,7 +83,7 @@ export function Inspector({
     const telop = project.telops.find((t) => t.id === sel.telopId);
     const clip = clipOf(sel.clipId);
     if (!shown || !telop || !clip) {
-      return <Empty project={project} onPlaceAsset={onPlaceAsset} note="選んでいたテロップが無くなりました" />;
+      return <Empty project={project} onPlaceAsset={onPlaceAsset} onChange={onChange} note="選んでいたテロップが無くなりました" />;
     }
 
     const edge = (which: 'start' | 'end', delta: number) =>
@@ -157,7 +160,7 @@ export function Inspector({
   if (sel?.kind === 'clip') {
     const clip = clipOf(sel.clipId);
     if (!clip) {
-      return <Empty project={project} onPlaceAsset={onPlaceAsset} note="選んでいたクリップが無くなりました" />;
+      return <Empty project={project} onPlaceAsset={onPlaceAsset} onChange={onChange} note="選んでいたクリップが無くなりました" />;
     }
     if (isGap(clip)) {
       return (
@@ -255,6 +258,7 @@ export function Inspector({
     <Empty
       project={project}
       onPlaceAsset={onPlaceAsset}
+      onChange={onChange}
       note="タイムラインでクリップかテロップを選ぶと、ここで直せます。"
     />
   );
@@ -273,10 +277,12 @@ function Empty({
   note,
   project,
   onPlaceAsset,
+  onChange,
 }: {
   note: string;
   project: Project;
   onPlaceAsset?(assetId: string): void;
+  onChange?(next: Project, message?: string): void;
 }) {
   const used = new Map<string, number>();
   for (const c of project.clips) {
@@ -287,6 +293,47 @@ function Empty({
     <aside className="tl-inspector tl-inspector-empty">
       <h2>インスペクタ</h2>
       <p className="tl-hint">{note}</p>
+
+      {/*
+        レーン。
+        🔴 足せるのに消せない、という行き止まりを作らないこと。
+           間違えて足したレーンが一生残ることになる。
+      */}
+      {onChange && project.lanes.length > 1 && (
+        <>
+          <h2>レーン</h2>
+          <ul className="tl-lanes">
+            {[...project.lanes].reverse().map((l) => (
+              <li key={l.id}>
+                <input
+                  value={l.name}
+                  placeholder={LANE_KIND_LABEL[l.kind]}
+                  onChange={(e) => onChange(renameLane(project, l.id, e.target.value))}
+                />
+                <span className="tl-lane-kind">{LANE_KIND_LABEL[l.kind]}</span>
+                <button
+                  className="tl-danger"
+                  disabled={l.kind === 'main'}
+                  title={
+                    l.kind === 'main'
+                      ? '本編は消せません（土台なので）'
+                      : `このレーンと、乗っている ${clipsOnLane(project, l.id)} 本を消します`
+                  }
+                  onClick={() => {
+                    const n = clipsOnLane(project, l.id);
+                    onChange(
+                      removeLane(project, l.id),
+                      n > 0 ? `レーンと ${n} 本を消しました` : 'レーンを消しました',
+                    );
+                  }}
+                >
+                  消す
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
       {project.assets.length > 0 && (
         <>
@@ -361,6 +408,13 @@ function TimeNudge({
     </div>
   );
 }
+
+/** レーンの種類の呼び名 */
+const LANE_KIND_LABEL: Record<string, string> = {
+  main: '本編',
+  video: '重ね',
+  audio: '音',
+};
 
 /** 組み込みの雛形の呼び名。名前を付けた雛形はその名前のまま出す */
 const STYLE_LABEL: Record<string, string> = {

@@ -780,6 +780,79 @@ export function pasteClip(
   return { ...project, clips: [...project.clips, clip] };
 }
 
+/* ---------------------------------------------------------------- レーン */
+
+/**
+ * レーンを消す。乗っていたクリップも一緒に消える。
+ *
+ * 🔴 本編（メイン）は消せないこと。
+ *    土台が無くなると、置き場所の無いクリップだけが残る。
+ *
+ * 🔴 テロップは残すこと。
+ *    テロップは素材に結び付いているので、レーンとは関係が無い。
+ *    ここで消すと、別のレーンに同じ素材を置いたときに戻ってこない。
+ */
+export function removeLane(project: Project, laneId: string): Project {
+  const lane = project.lanes.find((l) => l.id === laneId);
+  if (!lane || lane.kind === 'main') return project;
+  return {
+    ...project,
+    lanes: project.lanes.filter((l) => l.id !== laneId),
+    clips: project.clips.filter((c) => c.laneId !== laneId),
+  };
+}
+
+/** そのレーンに乗っているクリップの数（消す前に伝えるため） */
+export function clipsOnLane(project: Project, laneId: string): number {
+  return project.clips.filter((c) => c.laneId === laneId && !isGap(c)).length;
+}
+
+/** レーンの名前を変える */
+export function renameLane(project: Project, laneId: string, name: string): Project {
+  const trimmed = name.trim();
+  const i = project.lanes.findIndex((l) => l.id === laneId);
+  if (i < 0 || project.lanes[i].name === trimmed) return project;
+  const lanes = [...project.lanes];
+  lanes[i] = { ...lanes[i], name: trimmed };
+  return { ...project, lanes };
+}
+
+/**
+ * ある区間を、そのレーンから取り除く。
+ *
+ * 🔴 まず両端で分けてから、間に入ったクリップを消すこと。
+ *    区間に半分だけかかっているクリップを丸ごと消すと、
+ *    指定していない所まで消える。
+ *
+ * 🔴 消す相手は**先に決めておく**こと。
+ *    詰めながら（ripple）消すと、後ろのクリップが前へ動いて区間に入り込み、
+ *    指定していないものまで巻き込む。
+ */
+export function removeRange(
+  project: Project,
+  laneId: string,
+  from: number,
+  to: number,
+  mode: 'ripple' | 'lift' = 'ripple',
+): Project {
+  if (to - from <= 0.002) return project;
+  let next = bladeAt(project, laneId, from);
+  next = bladeAt(next, laneId, to);
+
+  const victims = layout(next)
+    .filter(
+      (c) =>
+        c.laneId === laneId &&
+        !isGap(c) &&
+        c.start >= from - 0.002 &&
+        c.end <= to + 0.002,
+    )
+    .map((c) => c.id);
+
+  for (const id of victims) next = removeClip(next, id, mode);
+  return next;
+}
+
 /* ------------------------------------------------------------ テロップ */
 
 /**
