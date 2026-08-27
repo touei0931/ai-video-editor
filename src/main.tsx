@@ -7,6 +7,7 @@ import { ReviewScreen } from './review/ReviewScreen';
 import { TelopE2E } from './telop/TelopE2E';
 import { ShellDemo } from './shell/ShellDemo';
 import { TimelineDemo } from './timeline/TimelineDemo';
+import { PacEditor } from './timeline/PacEditor';
 import { CutStage } from './shell/CutStage';
 import { TelopStage } from './shell/TelopStage';
 import { generateMockCandidates } from './review/mockCandidates';
@@ -68,6 +69,12 @@ function Root() {
   if (mode === 'shell') return <ShellDemo />;
   // 作り直したメインの編集画面（素材を並べる方）を触る（src/timeline/）
   if (mode === 'timeline') return <TimelineDemo />;
+  /*
+    素材を並べる画面を主役にした形（下ごしらえは子画面）。
+    🔴 まだ既定にしない。今の一本道の画面で作業している人がいる。
+       ?mode=editor で開いて、確かめてから入れ替える。
+  */
+  if (mode === 'editor') return <PacEditor />;
   if (mode === 'telop') return <TelopDemo />;
 
   // 作り直したカット画面を、モックの候補で触る

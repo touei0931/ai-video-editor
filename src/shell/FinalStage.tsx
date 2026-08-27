@@ -44,6 +44,12 @@ export interface FinalStageProps {
   onBack(): void;
   onQuit?(): void;
   onExport(): void;
+  /**
+   * 下ごしらえの結果を、並べる画面へ送る。
+   * 🔴 書き出しとは別のボタンにすること。ここで送るのは「素材の下ごしらえ」で、
+   *    動画になるわけではない。同じボタンにすると、送ったのに何も出てこないと見える。
+   */
+  onSendToTimeline?(): void;
   exporting?: boolean;
   /**
    * 何を書き出すか。
@@ -71,6 +77,7 @@ export function FinalStage({
   onBack,
   onQuit,
   onExport,
+  onSendToTimeline,
   exporting,
   options,
   onOptionsChange,
@@ -255,6 +262,11 @@ export function FinalStage({
           {onQuit && (
             <button className="danger" onClick={onQuit}>
               編集をやめる
+            </button>
+          )}
+          {onSendToTimeline && (
+            <button onClick={onSendToTimeline} disabled={exporting} title="並べる画面へ送ります">
+              タイムラインに送る
             </button>
           )}
           <button className="go" onClick={onExport} disabled={exporting}>

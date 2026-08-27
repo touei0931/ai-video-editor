@@ -220,3 +220,77 @@
   font-size: 12px;
   color: var(--muted, #9aa0a6);
 }
+
+/* ---------------- 入れ物（メインと子画面） ---------------- */
+
+.pac-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+.pac-main {
+  position: absolute;
+  inset: 0;
+}
+
+/*
+  下ごしらえの子画面。
+  🔴 メインを消さずに上へ重ねること。入れ替えると、
+     並べたものと再生位置が作り直しになる。
+*/
+.pac-child {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--s1, #1c1c20);
+}
+
+.pac-child-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--s3, #2b2b33);
+  border-bottom: 1px solid var(--line, #3a3a45);
+  font-size: 12px;
+  color: var(--text-dim, #9a9aa8);
+  flex: 0 0 auto;
+}
+
+.pac-child-bar strong {
+  color: var(--text, #ecedf2);
+  font-size: 13px;
+}
+
+.pac-child-bar button {
+  margin-left: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 4px 12px;
+  border: 1px solid var(--line, #3a3a45);
+  border-radius: 5px;
+  background: var(--s4, #34343e);
+  color: var(--text, #ecedf2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/*
+  🔴 中身を必ずはみ出させないこと。
+     子画面の中身（既存の編集画面）は position: fixed の骨格を持っている。
+     入れ子にすると画面全体を覆うので、上の帯ごと隠れて閉じられなくなる。
+*/
+.pac-child-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pac-child-body > * {
+  position: absolute;
+  inset: 0;
+}

@@ -28,6 +28,8 @@ import { loadTelopFonts, macFontOf } from './telop/fonts';
 import { fcpLook, type FcpLook } from './telop/render';
 import { renderBlank, renderTelopPngs } from './telop/rasterize';
 import { telopLanes } from './telop/lanes';
+import { buildSegments } from './shell/editedTime';
+import { newId, type CutResult } from './timeline/project';
 import {
   buildCards,
   makeMeasure,
@@ -302,7 +304,20 @@ const PHASE_LABEL: Partial<Record<Phase, string>> = {
   done: '書き出し済み',
 };
 
-export function App() {
+export interface AppProps {
+  /**
+   * 下ごしらえの結果を、並べる画面（メインのタイムライン）へ渡す口。
+   *
+   * 🔴 ここでは「残す区間」と「テロップ」だけを渡すこと。
+   *    解析の途中経過（文字起こし・候補・作業フォルダ）は渡さない。
+   *    渡すと、並べる画面がこの画面の都合を知ることになり、
+   *    自動カットを外から呼べる形に引きずられる。
+   *    自動カットはこの子画面だけの機能にする、と決めてある。
+   */
+  onSendToTimeline?(result: CutResult): void;
+}
+
+export function App({ onSendToTimeline }: AppProps = {}) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState({ value: 0, message: '' });
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
@@ -1313,6 +1328,43 @@ export function App() {
       <>
         {help}
         <FinalStage
+          onSendToTimeline={
+            onSendToTimeline
+              ? () => {
+                  /*
+                    🔴 「切る区間」ではなく「残る区間」を渡すこと。
+                       並べる画面は、残っているものをクリップとして持つ。
+                       切る区間を渡すと、あちらでもう一度引き算することになり、
+                       どちらが正なのか分からなくなる。
+                  */
+                  const keeps = buildSegments(
+                    analysis.duration,
+                    cuts.map((c) => ({ srcStart: c.srcStart, srcEnd: c.srcEnd })),
+                  ).map((sg) => ({ srcStart: sg.srcStart, srcEnd: sg.srcEnd }));
+
+                  onSendToTimeline({
+                    asset: {
+                      id: newId('asset'),
+                      path: analysis.video_path,
+                      name:
+                        analysis.video_path.replace(/\\/g, '/').split('/').pop() ??
+                        '素材',
+                      duration: analysis.duration,
+                      hasVideo: true,
+                      hasAudio: true,
+                    },
+                    keeps,
+                    telops: finalState.cards.map((c) => ({
+                      srcStart: c.srcStart,
+                      srcEnd: c.srcEnd,
+                      text: c.text,
+                      // 並べる画面は2種類しか持たない。note は通常に寄せる
+                      style: c.style === 'emphasis' ? 'emphasis' : 'normal',
+                    })),
+                  });
+                }
+              : undefined
+          }
           videoPath={analysis.video_path}
           frame={frame}
           duration={analysis.duration}

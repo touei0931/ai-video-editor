@@ -25,6 +25,23 @@ const SRC = join(ROOT, 'src');
 /** 許されるのはこれだけ */
 const ALLOWED_PREFIX = 'media://local/';
 
+/**
+ * この検査の対象外にするファイル。
+ *
+ * 🔴 「画面で読ませる URL」だけを見る検査だと決めること。
+ *    ここに挙げるのは、画面の <video> ではなく**外部のソフトに渡す**
+ *    書類を組み立てているところ。Final Cut の XML は素材の場所を
+ *    file:// で書く決まりで、media://local/ にすると Final Cut 側が
+ *    素材を見つけられない（オフラインのクリップになる）。
+ *
+ * 🔴 安易に増やさないこと。ここへ足すということは、
+ *    「映像が黙って出ない」壊れ方を見逃す穴を1つ開けるということ。
+ */
+const EXEMPT = [
+  // Final Cut Pro に渡す XML。src は file:// でなければならない
+  'src/timeline/fcpxml.ts',
+];
+
 /** src={...} の中に出てくる `なにか://` を拾う */
 const SCHEME = /['"`]([a-zA-Z][\w-]*:\/\/[^'"`$]*)/g;
 
@@ -39,6 +56,8 @@ const files = [];
 
 const bad = [];
 for (const file of files) {
+  const rel = relative(ROOT, file).split('\\').join('/');
+  if (EXEMPT.includes(rel)) continue;
   const text = readFileSync(file, 'utf8');
   text.split(/\r?\n/).forEach((line, i) => {
     // コメント行は対象外。ここに「やってはいけない形」を書き残せなくなるため
