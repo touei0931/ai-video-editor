@@ -505,7 +505,18 @@ export function Timeline({
       if (r.fixed) return;
       e.stopPropagation();
       e.preventDefault();
-      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+      /*
+        🔴 例外を通さないこと。
+           setPointerCapture は、そのポインタがもう押されていないと
+           NotFoundError を投げる（指を離した直後や、押した所が
+           作り直された直後に起きる）。ここで投げると **掴んだことが
+           記録されないまま**になり、クリップが動かせなくなる。
+      */
+      try {
+        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+      } catch {
+        /* 掴めなくても、window の pointermove で追えるので続行する */
+      }
       onSelect(r.id);
       setDrag({
         id: r.id,

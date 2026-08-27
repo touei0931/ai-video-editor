@@ -37,6 +37,8 @@ import {
   removeTelop,
   moveTelopEdge,
   removeRange,
+  importCutResult,
+  type CutResult,
   duplicateClip,
   pasteClip,
   videoAt,
@@ -75,6 +77,9 @@ interface Props {
   pickFile?(): Promise<string | null>;
   /** 「取り込み（自動カット）」を押したとき。子画面を開くのは呼び出し側の仕事 */
   onImport?(): void;
+  /** 子画面から来た下ごしらえの結果。置き先はこちらで決める */
+  incoming?: CutResult | null;
+  onIncomingDone?(): void;
   /**
    * この画面が前面にあるか。
    *
@@ -125,6 +130,8 @@ export function TimelineScreen({
   pickFile,
   onImport,
   active = true,
+  incoming,
+  onIncomingDone,
 }: Props) {
   /*
     テロップの見た目はプロジェクトが持つ。
@@ -183,6 +190,22 @@ export function TimelineScreen({
     },
     [project, onChange],
   );
+
+  /*
+    子画面から来た下ごしらえを並べる。
+
+    🔴 2本目からは上に重ねる（Final Cut の接続クリップと同じ）。
+       置き始めは再生位置。0 から置くと本編の頭が丸ごと隠れる。
+    🔴 apply を通すこと。直接 onChange すると取り消し（⌘Z）に乗らない。
+  */
+  useEffect(() => {
+    if (!incoming) return;
+    const next = importCutResult(project, incoming, time);
+    onIncomingDone?.();
+    if (next === project) return;
+    apply(next, `${incoming.asset.name} を取り込みました`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming]);
 
   /*
     閉じるときに引き止められるよう、状態を本体へ伝える。
@@ -413,7 +436,9 @@ export function TimelineScreen({
            テロップの段は「どこに出るか」を見せるための場所で、レーンではない。
            そこへ落としたクリップは行き先を失う。
       */
-      if (id.startsWith('telop:') || laneId === 'telops') return;
+      // 🔴 見るだけの段（テロップ・音の波）へは落とせないこと。行き先が無い
+      if (id.startsWith('telop:')) return;
+      if (!project.lanes.some((l) => l.id === laneId)) return;
       apply(moveClip(project, id, laneId, start), 'レーンを移しました');
     },
     [project, apply],
@@ -910,7 +935,16 @@ export function TimelineScreen({
         }
       : null;
 
-    const out = lanes.map((lane) => {
+    /*
+      レーンごとに「映像の段」と「音の段」を作る。
+
+      🔴 音の波を映像の段に重ねないこと。
+         あの段にはコマとクリップの帯が既にある。そこへ波まで重ねると、
+         同じ場所で3つの意味が押し合って、どれを掴んだのか分からなくなる。
+         Final Cut でも音は別の帯として見える。
+    */
+    const out: TimelineTrack[] = [];
+    for (const lane of lanes) {
       const regions: TimelineRegion[] = placed
         .filter((c) => c.laneId === lane.id)
         .map((c) => ({
@@ -923,7 +957,12 @@ export function TimelineScreen({
         }));
 
       const mine = placed.filter((c) => c.laneId === lane.id);
-      return {
+      const hasSound = mine.some((c) => {
+        if (isGap(c)) return false;
+        return project.assets.find((a) => a.id === c.assetId)?.hasAudio ?? false;
+      });
+
+      out.push({
         id: lane.id,
         label: lane.name || LANE_LABEL[lane.kind],
         regions,
@@ -935,40 +974,61 @@ export function TimelineScreen({
         */
         overlay: lane.kind !== 'audio',
         scalable: lane.kind !== 'audio',
-        /*
-          🔴 喋り主体では、コマより波形のほうが効く。
-             同じ人が10分喋っている素材のコマはどこを見ても同じ顔で、
-             切れ目の良し悪しが分からない。波なら
-             「立ち上がる直前で切れているか」を再生せずに判断できる。
-             コマも残すのは、差し込み映像や画の切り替わりを探すときに要るため。
-        */
         render:
           lane.kind === 'audio'
             ? (v: TimelineView) => (
                 <ClipWaveform {...v} clips={mine} assets={project.assets} />
               )
             : (v: TimelineView) => (
-                <>
-                  <ClipFilmstrip {...v} clips={mine} assets={project.assets} />
-                  <ClipWaveform
-                    {...v}
-                    clips={mine}
-                    assets={project.assets}
-                    height={Math.max(14, Math.round(v.height * 0.38))}
-                    align="bottom"
-                    color="rgba(120, 220, 170, 0.85)"
-                  />
-                </>
+                <ClipFilmstrip {...v} clips={mine} assets={project.assets} />
               ),
-      };
-    });
+      });
+
+      /*
+        🔴 喋り主体では、コマより波形のほうが効く。
+           同じ人が10分喋っている素材のコマはどこを見ても同じ顔で、
+           切れ目の良し悪しが分からない。波なら
+           「立ち上がる直前で切れているか」を再生せずに判断できる。
+        🔴 この段は見るだけ。帯（regions）を置かないこと。
+           置くと、同じクリップが2か所で掴めることになり、
+           どちらを動かしたのか分からなくなる。
+      */
+      if (lane.kind !== 'audio' && hasSound) {
+        out.push({
+          id: `${lane.id}:wave`,
+          label: `${lane.name || LANE_LABEL[lane.kind]} の音`,
+          regions: [],
+          height: 34,
+          render: (v: TimelineView) => (
+            <ClipWaveform
+              {...v}
+              clips={mine}
+              assets={project.assets}
+              color="rgba(120, 220, 170, 0.85)"
+            />
+          ),
+        });
+      }
+    }
     return telopTrack ? [telopTrack, ...out] : out;
   }, [project.lanes, project.assets, placed, telops]);
 
-  /** 切れ目に吸い付かせる */
+  /**
+   * 吸い付く先。
+   *
+   * 🔴 クリップの切れ目だけでなく、テロップの端と再生位置も入れること。
+   *    「テロップの出だしに合わせて切りたい」は喋り主体では毎回やる操作で、
+   *    目分量では 1/30 秒には届かない。
+   */
   const snapPoints = useMemo(
-    () => [0, ...placed.flatMap((c) => [c.start, c.end])],
-    [placed],
+    () => [
+      0,
+      duration,
+      time,
+      ...placed.flatMap((c) => [c.start, c.end]),
+      ...telops.flatMap((t) => [t.start, t.end]),
+    ],
+    [placed, telops, duration, time],
   );
 
   return (

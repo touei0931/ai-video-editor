@@ -685,11 +685,6 @@
   pointer-events: none;
 }
 
-/* 映像のレーンでは下に寄せて、コマの絵を隠さない */
-.tl-wave-bottom {
-  top: auto;
-  bottom: 0;
-}
 
 .tl-settings-line {
   margin: 10px 0;

@@ -13,15 +13,23 @@
 import { useCallback, useState } from 'react';
 import { App } from '../App';
 import { TimelineScreen } from './TimelineScreen';
-import { emptyProject, importCutResult, type CutResult, type Project } from './project';
+import { emptyProject, type CutResult, type Project } from './project';
 import './timeline-screen.css';
 
 export function PacEditor() {
   const [project, setProject] = useState<Project>(emptyProject);
   const [importing, setImporting] = useState(false);
 
+  /*
+    子画面から受け取った下ごしらえの結果。
+
+    🔴 ここで並べないこと。並べる画面に渡す。
+       置き先は再生位置で決まるし、取り消し（⌘Z）にも乗せたい。
+       どちらもあちらが持っている。
+  */
+  const [incoming, setIncoming] = useState<CutResult | null>(null);
   const receive = useCallback((result: CutResult) => {
-    setProject((p) => importCutResult(p, result));
+    setIncoming(result);
     setImporting(false);
   }, []);
 
@@ -32,6 +40,8 @@ export function PacEditor() {
           project={project}
           onChange={setProject}
           active={!importing}
+          incoming={incoming}
+          onIncomingDone={() => setIncoming(null)}
           pickFile={window.app ? () => window.app.pickVideo() : undefined}
           onImport={() => setImporting(true)}
         />

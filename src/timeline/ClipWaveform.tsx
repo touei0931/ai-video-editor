@@ -23,23 +23,9 @@ interface Props extends TimelineView {
   assets: readonly Asset[];
   /** 波の色。音だけのレーンと、映像の下に敷くときで変える */
   color?: string;
-  /**
-   * 段のどちら側に寄せるか。
-   * 映像のレーンではコマの上に重ねるので、下に寄せて絵を隠さないようにする。
-   */
-  align?: 'top' | 'bottom';
 }
 
-export function ClipWaveform({
-  clips,
-  assets,
-  scale,
-  from,
-  to,
-  height,
-  color,
-  align = 'top',
-}: Props) {
+export function ClipWaveform({ clips, assets, scale, from, to, height, color }: Props) {
   const byId = new Map(assets.map((a) => [a.id, a]));
 
   const visible = clips.filter(
@@ -90,7 +76,6 @@ export function ClipWaveform({
             width={width}
             height={height}
             color={color ?? 'rgba(160, 200, 255, 0.75)'}
-            align={align}
             revision={done}
           />
         );
@@ -107,7 +92,6 @@ function Band({
   width,
   height,
   color,
-  align,
   revision,
 }: {
   peaks: Peaks | null;
@@ -117,7 +101,6 @@ function Band({
   width: number;
   height: number;
   color: string;
-  align: 'top' | 'bottom';
   revision: number;
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
@@ -139,7 +122,7 @@ function Band({
   return (
     <canvas
       ref={ref}
-      className={`tl-wave${align === 'bottom' ? ' tl-wave-bottom' : ''}`}
+      className="tl-wave"
       style={{ left, width: Math.max(1, width), height }}
       aria-hidden
     />

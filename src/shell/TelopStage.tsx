@@ -1378,8 +1378,30 @@ export function TelopStage({
                 >
                   ＋ 今の見た目を保存
                 </button>
+                {/*
+                  🔴 既定へ戻す道を用意すること。
+                     保存した組は、その時の既定を写して作られる。
+                     あとで既定が変わっても保存した組は古いままなので、
+                     「新しく入れ直しても位置が直らない」ように見える。
+                     実際、既定を下寄せにしたあとも、それ以前に保存した組では
+                     通常が上・強調が中央のままだった。
+                */}
+                <button
+                  onClick={() => {
+                    if (!window.confirm('見た目を最初の状態（位置は全部下）に戻します。よろしいですか？')) {
+                      return;
+                    }
+                    onStylesChange?.(structuredClone(DEFAULT_STYLES));
+                    void onLibraryChange({ ...library, current: null });
+                  }}
+                >
+                  ↺ 最初の見た目に戻す
+                </button>
                 <p className="fcp-dim">
                   次に別の動画を編集するとき、最後に使った組で始まります。
+                  <br />
+                  保存した組は、保存したときの見た目のまま残ります。
+                  位置が思ったところに出ないときは「最初の見た目に戻す」を試してください。
                 </p>
               </div>
             )}

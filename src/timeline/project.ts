@@ -634,7 +634,7 @@ export interface CutResult {
  * 🔴 末尾に足すこと。いま組んであるものを消さない。
  *    「取り込む＝作り直し」にすると、2本目を取り込んだ時に1本目が消える。
  */
-export function importCutResult(project: Project, result: CutResult): Project {
+export function importCutResult(project: Project, result: CutResult, at = 0): Project {
   // 🔴 子画面で整えた見た目を引き継ぐ。引き継がないと、
   //    整えたはずのテロップが並べた瞬間に既定の見た目へ戻る。
   if (result.styles) project = { ...project, styles: result.styles };
@@ -645,9 +645,30 @@ export function importCutResult(project: Project, result: CutResult): Project {
   let next = addAsset(project, result.asset);
   const id = result.asset.id;
 
-  for (const k of result.keeps) {
-    if (k.srcEnd - k.srcStart <= 0) continue;
-    next = appendToMain(next, id, k.srcStart, k.srcEnd);
+  const keeps = result.keeps.filter((k) => k.srcEnd - k.srcStart > 0);
+  const main = next.lanes.find((l) => l.kind === 'main');
+  const mainHasClips = next.clips.some((c) => c.laneId === main?.id && !isGap(c));
+
+  if (!mainHasClips) {
+    // はじめの1本は本編（土台）に置く
+    for (const k of keeps) next = appendToMain(next, id, k.srcStart, k.srcEnd);
+  } else {
+    /*
+      2本目からは**上に重ねる**（Final Cut の接続クリップと同じ）。
+
+      🔴 本編の後ろに足さないこと。
+         別々に下ごしらえした2本を繋ぎたいのか、重ねたいのかは人が決める。
+         後ろに足すと「重ねたい」ときに毎回運び直すことになるし、
+         重ねてあれば繋ぎたいときは本編へ落とすだけで済む。
+      🔴 置き始めは再生位置。0 から置くと、本編の頭が丸ごと隠れる。
+    */
+    const lane: Lane = { id: newId('lane'), kind: 'video', name: result.asset.name };
+    next = addLane(next, lane);
+    let cursor = Math.max(0, at);
+    for (const k of keeps) {
+      next = placeOnLane(next, lane.id, id, cursor, k.srcStart, k.srcEnd);
+      cursor = round(cursor + (k.srcEnd - k.srcStart));
+    }
   }
 
   const telops: Telop[] = (result.telops ?? []).map((t) => ({
