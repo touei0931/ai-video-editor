@@ -28,6 +28,27 @@ import ProExtensionHost
         super.viewDidLoad()
         setupWebView()
         loadUI()
+
+        /*
+          エンジンに繋がらないとき、パネルの代わりにアプリを起こす手立てを渡す。
+
+          🔴 ここでしか渡せない。
+             アプリを起こせる口は NSExtensionContext.open だけで、
+             それを持っているのはビューコントローラだけ。
+             EngineClient に extensionContext を持たせると、
+             パネル以外（検査など）から使えなくなる。
+        */
+        EngineClient.shared.wakeApp = { [weak self] done in
+            guard let context = self?.extensionContext,
+                  let url = URL(string: "pac-fcp://start")
+            else {
+                done(false)
+                return
+            }
+            context.open(url) { ok in
+                DispatchQueue.main.async { done(ok) }
+            }
+        }
     }
 
     private func setupWebView() {

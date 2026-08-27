@@ -1,5 +1,5 @@
 #!/bin/bash
-# PAC.app を実際に起動し、パネルが使うのと同じ経路（127.0.0.1 のソケット）で
+# PAC for Final Cut.app を実際に起動し、パネルが使うのと同じ経路（127.0.0.1 のソケット）で
 # 解析が通るかを確かめる。
 #
 # パネル(.appex) → ソケット → アプリ → エンジン、のうち
@@ -7,7 +7,7 @@
 # 残る「パネル → ソケット」はサンドボックスの中なので、友達の Mac でしか確かめられない。
 set -euo pipefail
 
-APP="${1:?PAC.app のパスを渡してください}"
+APP="${1:?PAC for Final Cut.app のパスを渡してください}"
 PORT=47829
 WORK="$(mktemp -d)"
 
@@ -17,7 +17,7 @@ WORK="$(mktemp -d)"
 cleanup() {
   code=$?
   [ -n "${APP_PID:-}" ] && kill "$APP_PID" >/dev/null 2>&1 || true
-  pkill -f "PAC.app/Contents/MacOS/PAC" >/dev/null 2>&1 || true
+  pkill -f "PAC for Final Cut.app/Contents/MacOS/PAC for Final Cut" >/dev/null 2>&1 || true
   rm -rf "$WORK"
   exit $code
 }
@@ -28,7 +28,7 @@ say -v Kyoko -o "$WORK/voice.aiff" "サーバー経由の確認です。えー�
 
 echo "--- アプリを起動 ---"
 # open -a だと出力が見えないので、実行ファイルを直に起動して記録する
-"$APP/Contents/MacOS/PAC" > "$WORK/app.log" 2>&1 &
+"$APP/Contents/MacOS/PAC for Final Cut" > "$WORK/app.log" 2>&1 &
 APP_PID=$!
 echo "起動した pid=$APP_PID"
 

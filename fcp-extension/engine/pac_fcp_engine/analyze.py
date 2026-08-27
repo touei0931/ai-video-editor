@@ -72,6 +72,8 @@ def analyze(
         cleaned = pac_clean.clean_transcript(transcript)
 
         progress("カット候補を探しています", 0.9)
+        # PAC 本体に新しい種類が増えたら、ここに溜めて結果に残す
+        unknown: list[str] = []
         analysis = pac_cut.detect_candidates(transcript, options.get("cut"))
         candidates = cut_text_from_transcript(list(analysis.get("candidates", [])), transcript)
 
@@ -82,8 +84,8 @@ def analyze(
         state = project_state(
             duration=float(transcript.get("duration") or 0),
             waveform=waveform,
-            cuts=map_cuts(candidates),
-            telops=map_telops(units.get("telops", [])),
+            cuts=map_cuts(candidates, unknown),
+            telops=map_telops(units.get("telops", []), unknown),
             media_path=video_path,
         )
         # 何が落ちたかは残しておく（テロップが少ないときの原因が分かるように）
@@ -91,5 +93,7 @@ def analyze(
             "droppedSegments": cleaned.get("dropped", 0),
             "speechRatio": cleaned.get("speech_ratio", 0),
             "wordCount": analysis.get("word_count", 0),
+            # 空でないなら、PAC 本体とこちらの取り決めがずれている
+            "unknown": unknown,
         }
         return state

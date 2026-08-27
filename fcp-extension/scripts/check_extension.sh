@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP="${1:-build/Build/Products/Release/PAC.app}"
+APP="${1:-build/Build/Products/Release/PAC for Final Cut.app}"
 APPEX="$APP/Contents/PlugIns/WorkflowExtension.appex"
 FAIL=0
 ng() { echo "❌ $1"; FAIL=1; }
@@ -91,6 +91,19 @@ if [ -e "$ENGINE" ] || [ -e "$FFMPEG_BIN" ]; then
   done
   [ "$UNSIGNED" -eq 0 ] && ok "同梱ライブラリの署名が通っている（$CHECKED 個を抜き取り検査）" || ng "署名されていないライブラリが $UNSIGNED 個ある"
 fi
+
+# 6. 器のアプリが「開かせない裏方」になっているか
+#    🔴 ここが崩れると、手順書の「アプリを開いてください」が復活する。
+#       友達はデスクトップ版 PAC と間違えて別のアプリを開き、話が食い違った。
+APLIST="$APP/Contents/Info.plist"
+NAME=$(basename "$APP")
+[ "$NAME" != "PAC.app" ]   && ok "デスクトップ版と別の名前: $NAME"   || ng "デスクトップ版 PAC.app と同じ名前。入れ直すと片方が消える"
+
+AGENT=$(/usr/libexec/PlistBuddy -c "Print :LSUIElement" "$APLIST" 2>/dev/null || echo "")
+[ "$AGENT" = "true" ]   && ok "Dock に出さない設定になっている"   || ng "LSUIElement が立っていない（開かれる前提に戻っている）"
+
+SCHEME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" "$APLIST" 2>/dev/null || echo "")
+[ "$SCHEME" = "pac-fcp" ]   && ok "パネルから起こせる（$SCHEME://）"   || ng "URL スキームが無い。パネルがアプリを起こせない"
 
 echo
 [ "$FAIL" -eq 0 ] && echo "🎉 関門すべて通過" || { echo "🚫 関門で不合格"; exit 1; }

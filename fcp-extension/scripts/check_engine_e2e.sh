@@ -1,19 +1,19 @@
 #!/bin/bash
-# 配布する形の PAC.app から、解析が通しで動くかを確かめる。
+# 配布する形の PAC for Final Cut.app から、解析が通しで動くかを確かめる。
 #
 # 🔴 見るのは「同梱されているか」ではなく「配布した形で、リポジトリの外から動くか」。
 #    PAC 本体で2度踏んだ罠（同梱物のパス解決／Homebrew 依存）は、
 #    どちらも「同梱の確認」では見つからず、配布して初めて壊れた。
 set -euo pipefail
 
-APP="${1:?PAC.app のパスを渡してください}"
+APP="${1:?PAC for Final Cut.app のパスを渡してください}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # アプリを一度リポジトリの外へ写す。手元の作業ツリーに依存していないことを確かめるため
-cp -R "$APP" "$WORK/PAC.app"
-ENGINE="$WORK/PAC.app/Contents/Resources/engine/pac-engine/pac-engine"
-FFMPEG="$WORK/PAC.app/Contents/Resources/ffmpeg/ffmpeg"
+cp -R "$APP" "$WORK/PAC for Final Cut.app"
+ENGINE="$WORK/PAC for Final Cut.app/Contents/Resources/engine/pac-engine/pac-engine"
+FFMPEG="$WORK/PAC for Final Cut.app/Contents/Resources/ffmpeg/ffmpeg"
 
 echo "--- 配布物の外での起動確認 ---"
 test -x "$ENGINE" || { echo "❌ エンジンが実行できない"; exit 1; }

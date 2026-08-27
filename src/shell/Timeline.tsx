@@ -119,11 +119,11 @@ export interface TimelineProps {
   /** 吸着を効かせるか。N キーで切り替える（Final Cut と同じ） */
   snapEnabled?: boolean;
   /**
-   * 1 / 2 キーで素材のコマの高さを変えるか。
+   * 1 / 2 キーで拡大 / 縮小できるようにするか（Shift 付きはコマの高さ）。
    * 🔴 テロップ画面では false。あちらは 1〜9 が雛形の切り替えで、
    *    先に決まっている割り当てを奪うと雛形が選べなくなる。
    */
-  laneZoomKeys?: boolean;
+  zoomKeys?: boolean;
 }
 
 /**
@@ -192,7 +192,7 @@ export function Timeline({
   extraControls,
   snapPoints,
   snapEnabled = true,
-  laneZoomKeys = true,
+  zoomKeys = true,
 }: TimelineProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   /**
@@ -694,28 +694,73 @@ export function Timeline({
   }, [currentTime, drag, scale, scrollTo]);
 
   /*
-    素材のコマの高さを 1 / 2 で変える。
+    1 / 2 でタイムラインを拡大 / 縮小する。右下の ＋ / − と同じ動き。
+
+    🔴 コマの高さではなくタイムラインの倍率にすること。
+       最初はコマの高さに割り当てていたが、欲しかったのは
+       「＋ / − をキーで押せること」だった。カットの余白を詰めるときは
+       倍率を上げ下げしながら進むので、そのたびにボタンへマウスを
+       運ぶのが手間になっていた。
+
+    🔴 コマの高さは Shift + 1 / 2 に退ける。消さないこと。
+       絵が小さいと何が映っているか分からず、探すのに使えない。
 
     🔴 ここで受け取ること。Stage 側に散らすと、画面ごとに効いたり効かなかったりする。
     🔴 文字を打っている最中は奪わない。
   */
   useEffect(() => {
-    if (!laneZoomKeys) return;
+    if (!zoomKeys) return;
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      /*
+        Ctrl / ⌘ + ＋ − も同じ扱いにする。
+
+        🔴 ここで受けること。ヘルプには前から載っていたが、
+           操作の名前に直すところまでで止まっていて、**どの画面でも
+           受け取る人がいなかった**（押しても何も起きない）。
+           倍率は Timeline の内側の状態なので、受け取るのはここしかない。
+      */
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '+' || e.key === '=' || e.key === ';') {
+          e.preventDefault();
+          zoom(1.25);
+        } else if (e.key === '-' || e.key === '_') {
+          e.preventDefault();
+          zoom(0.8);
+        }
+        return;
+      }
+      if (e.altKey) return;
+      // Shift + Z は全体を表示（Final Cut と同じ）
+      if (e.shiftKey && (e.key === 'Z' || e.key === 'z')) {
+        e.preventDefault();
+        fit();
+        return;
+      }
+      // Shift + 1 / 2 はコマの高さ。数字キーの上段なので ! と " で来ることがある
+      if (e.shiftKey) {
+        if (e.key === '1' || e.key === '!') {
+          e.preventDefault();
+          setLaneScale((v) => Math.min(3, Number((v * 1.35).toFixed(3))));
+        } else if (e.key === '2' || e.key === '"' || e.key === '@') {
+          e.preventDefault();
+          setLaneScale((v) => Math.max(0.5, Number((v / 1.35).toFixed(3))));
+        }
+        return;
+      }
       if (e.key === '1') {
         e.preventDefault();
-        setLaneScale((v) => Math.min(3, Number((v * 1.35).toFixed(3))));
+        zoom(1.25);
       } else if (e.key === '2') {
         e.preventDefault();
-        setLaneScale((v) => Math.max(0.5, Number((v / 1.35).toFixed(3))));
+        zoom(0.8);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [laneZoomKeys]);
+  }, [zoomKeys, zoom, fit]);
 
   const ticks = useMemo(() => {
     const out: { t: number; major: boolean }[] = [];

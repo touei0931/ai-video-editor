@@ -80,19 +80,6 @@ def _rgba(color: Any, fallback: str = "1 1 1 1") -> str:
     return f"{r:.4f} {g:.4f} {b:.4f} 1"
 
 
-def _style_key(look: dict[str, Any]) -> tuple[Any, ...]:
-    """同じ見た目をまとめるための鍵。"""
-    return (
-        look.get("font"),
-        look.get("font_face"),
-        int(round(float(look.get("font_size") or 72))),
-        _rgba(look.get("color")),
-        bool(look.get("italic")),
-        _rgba(look.get("stroke_color"), ""),
-        round(float(look.get("stroke_width") or 0), 2),
-    )
-
-
 def _text_style_def(sid: str, look: dict[str, Any]) -> str:
     """見た目ひとつぶんの定義。
 
@@ -119,7 +106,7 @@ def _text_style_def(sid: str, look: dict[str, Any]) -> str:
         # Final Cut の strokeWidth は外向きが正
         attrs.append(f'strokeColor="{stroke}"')
         attrs.append(f'strokeWidth="{width:.2f}"')
-    return f'          <text-style-def id="{sid}"><text-style {" ".join(attrs)}/></text-style-def>'
+    return f'              <text-style-def id="{sid}"><text-style {" ".join(attrs)}/></text-style-def>'
 
 
 def write_fcpxml(
@@ -165,7 +152,11 @@ def write_fcpxml(
         f'      <media-rep kind="original-media" src="{html.escape(url)}"/>',
         "    </asset>",
         "  </resources>",
-        f'  <library name="{html.escape(project_name)}">',
+        # 🔴 library に name は付けないこと。
+        #    そんな属性は無いので、Final Cut は XML ごと読み込みを断る
+        #    （「DTD の検証でエラーが起きました」とだけ出る）。
+        #    見出しに使いたいなら event と project の name で足りる。
+        '  <library>',
         f'    <event name="{html.escape(project_name)}">',
         f'      <project name="{html.escape(Path(video_path).stem)}">',
         f'        <sequence format="r1" tcStart="0s" tcFormat="NDF"'
@@ -205,10 +196,17 @@ def write_fcpxml(
                 return base + int(round((t - s) * num / den))
         return frame
 
-    # 見た目は同じものが何度も出てくる（雛形は数種類しかない）。
-    # 定義をまとめて、タイトルからは id で参照する。
-    style_defs: list[str] = []
-    style_ids: dict[tuple[Any, ...], str] = {}
+    # 見た目の定義（text-style-def）は、**それを使う title の中**に置く。
+    #
+    # 🔴 sequence の中に置かないこと。
+    #    以前はここでまとめて <spine> の直前に差し込んでいたが、
+    #    sequence の中に置けるのは spine だけで、Final Cut は
+    #    XML ごと読み込みを断っていた。
+    #
+    # 🔴 まとめて使い回さないこと。
+    #    id は書類の中で1つきりなので、複数の title から同じ id を
+    #    指すと、定義を持てるのは1つだけになる。1枚ごとに作る。
+    used_titles = 0
 
     for i, tel in enumerate(telops or []):
         start = to_frame(float(tel["src_start"]))
@@ -220,12 +218,8 @@ def write_fcpxml(
             continue
 
         look = tel.get("look") or {}
-        key = _style_key(look)
-        sid = style_ids.get(key)
-        if sid is None:
-            sid = f"ts{len(style_ids) + 1}"
-            style_ids[key] = sid
-            style_defs.append(_text_style_def(sid, look))
+        used_titles += 1
+        sid = f"ts{used_titles}"
 
         # 🔴 同じ時間に重なるテロップは別のレーンに置くこと。
         #    同じレーンに重ねると、Final Cut では後の1枚が前を押しのける。
@@ -248,6 +242,8 @@ def write_fcpxml(
                 f' value="{float(pos[0]):.1f} {float(pos[1]):.1f}"/>'
             )
         lines.append(f'              <text><text-style ref="{sid}">{text}</text-style></text>')
+        # 🔴 text の後、title を閉じる前。並びが決まっている
+        lines.append(_text_style_def(sid, look))
         lines.append("            </title>")
 
     lines += [
@@ -260,17 +256,13 @@ def write_fcpxml(
     ]
 
     # タイトルを使うなら、その定義（effect）が resources に要る
-    if style_defs:
+    if used_titles:
         effect = (
             '    <effect id="r2" name="Basic Title"'
             ' uid=".../Titles.localized/Bumper:Opener.localized/'
             'Basic Title.localized/Basic Title.moti"/>'
         )
-        at = lines.index("  </resources>")
-        lines.insert(at, effect)
-        at = lines.index("          <spine>")
-        for offset, definition in enumerate(style_defs):
-            lines.insert(at + offset, definition)
+        lines.insert(lines.index("  </resources>"), effect)
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     Path(out_path).write_text("\n".join(lines) + "\n", encoding="utf-8")

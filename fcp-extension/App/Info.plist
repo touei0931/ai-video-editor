@@ -5,13 +5,13 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>ja</string>
 	<key>CFBundleDisplayName</key>
-	<string>PAC</string>
+	<string>PAC for Final Cut</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleName</key>
-	<string>PAC</string>
+	<string>PAC for Final Cut</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -24,5 +24,27 @@
 	<string></string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>PAC が Final Cut Pro と情報をやり取りします。</string>
+
+	<!-- Dock にも切り替え画面にも出さない。
+	     🔴 これは「開いたままにしておく」を無くすための設定。
+	        中身は解析を回すだけの裏方で、人が触るところは何も無い。
+	        Dock に並ぶと、デスクトップ版 PAC と間違えて開かれる。 -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<!-- パネルがこの名前で呼ぶと macOS がこのアプリを起こす。
+	     🔴 パネル（拡張）はサンドボックスの中にいて、アプリを
+	        直接は起動できない。開ける口はこの URL だけ。 -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.touei.pac.fcp</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pac-fcp</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

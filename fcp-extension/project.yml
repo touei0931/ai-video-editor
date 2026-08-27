@@ -31,7 +31,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.touei.pac.fcp
-        PRODUCT_NAME: PAC
+        # 🔴 デスクトップ版 PAC と同じ名前にしないこと。
+        #    どちらも /Applications/PAC.app になり、入れ直すと片方が消える
+        #    （インストーラは同名のものを消してから置く）。
+        PRODUCT_NAME: PAC for Final Cut
         INFOPLIST_FILE: App/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         COMBINE_HIDPI_IMAGES: YES

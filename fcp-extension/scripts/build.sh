@@ -37,6 +37,6 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build
 
-APP="$BUILD_DIR/Build/Products/Release/PAC.app"
-[ -d "$APP" ] || { echo "❌ PAC.app が生成されていません"; exit 1; }
+APP="$BUILD_DIR/Build/Products/Release/PAC for Final Cut.app"
+[ -d "$APP" ] || { echo "❌ PAC for Final Cut.app が生成されていません"; exit 1; }
 echo "✅ built: $APP"

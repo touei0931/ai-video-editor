@@ -168,7 +168,14 @@ def main() -> int:
                      ])
         root3 = ET.parse(out3).getroot()
         defs = root3.findall(".//text-style-def")
-        check("同じ見た目はまとめて1つの定義", len(defs) == 2, f"{len(defs)} 個")
+        check("1枚ごとに定義を持つ", len(defs) == 3, f"{len(defs)} 個")
+        # 🔴 定義の置き場所は title の中。sequence の中に置くと
+        #    Final Cut は XML ごと読み込みを断る（DTD の検証で落ちる）。
+        check(
+            "定義は title の中にある",
+            all(len(t.findall("text-style-def")) == 1 for t in root3.findall(".//title")),
+        )
+        check("sequence の中には置かない", root3.find(".//sequence/text-style-def") is None)
 
         st = defs[0].find("text-style")
         check("書体は macOS の名前", st.get("font") == "Zen Kaku Gothic New", str(st.get("font")))
@@ -183,13 +190,19 @@ def main() -> int:
         check("縁の色と太さが入る", st.get("strokeColor") is not None and st.get("strokeWidth") == "6.00",
               f"{st.get('strokeColor')} / {st.get('strokeWidth')}")
 
-        st2 = defs[1].find("text-style")
+        st2 = defs[2].find("text-style")
         check("斜体は italic で指定（日本語に実物が無いため）", st2.get("italic") == "1", str(st2.get("italic")))
         check("別の書体は別の定義になる", st2.get("font") == "Zen Old Mincho", str(st2.get("font")))
 
         titles = root3.findall(".//title")
         refs = [t.find("text/text-style").get("ref") for t in titles]
-        check("同じ見た目のテロップは同じ定義を指す", refs[0] == refs[1] and refs[0] != refs[2], str(refs))
+        # 🔴 id は書類の中で1つきり。使い回すと定義を持てるのが1つになる
+        check("定義の名前は重ならない", len(set(refs)) == len(refs), str(refs))
+        check(
+            "それぞれ自分の中の定義を指している",
+            all(t.find("text/text-style").get("ref") == t.find("text-style-def").get("id")
+                for t in titles),
+        )
 
         params = titles[0].findall("param")
         check(
@@ -217,6 +230,9 @@ def main() -> int:
                      duration=duration)
         root2 = ET.parse(out2).getroot()
         check("テロップ無しでも読める", len(root2.findall(".//asset-clip")) == len(keeps))
+        # 🔴 library に name という属性は無い。付けると読み込みごと断られる
+        check("library に属性を付けない", root2.find("library").attrib == {},
+              str(root2.find("library").attrib))
         check("テロップ無しならタイトルの定義も出ない", root2.find(".//effect") is None)
 
     print()

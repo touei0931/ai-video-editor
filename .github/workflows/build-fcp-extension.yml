@@ -98,7 +98,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          APP="$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
+          APP="$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC for Final Cut.app"
           RES="$APP/Contents/Resources"
           mkdir -p dl "$RES/engine" "$RES/ffmpeg"
 
@@ -120,16 +120,16 @@ jobs:
           du -sh "$APP"
 
       - name: アドホック署名
-        run: ./fcp-extension/scripts/adhoc-sign.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
+        run: ./fcp-extension/scripts/adhoc-sign.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC for Final Cut.app"
 
       - name: 関門チェック
-        run: ./fcp-extension/scripts/check_extension.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
+        run: ./fcp-extension/scripts/check_extension.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC for Final Cut.app"
 
       - name: 🔴 配布した形で解析が通ること
-        run: ./fcp-extension/scripts/check_engine_e2e.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
+        run: ./fcp-extension/scripts/check_engine_e2e.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC for Final Cut.app"
 
       - name: 🔴 パネルが使う経路（ソケット）で解析が通ること
-        run: ./fcp-extension/scripts/check_server_e2e.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC.app"
+        run: ./fcp-extension/scripts/check_server_e2e.sh "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release/PAC for Final Cut.app"
 
       - name: 配布物を固める
         run: |
@@ -142,7 +142,7 @@ jobs:
           # 🔴 zip でなく ditto を使うこと。実行権限・拡張属性・署名を保つ。
           #    Windows で固め直すと .command の実行権限が落ち、
           #    ダブルクリックしても動かなくなる。
-          cp -R fcp-extension/build/Build/Products/Release/PAC.app "$PACK/"
+          cp -R "fcp-extension/build/Build/Products/Release/PAC for Final Cut.app" "$PACK/"
           cp "$GITHUB_WORKSPACE/fcp-extension/deliver/インストールと確認.command" "$PACK/"
           cp "$GITHUB_WORKSPACE/fcp-extension/deliver/はじめに読んでね.md" "$PACK/はじめに読んでね.txt"
           chmod +x "$PACK/インストールと確認.command"
@@ -152,7 +152,7 @@ jobs:
 
           # 中身の確認用（開発側で見るもの）
           cd "$GITHUB_WORKSPACE/fcp-extension/build/Build/Products/Release"
-          ditto -c -k --sequesterRsrc --keepParent PAC.app "$OUT/PAC-fcp-test.zip"
+          ditto -c -k --sequesterRsrc --keepParent "PAC for Final Cut.app" "$OUT/PAC-fcp-test.zip"
           cp "$GITHUB_WORKSPACE"/fcp-extension/deliver/* "$OUT/"
 
           echo "--- 配布物 ---"

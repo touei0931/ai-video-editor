@@ -6,7 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP="${1:-build/Build/Products/Release/PAC.app}"
+APP="${1:-build/Build/Products/Release/PAC for Final Cut.app}"
 APPEX="$APP/Contents/PlugIns/WorkflowExtension.appex"
 
 [ -d "$APP" ]   || { echo "❌ .app がない: $APP"; exit 1; }
@@ -31,7 +31,7 @@ codesign --force --sign - \
   --timestamp=none \
   "$APPEX"
 
-echo "--- 署名: PAC.app ---"
+echo "--- 署名: PAC for Final Cut.app ---"
 codesign --force --sign - \
   --options runtime \
   --entitlements App/PAC.entitlements \

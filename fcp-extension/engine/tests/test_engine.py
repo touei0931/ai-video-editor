@@ -138,5 +138,43 @@ class TestProjectState(unittest.TestCase):
         self.assertEqual(state["durationSec"], 12.5)
 
 
+
+class Test知らないものが来たとき(unittest.TestCase):
+    """PAC 本体に新しい種類が増えたら、黙って減らさずに知らせる。
+
+    🔴 これが無いと、増えたことに気づけない。
+       通せないもの自体は仕方がないが、**何も言わずに捨てる**と
+       「なんとなく候補が少ない」としか見えない。
+    """
+
+    def test_知らないカットの種類は理由が残る(self) -> None:
+        unknown: list[str] = []
+        out = map_cuts(
+            [{"id": "x", "src_start": 1.0, "src_end": 2.0, "kind": "新種", "confidence": 0.9}],
+            unknown,
+        )
+        self.assertEqual(out, [])
+        self.assertTrue(any("新種" in m for m in unknown), unknown)
+
+    def test_知らない見た目は通常にして理由が残る(self) -> None:
+        unknown: list[str] = []
+        out = map_telops(
+            [{"id": "t", "src_start": 1.0, "src_end": 2.0, "text": "あ", "style": "特大"}],
+            unknown,
+        )
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["style"], "normal")
+        self.assertTrue(any("特大" in m for m in unknown), unknown)
+
+    def test_知っているものでは何も言わない(self) -> None:
+        unknown: list[str] = []
+        map_cuts([{"id": "x", "src_start": 1.0, "src_end": 2.0, "kind": "filler"}], unknown)
+        map_telops(
+            [{"id": "t", "src_start": 1.0, "src_end": 2.0, "text": "あ", "style": "emphasis"}],
+            unknown,
+        )
+        self.assertEqual(unknown, [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

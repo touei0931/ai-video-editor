@@ -1454,7 +1454,7 @@ export function TelopStage({
           snapPoints={snapPoints}
           snapEnabled={snapEnabled}
           // 🔴 1〜9 は雛形の切り替え。コマの高さに奪わせない
-          laneZoomKeys={false}
+          zoomKeys={false}
           extraControls={
             <>
               <button

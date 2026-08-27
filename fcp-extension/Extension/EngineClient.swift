@@ -34,12 +34,26 @@ final class EngineClient {
 
     private var pollTimer: Timer?
 
+    /*
+      エンジンが動いていないときに、コンテナアプリを起こす手立て。
+      ビューコントローラが差し込む（NSExtensionContext を持っているのはあちらだけ）。
+
+      [RED] 差し込まれていないこともある前提で書くこと。
+         検査（xmlcheck など）はビューコントローラを通らない。
+    */
+    var wakeApp: ((@escaping (Bool) -> Void) -> Void)?
+
+    /// 起こしてから応じるまでの待ち時間。M2 で 2〜3 秒、余裕をみて 15 秒まで
+    private let wakeAttempts = 15
+
     // MARK: - 解析
 
     func analyze(
         videoPath: String,
         language: String,
         model: String,
+        /// 繋がらなかったときにアプリを起こしてやり直すか。やり直しの回では false
+        wake: Bool = true,
         progress: @escaping (String, Double) -> Void,
         completion: @escaping (Bool, Any) -> Void
     ) {
@@ -55,12 +69,55 @@ final class EngineClient {
             guard let self else { return }
             switch result {
             case .failure:
-                completion(false, [
-                    "message": """
-                    解析できませんでした。PAC アプリが起動していないようです。
-                    アプリケーションフォルダの PAC を開いてから、もう一度お試しください。
-                    """,
-                ])
+                /*
+                  繋がらない = だいたい「まだ起きていない」。
+                  黙って起こして、待って、もう一度頼む。
+
+                  [RED] 人に開かせないこと。
+                     以前は「PAC アプリを開いてください」と出していたが、
+                     同じ名前のデスクトップ版 PAC を開かれて話が食い違った。
+                */
+                guard wake, let wakeApp = self.wakeApp else {
+                    completion(false, [
+                        "message": """
+                        解析できませんでした。エンジンを起こせません。
+                        「インストールと確認」をもう一度実行してみてください。
+                        """,
+                    ])
+                    return
+                }
+                progress("解析エンジンを起こしています", 0.02)
+                wakeApp { launched in
+                    guard launched else {
+                        completion(false, [
+                            "message": """
+                            解析エンジンを起こせませんでした。
+                            「インストールと確認」をもう一度実行してみてください。
+                            """,
+                        ])
+                        return
+                    }
+                    self.waitUntilAwake(left: self.wakeAttempts) { awake in
+                        guard awake else {
+                            completion(false, [
+                                "message": """
+                                解析エンジンが応じませんでした。
+                                「インストールと確認」をもう一度実行してみてください。
+                                """,
+                            ])
+                            return
+                        }
+                        // 起きた。今度は起こし直さない（wake: false）
+                        self.analyze(
+                            videoPath: videoPath,
+                            language: language,
+                            model: model,
+                            wake: false,
+                            progress: progress,
+                            completion: completion
+                        )
+                    }
+                }
             case .success(let json):
                 guard let job = json["jobId"] as? String else {
                     completion(false, ["message": (json["error"] as? String) ?? "エンジンが応答しませんでした"])
@@ -112,6 +169,26 @@ final class EngineClient {
             }.resume()
         }
         tick()
+    }
+
+    /// エンジンが口を開けるまで、1秒ごとに確かめる
+    private func waitUntilAwake(left: Int, done: @escaping (Bool) -> Void) {
+        guard left > 0 else {
+            done(false)
+            return
+        }
+        var request = URLRequest(url: base.appendingPathComponent("progress"))
+        request.timeoutInterval = 2
+        session.dataTask(with: request) { _, response, error in
+            // 中身は何でもよい。**返事が返ること**だけが知りたい
+            if error == nil, response != nil {
+                DispatchQueue.main.async { done(true) }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.waitUntilAwake(left: left - 1, done: done)
+            }
+        }.resume()
     }
 
     // MARK: - 小物
