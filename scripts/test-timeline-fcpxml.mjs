@@ -179,6 +179,29 @@ function base() {
   eq('29.97 でもフレームの境に乗る', bad.length, 0);
 }
 
+
+/* ------------------------------------------------------ 空き（gap クリップ）*/
+
+{
+  const { removeClip } = P;
+  let p = base();
+  p = appendToMain(p, 'a', 0, 10);
+  p = appendToMain(p, 'b', 0, 5);
+  p = appendToMain(p, 'a', 20, 25);
+  // 真ん中を空きにする
+  p = removeClip(p, p.clips[1].id, 'lift');
+
+  const xml = buildFCPXML(p, { fps: 30 });
+  // 🔴 空きを飛ばすと、そのぶん後ろが前に詰まって書き出される
+  check('空きが gap になる', (xml.match(/<gap /g) || []).length === 1,
+        `実際 ${(xml.match(/<gap /g) || []).length}`);
+  check('空きの位置と長さ',
+        /<gap[^>]*offset="30000\/3000s"[^>]*duration="15000\/3000s"/.test(xml),
+        (xml.match(/<gap[^>]*\/>/) || ['無し'])[0]);
+  check('空きの後ろのクリップが正しい位置',
+        xml.includes('offset="45000/3000s"'), '15秒の位置');
+}
+
 if (failed > 0) {
   console.error(`\ntest-timeline-fcpxml: NG ${failed} 件`);
   process.exit(1);

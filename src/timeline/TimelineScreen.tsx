@@ -23,6 +23,7 @@ import {
   newId,
   placeOnLane,
   placedTelops,
+  isGap,
   removeClip,
   setMagnetic,
   timelineDuration,
@@ -136,7 +137,7 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
       if (!selected) return;
       apply(
         removeClip(project, selected, lift ? 'lift' : 'ripple'),
-        lift ? '穴を空けて消しました' : '消して詰めました',
+        lift ? '空きにしました' : '消して詰めました',
       );
       setSelected(null);
     },
@@ -339,8 +340,9 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
           id: c.id,
           start: c.start,
           end: c.end,
-          kind: 'keep',
-          label: `${assetName(c.assetId)}`,
+          // 空きは切る所と同じ色にする。「ここには何も映らない」が一目で分かる
+          kind: isGap(c) ? ('cut' as const) : ('keep' as const),
+          label: isGap(c) ? '空き' : assetName(c.assetId),
         }));
 
       // 本編のレーンには、その上に出るテロップも見せる（触れない目印）
@@ -399,8 +401,8 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
         <button onClick={() => remove(false)} disabled={!selected} title="消して後ろを詰める（Delete）">
           消す
         </button>
-        <button onClick={() => remove(true)} disabled={!selected} title="その場に穴を空けて消す（Shift+Delete）">
-          穴を空けて消す
+        <button onClick={() => remove(true)} disabled={!selected} title="その場を空きにして消す（Shift+Delete）">
+          空きにする
         </button>
         <button onClick={openTimeline} title="保存したタイムラインを開きます">
           開く

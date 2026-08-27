@@ -24,7 +24,7 @@
  *    素材の途中から使っているクリップの上で、テロップが丸ごとずれる。
  */
 
-import { layout, placedTelops, timelineDuration, type Project } from './project';
+import { isGap, layout, placedTelops, timelineDuration, type Project } from './project';
 
 export const FCPXML_VERSION = '1.13';
 
@@ -179,6 +179,22 @@ export function buildFCPXML(project: Project, options: ExportOptions = {}): stri
             ` start="0s" duration="${framesToStr(startF - cursor, fps)}"/>`,
         ],
       });
+    }
+    /*
+      🔴 空きは <gap> として書くこと。飛ばすと、そのぶん後ろが前に詰まって
+         書き出される。画面で空けた間合いが Final Cut では消える。
+    */
+    if (isGap(c)) {
+      body.push({
+        start: startF,
+        end: endF,
+        xml: [
+          `            <gap name="Gap" offset="${framesToStr(startF, fps)}"` +
+            ` start="0s" duration="${framesToStr(endF - startF, fps)}"/>`,
+        ],
+      });
+      cursor = endF;
+      continue;
     }
     const ref = assetId.get(c.assetId);
     if (!ref) continue;

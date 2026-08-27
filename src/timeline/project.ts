@@ -44,9 +44,26 @@ export interface Lane {
   name: string;
 }
 
+/**
+ * 空き（何も映らない区間）を表す素材の名前。
+ *
+ * 🔴 「詰める」を切って穴を空ける、という作りにしないこと。
+ *    以前はそうしていたが、Shift+Delete を一度押しただけで
+ *    **タイムライン全体が詰まらなくなった**。
+ *    Final Cut と同じく、空きも1つのクリップとして置く。
+ *    こうすれば詰める設定はそのままで、空きだけを消したり伸ばしたりできる。
+ */
+export const GAP = '';
+
+/** その クリップが空きか */
+export function isGap(c: Clip): boolean {
+  return c.assetId === GAP;
+}
+
 /** タイムラインに置かれたひとかたまり */
 export interface Clip {
   id: string;
+  /** 素材の名前。GAP（空文字）なら「空き」 */
   assetId: string;
   laneId: string;
   /** 素材の中での範囲（秒） */
@@ -161,7 +178,12 @@ export function videoAt(project: Project, t: number): PlacedClip | null {
     const hit = placed.find(
       (c) => c.laneId === laneId && t >= c.start - 0.0005 && t < c.end - 0.0005,
     );
-    if (hit) return hit;
+    /*
+      🔴 空きに当たったら、そこで止めること。下のレーンを探しに行かない。
+         空きは「ここには何も映さない」という意思表示。
+         下を探すと、消したはずの絵が下から出てくる。
+    */
+    if (hit) return isGap(hit) ? null : hit;
   }
   return null;
 }
@@ -310,16 +332,16 @@ export function removeClip(
 
   const isMain = project.lanes.find((l) => l.id === target.laneId)?.kind === 'main';
 
-  if (isMain && project.magnetic && mode === 'lift') {
-    // 穴を空けたい = もう「詰める」では説明できない。位置を書き出して自由配置に移す
-    const placed = layout(project);
-    const clips = project.clips
-      .filter((c) => c.id !== clipId)
-      .map((c) => {
-        const p = placed.find((x) => x.id === c.id);
-        return p ? { ...c, at: p.start } : c;
-      });
-    return { ...project, clips, magnetic: false };
+  if (isMain && mode === 'lift') {
+    /*
+      🔴 同じ長さの「空き」に置き換えること。
+         抜いてしまうと後ろが詰まる。詰める設定を切って逃げると、
+         押した瞬間にタイムライン全体の振る舞いが変わってしまう。
+    */
+    const clips = project.clips.map((c) =>
+      c.id === clipId ? { ...c, assetId: GAP, id: newId('gap') } : c,
+    );
+    return { ...project, clips };
   }
 
   return { ...project, clips: project.clips.filter((c) => c.id !== clipId) };
@@ -346,7 +368,13 @@ export function trimClip(
   if (i < 0) return project;
   const c = project.clips[i];
   const asset = project.assets.find((a) => a.id === c.assetId);
-  if (!asset) return project;
+  /*
+    🔴 空きにも端の伸縮を許すこと。
+       空きの長さを変えるのは、間合いを作る普通の操作。
+       素材が無いことを理由に弾くと、一度空けた穴の長さを直せなくなる。
+  */
+  if (!asset && !isGap(c)) return project;
+  const limit = asset ? asset.duration : Number.POSITIVE_INFINITY;
 
   const MIN = 0.04;
   let srcStart = c.srcStart;
@@ -361,7 +389,7 @@ export function trimClip(
     srcStart = round(next);
   } else {
     const want = srcEnd + deltaSec;
-    srcEnd = round(Math.min(Math.max(srcStart + MIN, want), asset.duration));
+    srcEnd = round(Math.min(Math.max(srcStart + MIN, want), limit));
   }
 
   const clips = [...project.clips];

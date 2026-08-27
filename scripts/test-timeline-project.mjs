@@ -116,10 +116,19 @@ const mainSpans = (p) =>
   eq('消すと後ろが詰まる', mainSpans(rippled), [[0, 10], [10, 15]]);
   near('詰めた分だけ短くなる', timelineDuration(rippled), 15);
 
-  // 🔴 穴を空けたいときは、詰める設定のままにできない
+  /*
+    🔴 穴は「空き」というクリップにする。
+       抜いて詰める設定を切ると、押した瞬間にタイムライン全体の
+       振る舞いが変わってしまう（一度押したら二度と詰まらない）。
+  */
   const lifted = removeClip(p, midId, 'lift');
-  eq('穴を空けると位置が動かない', mainSpans(lifted), [[0, 10], [15, 20]]);
-  eq('穴を空けたら詰める設定は外れる', lifted.magnetic, false);
+  eq('空きにしても位置が動かない', mainSpans(lifted), [[0, 10], [10, 15], [15, 20]]);
+  eq('詰める設定はそのまま', lifted.magnetic, true);
+  eq('真ん中が空きになる', lifted.clips.map((c) => c.assetId), ['a', '', 'a']);
+  // 空きの上では何も映らない
+  eq('空きの上では映像が無い', videoAt(lifted, 12), null);
+  eq('空きの前は映る', videoAt(lifted, 5).assetId, 'a');
+  eq('空きの後ろも映る', videoAt(lifted, 17).assetId, 'a');
 
   eq('知らないクリップは無視', removeClip(p, 'zzz').clips.length, 3);
 }
@@ -352,6 +361,26 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   });
   eq('長さ0の区間は捨てる', p.clips.length, 1);
   eq('テロップを渡さなくても落ちない', p.telops, []);
+}
+
+
+/* ------------------------------------------------------------ 空きの伸縮 */
+
+{
+  let p = base();
+  p = appendToMain(p, 'a', 0, 10);
+  p = appendToMain(p, 'b', 0, 5);
+  const gapped = removeClip(p, p.clips[0].id, 'lift');
+  const gapId = gapped.clips[0].id;
+
+  // 🔴 空きも伸ばせること。伸ばせないと、一度空けた間合いを直せない
+  const wider = trimClip(gapped, gapId, 'end', 5);
+  eq('空きを伸ばせる', mainSpans(wider), [[0, 15], [15, 20]]);
+  const narrower = trimClip(gapped, gapId, 'end', -4);
+  eq('空きを縮められる', mainSpans(narrower), [[0, 6], [6, 11]]);
+
+  // 空きを消せば詰まる
+  eq('空きを消すと詰まる', mainSpans(removeClip(gapped, gapId)), [[0, 5]]);
 }
 
 if (failed > 0) {
