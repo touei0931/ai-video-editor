@@ -12,7 +12,13 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Timeline, clock, type TimelineRegion, type TimelineTrack } from '../shell/Timeline';
+import {
+  Timeline,
+  clock,
+  type TimelineRegion,
+  type TimelineTrack,
+  type TimelineView,
+} from '../shell/Timeline';
 import {
   addAsset,
   appendToMain,
@@ -32,6 +38,7 @@ import {
   type Project,
 } from './project';
 import { ProbeError, probeAsset } from './probe';
+import { ClipFilmstrip } from './ClipFilmstrip';
 import { buildFCPXML } from './fcpxml';
 import { fromSaved, toSaved } from './persist';
 import { useTimelinePlayer } from './useTimelinePlayer';
@@ -359,14 +366,28 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
           });
         }
       }
+      const mine = placed.filter((c) => c.laneId === lane.id);
       return {
         id: lane.id,
         label: lane.name || LANE_LABEL[lane.kind],
         regions,
         height: lane.kind === 'audio' ? 40 : 56,
+        /*
+          🔴 コマはクリップの上に重ねること。別のレーンに分けない。
+             縦に離れていると、「この絵のところを触っている」の対応を
+             目で追わないと分からない。
+        */
+        overlay: lane.kind !== 'audio',
+        scalable: lane.kind !== 'audio',
+        render:
+          lane.kind === 'audio'
+            ? undefined
+            : (v: TimelineView) => (
+                <ClipFilmstrip {...v} clips={mine} assets={project.assets} />
+              ),
       };
     });
-  }, [project.lanes, placed, telops, assetName]);
+  }, [project.lanes, project.assets, placed, telops, assetName]);
 
   /** 切れ目に吸い付かせる */
   const snapPoints = useMemo(
@@ -449,7 +470,15 @@ export function TimelineScreen({ project, onChange, fps = 30, pickFile, onImport
       <Viewer project={project} player={player} />
 
       <Timeline
-        duration={Math.max(duration, 1)}
+        /*
+          🔴 空のときに 1 秒などを渡さないこと。
+             タイムラインは「開いたときの尺」に合わせて倍率を決め、
+             それを一度きり行う。空を 1 秒として渡すと、画面幅いっぱいが
+             1秒という倍率で固定され、**あとから10分の素材を取り込むと
+             横に何十万ピクセルも伸びる**（画面外まで続いて操作できない）。
+             0 を渡せば、中身が入るまで倍率決めを待つ。
+        */
+        duration={duration}
         fps={fps}
         currentTime={time}
         onSeek={setTime}

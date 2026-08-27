@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { mediaUrl } from './media';
+import { assetUrl } from '../timeline/assetUrl';
 import type { TimelineView } from './Timeline';
 import { toSource, type Segment } from './editedTime';
 
@@ -295,7 +295,7 @@ export function Filmstrip({
     <>
       <video
         ref={videoRef}
-        src={mediaUrl(videoPath)}
+        src={assetUrl(videoPath)}
         muted
         preload="auto"
         style={{ display: 'none' }}

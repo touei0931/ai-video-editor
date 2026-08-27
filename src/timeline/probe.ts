@@ -12,7 +12,7 @@
  */
 
 import { newId, type Asset } from './project';
-import { mediaUrl } from '../shell/media';
+import { assetUrl } from './assetUrl';
 
 /** 音だけの素材とみなす拡張子 */
 const AUDIO_EXT = ['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.opus'];
@@ -95,6 +95,6 @@ export function probeAsset(path: string, timeoutMs = 20000): Promise<Asset> {
 
     el.addEventListener('loadedmetadata', onLoaded);
     el.addEventListener('error', onError);
-    el.src = mediaUrl(path);
+    el.src = assetUrl(path);
   });
 }

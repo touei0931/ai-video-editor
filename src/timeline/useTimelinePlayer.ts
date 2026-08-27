@@ -23,7 +23,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { mediaUrl } from '../shell/media';
+import { assetUrl } from './assetUrl';
 import {
   clipAt,
   layout,
@@ -85,6 +85,17 @@ export function useTimelinePlayer(project: Project): TimelinePlayer {
   /** 音のレーンで鳴らしているクリップ */
   const audioClip = useRef<string | null>(null);
 
+  /*
+    🔴 映像を合わせる処理を、描画の繰り返しだけに任せないこと。
+
+       requestAnimationFrame は「動きがあるとき」しか回らない。
+       別のアプリに切り替えている間や、画面が隠れている間は止まる。
+       止まっている最中にクリップを取り込むと、映像を載せる処理が
+       一度も走らず、**再生を押すまで真っ黒のまま**になる。
+       中身が変わった時にも一度合わせる。
+  */
+  const syncRef = useRef<((t: number) => void) | null>(null);
+
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
@@ -100,7 +111,7 @@ export function useTimelinePlayer(project: Project): TimelinePlayer {
       if (!el) return;
       const path = projectRef.current.assets.find((a) => a.id === clip.assetId)?.path;
       if (!path) return;
-      const url = mediaUrl(path);
+      const url = assetUrl(path);
       if (el.src !== url) el.src = url;
       const want = srcTime(clip, t);
       if (Math.abs(el.currentTime - want) > 0.02) el.currentTime = want;
@@ -234,9 +245,18 @@ export function useTimelinePlayer(project: Project): TimelinePlayer {
       sync(timeRef.current);
     };
 
+    syncRef.current = sync;
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      syncRef.current = null;
+    };
   }, []);
+
+  /** 中身・再生位置・再生状態が変わったら、その場で一度合わせる */
+  useEffect(() => {
+    syncRef.current?.(timeRef.current);
+  }, [project, time, playing]);
 
   /* -------------------------------------------------------- 外からの操作 */
 

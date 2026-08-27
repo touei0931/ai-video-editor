@@ -273,8 +273,41 @@ export function Timeline({
    *    （吸着すると値が動くぶん、吸着しない候補のほうが元の位置に近いため）。
    *    見た目には「吸着が効かない」としか分からない。
    */
+  /**
+   * その時刻に端を持っている区間の名前。
+   *
+   * 🔴 吸着から外すのは「掴んでいる本人の端」だけ。
+   *    値だけで外すと、**同じ時刻に端がある別の区間まで巻き添え**になる。
+   *    テロップを隣の端に合わせて置いた後、少し動かして戻そうとしても
+   *    吸い付かなくなるのはこれ（自分の元の位置＝相手の端、なので）。
+   */
+  const edgeOwners = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const track of tracks) {
+      for (const r of track.regions) {
+        if (r.decor) continue;
+        for (const v of [r.start, r.end]) {
+          const k = v.toFixed(3);
+          let set = m.get(k);
+          if (!set) {
+            set = new Set<string>();
+            m.set(k, set);
+          }
+          set.add(r.id);
+        }
+      }
+    }
+    return m;
+  }, [tracks]);
+
   const snapTo = useCallback(
-    (t: number, fine: boolean, skip?: readonly number[]): { value: number; snapped: number | null } => {
+    (
+      t: number,
+      fine: boolean,
+      skip?: readonly number[],
+      /** 掴んでいる区間の名前。この区間だけが端を持つ時刻は吸着から外す */
+      selfId?: string,
+    ): { value: number; snapped: number | null } => {
       const clamped = Math.min(duration, Math.max(0, t));
       // Shift を押している間は吸着もフレームの丸めも外す（細かく合わせたいとき）
       if (fine) return { value: Number(clamped.toFixed(3)), snapped: null };
@@ -294,7 +327,16 @@ export function Timeline({
                吸着点に自分の端も入っていると、少し動かしただけで
                **元の位置に引き戻され**、動かせなくなる。
           */
-          if (skip && skip.some((x) => Math.abs(x - p) < 0.0005)) continue;
+          if (skip && skip.some((x) => Math.abs(x - p) < 0.0005)) {
+            /*
+              🔴 同じ時刻に別の区間の端があるなら、外さないこと。
+                 外すと「隣に合わせて置いたものを、一度動かしてから
+                 元に戻す」ができなくなる。
+            */
+            const owners = edgeOwners.get(p.toFixed(3));
+            const otherOwns = owners ? [...owners].some((id) => id !== selfId) : false;
+            if (!otherOwns) continue;
+          }
           const d = Math.abs(p - clamped);
           if (d <= within && d < bestD) {
             bestD = d;
@@ -307,7 +349,7 @@ export function Timeline({
       const f = Math.round(clamped * fps);
       return { value: Number((f / fps).toFixed(3)), snapped: null };
     },
-    [duration, fps, snapEnabled, snapPoints, scale],
+    [duration, fps, snapEnabled, snapPoints, scale, edgeOwners],
   );
 
   /* --- 再生位置を動かす --- */
@@ -487,8 +529,8 @@ export function Timeline({
           */
           const mine = [cur.originStart, cur.originEnd];
           const rawStart = cur.originStart + d;
-          const a = snapTo(rawStart, fine, mine);
-          const b = snapTo(rawStart + len, fine, mine);
+          const a = snapTo(rawStart, fine, mine, cur.id);
+          const b = snapTo(rawStart + len, fine, mine, cur.id);
           const startCand = { value: a.value, snapped: a.snapped, at: a.value };
           const endCand = { value: b.value - len, snapped: b.snapped, at: b.value };
 
@@ -506,12 +548,12 @@ export function Timeline({
           return { ...cur, start: s, end: Number((s + len).toFixed(3)) };
         }
         if (cur.edge === 'start') {
-          const r = snapTo(cur.originStart + d, fine, [cur.originStart]);
+          const r = snapTo(cur.originStart + d, fine, [cur.originStart], cur.id);
           const s = Math.min(r.value, cur.originEnd - MIN_LEN);
           setSnappedAt(s === r.value ? r.snapped : null);
           return { ...cur, start: Math.max(0, s) };
         }
-        const r = snapTo(cur.originEnd + d, fine, [cur.originEnd]);
+        const r = snapTo(cur.originEnd + d, fine, [cur.originEnd], cur.id);
         const en = Math.max(r.value, cur.originStart + MIN_LEN);
         setSnappedAt(en === r.value ? r.snapped : null);
         return { ...cur, end: Math.min(duration, en) };

@@ -1,9 +1,18 @@
 /**
  * メインの編集画面を、実素材なしで触るための入口（?mode=timeline）。
  *
- * 🔴 素材のファイルは開かない。
- *    置く場所・分ける・詰める、といった編集の当たり判定を見るためのもの。
- *    実ファイルを要求すると、手元に動画が無いと確かめられない。
+ * 素材は assets/test-a.mp4 / test-b.mp4 を使う。無くても画面は開ける
+ * （コマとプレビューが出ないだけ）。作り方:
+ *
+ *     python scripts/make_test_media.py
+ *     cp samples/sample_landscape_solo.mp4 assets/test-a.mp4
+ *     cp samples/sample_portrait_solo.mp4 assets/test-b.mp4
+ *
+ * 🔴 リポジトリには置かない。
+ *    実素材（人が映っているもの）はリポジトリに置かない方針なので、
+ *    scripts/make_test_media.py が作る合成動画を public/ へ複製して使う。
+ *    Electron の media:// はブラウザでは開けないので、ここでは http で渡す
+ *    （assetUrl が「すでに URL のもの」はそのまま通す）。
  */
 
 import { useState } from 'react';
@@ -16,36 +25,33 @@ function seeded(): Project {
   p = importCutResult(p, {
     asset: {
       id: 'talk',
-      path: '/dummy/talk.mp4',
+      path: `${location.origin}/test-a.mp4`,
       name: 'トーク本編',
-      duration: 300,
+      duration: 30,
       hasVideo: true,
       hasAudio: true,
     },
     keeps: [
-      { srcStart: 0, srcEnd: 12 },
-      { srcStart: 18, srcEnd: 47 },
-      { srcStart: 52, srcEnd: 70 },
-      { srcStart: 88, srcEnd: 121 },
+      { srcStart: 0, srcEnd: 6 },
+      { srcStart: 10, srcEnd: 18 },
+      { srcStart: 22, srcEnd: 28 },
     ],
     telops: [
       { srcStart: 1.5, srcEnd: 4.2, text: 'はじめまして', style: 'normal' },
-      { srcStart: 20, srcEnd: 23.5, text: '今日の本題です', style: 'emphasis' },
-      { srcStart: 30, srcEnd: 33, text: 'まず結論から', style: 'normal' },
-      { srcStart: 55, srcEnd: 58.4, text: 'ここが大事', style: 'emphasis' },
-      { srcStart: 92, srcEnd: 95, text: 'まとめると', style: 'normal' },
+      { srcStart: 11, srcEnd: 14, text: '今日の本題です', style: 'emphasis' },
+      { srcStart: 23, srcEnd: 26, text: 'まとめると', style: 'normal' },
     ],
   });
   p = importCutResult(p, {
     asset: {
       id: 'broll',
-      path: '/dummy/broll.mp4',
+      path: `${location.origin}/test-b.mp4`,
       name: '差し込み映像',
-      duration: 60,
+      duration: 30,
       hasVideo: true,
       hasAudio: false,
     },
-    keeps: [{ srcStart: 0, srcEnd: 8 }],
+    keeps: [{ srcStart: 0, srcEnd: 5 }],
   });
   return p;
 }

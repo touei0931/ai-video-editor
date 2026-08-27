@@ -79,3 +79,7 @@ desktop.ini
 .env
 .env.local
 *.pem
+
+# タイムラインの見た目を確かめるための合成動画（大きいので置かない）
+#   作り方: python scripts/make_test_media.py して samples/ から複製する
+assets/test-*.mp4
