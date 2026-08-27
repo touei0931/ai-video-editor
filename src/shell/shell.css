@@ -1328,3 +1328,29 @@
   border-left: 2px solid rgba(74, 158, 255, 0.9);
   border-right: 2px solid rgba(74, 158, 255, 0.9);
 }
+
+/*
+  クリップを掴んでいる間だけ出る「上に重ねる」置き場。
+
+  🔴 いちばん上に、目盛りのすぐ下に置くこと。
+     段の間に挟むと、どの段の上に重なるのか読めない。
+  🔴 触れる状態にしておくこと（pointer-events を切らない）。
+     放した場所をここだと判定するのは elementFromPoint なので、
+     触れない要素だと下の段が拾われてしまう。
+*/
+.fcp-drop-above {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+  border: 1px dashed rgba(120, 175, 255, 0.9);
+  border-radius: 4px;
+  background: rgba(74, 158, 255, 0.16);
+  color: #cfe2ff;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}

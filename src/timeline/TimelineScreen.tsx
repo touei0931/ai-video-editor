@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ABOVE_LANE,
   Timeline,
   clock,
   type TimelineRegion,
@@ -32,6 +33,7 @@ import {
   placedTelops,
   isGap,
   clipLength,
+  addLane,
   addTelop,
   updateTelop,
   removeTelop,
@@ -433,10 +435,23 @@ export function TimelineScreen({
       /*
         🔴 テロップは段を跨がせないこと。
            テロップの段は「どこに出るか」を見せるための場所で、レーンではない。
-           そこへ落としたクリップは行き先を失う。
       */
-      // 🔴 見るだけの段（テロップ・音の波）へは落とせないこと。行き先が無い
       if (id.startsWith('telop:')) return;
+
+      /*
+        いちばん上より上へ放したら、重ねるレーンを1本作ってそこへ置く。
+
+        🔴 「先にレーンを足してください」を人にやらせないこと。
+           編集ソフトでは、上へ放れば重なるのが当たり前。
+           手順が1つ増えるだけで、その機能は使われなくなる。
+      */
+      if (laneId === ABOVE_LANE) {
+        const lane: Lane = { id: newId('lane'), kind: 'video', name: '重ね' };
+        apply(moveClip(addLane(project, lane), id, lane.id, start), '上に重ねました');
+        return;
+      }
+
+      // 見るだけの段（テロップ・音の波）へは落とせない。行き先が無い
       if (!project.lanes.some((l) => l.id === laneId)) return;
       apply(moveClip(project, id, laneId, start), 'レーンを移しました');
     },

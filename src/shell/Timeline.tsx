@@ -150,6 +150,14 @@ export interface TimelineProps {
  */
 const GRABBABLE = 64;
 
+/**
+ * 「いちばん上の段より上」を表す行き先。
+ *
+ * 🔴 実在するレーンの id と被らせないこと。
+ *    受け取る側はこれを見て、新しいレーンを作る。
+ */
+export const ABOVE_LANE = '__above__';
+
 /** 0:00.0 形式。タイムラインの目盛りは短いほうが読みやすい */
 function tick(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -944,6 +952,21 @@ export function Timeline({
               </div>
             ))}
           </div>
+
+          {/*
+            クリップを掴んでいる間だけ出す「上に重ねる」置き場。
+
+            🔴 これが無いと、先にレーンを足さないと上へ運べない。
+               編集ソフトでは上へ放れば重なるのが当たり前で、
+               「先に段を作ってください」は手順が1つ多い。
+            🔴 掴んでいる間だけ出すこと。常に出すと段が1つ増えたのと同じで
+               縦が狭くなる。
+          */}
+          {drag?.edge === 'move' && onMoveToLane && (
+            <div className="fcp-drop-above" data-lane={ABOVE_LANE}>
+              ここへ放すと上に重ねます
+            </div>
+          )}
 
           {tracks.map((track) => {
             const rowH = Math.round((track.height ?? 56) * (track.scalable ? laneScale : 1));
