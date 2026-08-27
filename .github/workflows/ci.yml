@@ -200,6 +200,13 @@ jobs:
       - run: npm run t5
       - name: T5 の結果を確認
         shell: bash
+        env:
+          # 🔴 Windows の Python は、既定で cp1252 に書き出そうとする。
+          #    日本語のテロップを表示しようとした所で UnicodeEncodeError になり、
+          #    **その下の合否判定まで到達しない**。
+          #    「表示に失敗しただけ」なのに、T5 が落ちているように見えていた
+          #    （2026-08-27 時点で6回以上、この理由だけで赤いままだった）。
+          PYTHONIOENCODING: utf-8
         run: |
           python -c "import json;d=json.load(open('phase0-artifacts/t5/t5-result.json',encoding='utf-8'));print(json.dumps(d['cards'],ensure_ascii=False,indent=2))"
           grep -q '"ok": *true' phase0-artifacts/t5/t5-result.json
