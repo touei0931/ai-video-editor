@@ -1369,24 +1369,10 @@
   position: absolute;
   left: 0;
   right: 0;
-  background: #17171c;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.6);
+  background: var(--band-layer, #1a1a20);
+  border-bottom: 1px solid var(--line-soft, #2a2a32);
 }
 
 .fcp-band.main {
-  background: #000;
-}
-
-.fcp-band-label {
-  position: sticky;
-  left: 6px;
-  display: inline-block;
-  margin-top: 3px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.5);
-  color: var(--muted, #9aa0a6);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  pointer-events: none;
+  background: var(--band-main, #101015);
 }

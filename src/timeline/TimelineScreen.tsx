@@ -128,12 +128,6 @@ const FPS_PRESETS = [24, 25, 29.97, 30, 60];
  */
 const LANE_ROW_H = 64;
 
-/** レーンの見出しに出す言葉 */
-const LANE_LABEL: Record<Lane['kind'], string> = {
-  main: '本編',
-  video: '重ね',
-  audio: '音',
-};
 
 export function TimelineScreen({
   project,
@@ -986,12 +980,14 @@ export function TimelineScreen({
       if (l) rowOf.set(l.id, i);
     });
 
-    const bands: TimelineBand[] = order.map((l, i) => ({
+    /*
+      🔴 帯に名前を出さないこと。
+         段の意味は背景の濃さで分かるので、文字を置くと
+         クリップの上に常に文字が2つ（帯の名前とクリップの名前）並ぶことになる。
+    */
+    const bands: TimelineBand[] = order.map((l) => ({
       laneId: l ? l.id : ABOVE_LANE,
-      label: l ? l.name || LANE_LABEL[l.kind] : '重ねる（ここへ放す）',
       main: l?.kind === 'main',
-      // 並びを覚えておく（帯の高さを決めるのに使う）
-      ...(i < 0 ? {} : {}),
     }));
 
     const regions: TimelineRegion[] = placed.map((c) => ({

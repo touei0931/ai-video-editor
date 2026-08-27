@@ -96,12 +96,16 @@ export interface TimelineTrack {
   bands?: TimelineBand[];
 }
 
-/** 段の帯。1つのレーンを縦に分けて見せるときに使う */
+/**
+ * 段の帯。1つのレーンを縦に分けて見せるときに使う。
+ *
+ * 🔴 文字は出さない。段の意味は背景の濃さで分かるので、
+ *    名前を置くとクリップの上に文字が2つ並ぶことになる。
+ */
 export interface TimelineBand {
   /** 放したときの行き先（レーンの名前） */
   laneId: string;
-  label: string;
-  /** 土台（本編）の段か。ここだけ黒くして、他は暗い灰にする */
+  /** 土台（本編）の段か。ここだけ濃くして、重ねる場所と分ける */
   main?: boolean;
 }
 
@@ -1043,9 +1047,7 @@ export function Timeline({
                     className={`fcp-band${band.main ? ' main' : ''}`}
                     data-lane={band.laneId}
                     style={{ top: i * rowH, height: rowH }}
-                  >
-                    <span className="fcp-band-label">{band.label}</span>
-                  </div>
+                  />
                 ))}
 
                 {track.showSource && <div className="fcp-source" />}
