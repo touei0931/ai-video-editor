@@ -348,14 +348,52 @@
   border-top: 1px solid var(--line);
 }
 
+/*
+  タイムラインの見出し（「タイムライン」「時刻」「白線へ」「＋ −」）。
+
+  🔴 添え物として置くこと。ここは道しるべであって作業の中身ではない。
+     見たいのは素材とプレビュー、そして選んだものの中身。
+     見出しが太いと、その分だけクリップを置く高さが減る。
+  🔴 並べる画面（.tl-screen）と同じ細さにすること。
+     画面を行き来したときに、同じ場所の高さが変わると別のアプリに見える。
+*/
 .fcp-tl-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 2px 8px;
   background: var(--s2);
   border-bottom: 1px solid var(--line-soft);
-  font-size: 13px;
+  font-size: 11px;
+}
+
+/*
+  🔴 min-height を打ち消すこと。字を小さくしても既定の 30px が残る。
+  🔴 頭に .fcp を付けること。付けないと `.fcp button` と強さが並び、
+     あちらのほうが後ろに書いてあるぶん勝つ（実際、字だけ小さくなって
+     高さが 30px のまま変わらなかった）。
+*/
+.fcp .fcp-tl-bar button:not(.fcp-magnet) {
+  min-height: 0;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.fcp-tl-bar .fcp-dim {
+  font-size: 11px;
+}
+
+.fcp .fcp-tl-bar .fcp-axis {
+  padding: 1px;
+  border-radius: 5px;
+}
+
+.fcp .fcp-tl-bar .fcp-axis button {
+  min-height: 18px;
+  padding: 1px 8px;
+  font-size: 11px;
 }
 
 /*
@@ -1069,12 +1107,51 @@
   z-index: 4;
 }
 
-/* 吸着の入り切り。効いているかが一目で分かるようにする */
-.fcp-snap-toggle.on {
-  background: var(--accent);
-  border-color: #2f6fb0;
-  color: #061320;
-  font-weight: 700;
+/*
+  磁石の入り切り（マグネティックタイムライン / 吸着）。
+
+  🔴 効いているかを**色**で見せること。
+     枠の濃さだけでは、どちらの状態なのかが画面から読み取れない。
+     入＝青（このアプリで「効いている」を表す色）、切＝白。
+  🔴 大きさは字の入ったボタンより小さく。ここは添え物で、主役ではない。
+
+  🔴 この規則は `.fcp button` より**下に置くこと**。
+     強さが同じなので、勝ち負けは書いた順で決まる。上に移すと
+     入のときに面ごと青く塗られ、**絵が背景に沈んで見えなくなる**。
+     `.fcp button` 側に穴（:not）を空けて逃げないこと。穴を空けると
+     強さが上がり、あとから足した `.fcp-axis button.on` のような
+     別の規則を追い越して、関係の無い所が壊れる（実際に壊れた）。
+*/
+button.fcp-magnet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #e8e8ef;
+  cursor: pointer;
+}
+
+button.fcp-magnet svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+button.fcp-magnet:hover:not(:disabled) {
+  background: var(--s3);
+}
+
+button.fcp-magnet.on {
+  color: var(--accent);
+  background: rgba(74, 144, 217, 0.14);
+  border-color: rgba(74, 144, 217, 0.4);
 }
 
 /* 注意を促す欄。読み飛ばされると書き出しで気づくことになる */

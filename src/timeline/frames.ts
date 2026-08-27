@@ -66,8 +66,13 @@ export function stepFor(scale: number, thumbW: number): number {
  * 🔴 見た目の大きさちょうどで取り出さないこと。
  *    画素の細かい画面では、CSS の 1px が実際には 2px なので、
  *    等倍で取ると**そのぶんだけぼやける**。
+ *
+ * 🔴 コマを出す画面が増えたら、必ずここを使うこと。
+ *    同じ決まりを画面ごとに書き写すと、片方だけ直して片方が古いまま残る。
+ *    実際、並べる画面だけ直して子画面（下ごしらえ）が
+ *    **ぼやけたまま取り残された**。決まりは1か所に置く。
  */
-function sharpness(): number {
+export function captureScale(): number {
   return Math.min(2, Math.max(1, window.devicePixelRatio || 1));
 }
 
@@ -214,7 +219,7 @@ export function requestFrames(
 ): void {
   const s = storeFor(path);
   if (s.failed) return;
-  const k = sharpness();
+  const k = captureScale();
   s.size = { w: Math.round(size.w * k), h: Math.round(size.h * k) };
   s.step = step;
 

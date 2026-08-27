@@ -22,6 +22,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { assetUrl } from '../timeline/assetUrl';
+/*
+  🔴 刻みの決め方と取り出す倍率は、並べる画面と**同じものを使う**こと。
+     以前はここに同じ処理を書き写していたため、並べる画面だけ直した結果、
+     子画面（下ごしらえ）は**拡大するほどコマがぼやけるまま**だった。
+     同じ仕組みは1か所に置き、どの画面からも同じ動きにする。
+*/
+import { captureScale, stepFor } from '../timeline/frames';
 import type { TimelineView } from './Timeline';
 import { toSource, type Segment } from './editedTime';
 
@@ -36,20 +43,6 @@ export interface FilmstripProps extends TimelineView {
    *    ここだけ別の時間で並べると、同じ横位置が別の瞬間を指すことになる。
    */
   segments?: readonly Segment[];
-}
-
-/** その拡大率で、何秒ごとにコマを置くか */
-function stepFor(scale: number, thumbW: number): number {
-  const sec = thumbW / scale;
-  /*
-    半端な刻みだと拡大のたびに全部作り直しになるので、決まった段階に丸める。
-
-    🔴 段階は細かめに持つこと。粗いと、選ばれた刻みが必要な幅より
-       だいぶ大きくなり、コマとコマの間が**絵1枚分ちかく空く**。
-       「コマが飛び飛びに見える」のはこれ。
-  */
-  const steps = [0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300];
-  return steps.find((s) => s >= sec) ?? steps[steps.length - 1];
 }
 
 /**
@@ -177,8 +170,14 @@ export function Filmstrip({
         };
         const onSeeked = () => {
           try {
-            canvas.width = thumbW;
-            canvas.height = height;
+            /*
+              🔴 見た目の大きさちょうどで取り出さないこと。
+                 画素の細かい画面では CSS の 1px が実際には 2px なので、
+                 等倍で取ると**そのぶんだけぼやける**。
+            */
+            const k = captureScale();
+            canvas.width = Math.round(thumbW * k);
+            canvas.height = Math.round(height * k);
             const ctx = canvas.getContext('2d');
             if (!ctx) return fin(null);
             ctx.drawImage(v, 0, 0, canvas.width, canvas.height);

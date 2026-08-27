@@ -9,6 +9,7 @@
 
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { stepFor } = await import(pathToFileURL(join(root, 'src/timeline/frames.ts')).href);
@@ -80,6 +81,56 @@ for (const [label, scale, thumb] of [
 ]) {
   const step = stepFor(scale, thumb);
   check(`${label}: 数を返す`, Number.isFinite(step) && step > 0, String(step));
+}
+
+/* ================================================ 画面ごとの写し間違い
+
+  🔴 同じ仕組みを画面ごとに書き写さないこと。
+
+     刻みの決め方は、もともと並べる画面と子画面（下ごしらえ）の
+     **2か所に同じものが書かれていた**。並べる画面だけ直した結果、
+     子画面は拡大するほどコマがぼやけるまま取り残された。
+     どちらの画面も同じ体験にするには、決まりを1か所に置くしかない。
+
+     ここでは「コマを出す所は、必ず frames.ts の決まりを使っているか」を見る。
+*/
+const FILMSTRIPS = ['src/shell/Filmstrip.tsx', 'src/timeline/ClipFilmstrip.tsx'];
+
+for (const rel of FILMSTRIPS) {
+  const src = readFileSync(join(root, rel), 'utf8');
+
+  // 自前の刻みの決め方を持っていないこと
+  check(
+    `${rel}: 刻みを自前で決めていない`,
+    !/function\s+stepFor/.test(src),
+    'frames.ts の stepFor を使うこと',
+  );
+
+  // 決まりは共通のものから取ること
+  check(
+    `${rel}: 共通の決まりを使っている`,
+    /from '(\.\.\/timeline\/frames|\.\/frames)'/.test(src),
+    'frames.ts から取り込むこと',
+  );
+
+  /*
+    自分でコマを描いているなら、取り出す大きさを画面の細かさに合わせること。
+    （並べる画面は frames.ts に任せているので、ここは通らない）
+  */
+  if (/drawImage/.test(src)) {
+    check(
+      `${rel}: 取り出す大きさを画面に合わせている`,
+      /captureScale\(\)/.test(src),
+      '等倍で取ると高精細画面でぼやける',
+    );
+  }
+
+  // 生の devicePixelRatio を各画面で持ち出さないこと（上限の付け忘れが起きる）
+  check(
+    `${rel}: devicePixelRatio を直接見ていない`,
+    !/devicePixelRatio/.test(src),
+    'captureScale 越しに使うこと',
+  );
 }
 
 if (failed > 0) {

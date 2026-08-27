@@ -64,6 +64,7 @@ import { Inspector, parseSelection } from './Inspector';
 import { buildTimelineCards } from './telopCanvas';
 import { renderBlank, renderTelopPngs } from '../telop/rasterize';
 import { ClipFilmstrip } from './ClipFilmstrip';
+import { MagnetToggle } from '../shell/MagnetToggle';
 import { ClipWaveform } from './ClipWaveform';
 import { buildFCPXML } from './fcpxml';
 import { fromSaved, toSaved } from './persist';
@@ -1383,13 +1384,12 @@ export function TimelineScreen({
         range={range}
         tracks={tracks}
         extraControls={
-          <button
-            className={`fcp-snap-toggle ${project.magnetic ? 'on' : ''}`}
-            onClick={() => apply(setMagnetic(project, !project.magnetic))}
-            title="本編のクリップを隙間なく詰める（N キー）"
-          >
-            🧲 詰める
-          </button>
+          <MagnetToggle
+            on={project.magnetic}
+            onToggle={() => apply(setMagnetic(project, !project.magnetic))}
+            title="マグネティックタイムライン（本編のクリップを隙間なく詰める・N キー）"
+            label="マグネティックタイムライン"
+          />
         }
       />
     </div>

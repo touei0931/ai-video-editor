@@ -76,6 +76,57 @@
 }
 
 /*
+  タイムラインの見出し（「タイムライン」「時刻」「白線へ」「＋ −」）。
+
+  🔴 添え物として置くこと。ここは操作の中身ではなく道しるべなので、
+     クリップやプレビューより目立ってはいけない。
+
+  🔴 min-height を打ち消すこと。
+     shell.css の色付けは `.fcp` の中でしか効かず、この画面には
+     その外枠が無いので、ボタンは index.css の既定（15px・最低40px）を拾う。
+     その結果**見出しだけで 57px**あり、クリップを置く高さを奪っていた。
+*/
+.tl-screen .fcp-tl-bar {
+  gap: 6px;
+  padding: 2px 8px;
+  background: var(--s1);
+  border-bottom: 1px solid var(--s3);
+  font-size: 11px;
+}
+
+/* 🔴 磁石は自分で見た目を決める（MagnetToggle）。ここで塗り替えない */
+.tl-screen .fcp-tl-bar button:not(.fcp-magnet) {
+  min-height: 0;
+  padding: 2px 7px;
+  border: 1px solid var(--s4);
+  border-radius: 4px;
+  background: var(--s2);
+  color: var(--fg);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.tl-screen .fcp-tl-bar button:hover:not(:disabled):not(.fcp-magnet) {
+  background: var(--s3);
+}
+
+.tl-screen .fcp-tl-bar button.icon {
+  min-width: 24px;
+  padding: 2px 5px;
+}
+
+.tl-screen .fcp-tl-bar .fcp-dim {
+  font-size: 11px;
+}
+
+/* 段の名前も道しるべ。クリップの字より小さく */
+.tl-screen .fcp-track-label {
+  font-size: 10px;
+  padding: 1px 6px;
+  margin: 3px;
+}
+
+/*
   分割バー。
   🔴 grid-area を打ち消すこと。shell.css の .fcp-resizer は
      別の格子（vsplit / hsplit という名前の場所）に置く前提になっている。
@@ -108,11 +159,19 @@
   grid-row: 2;
 }
 
+/*
+  上の道具棚。
+
+  🔴 主役ではない。編集で見たいのは素材とプレビュー、
+     そして選んだものの中身（右のインスペクタ）。
+     道具棚や下の見出しはそれを取り囲む添え物なので、細く小さく置く。
+     ここが太いと、画面の高さをプレビューとタイムラインから奪う。
+*/
 .tl-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 5px;
+  padding: 4px 8px;
   background: var(--s1);
   border-bottom: 1px solid var(--s3);
   flex: 0 0 auto;
@@ -130,12 +189,21 @@
 .tl-bar button {
   flex: 0 0 auto;
   white-space: nowrap;
-  padding: 5px 10px;
+  /*
+    🔴 min-height を打ち消すこと。
+       index.css の button は「マウスで狙える下限」として 40px を持っている。
+       打ち消さないと、字を小さくしても棚の高さは 57px のまま変わらない。
+  */
+  min-height: 0;
+  padding: 3px 9px;
   border: 1px solid var(--s4);
   border-radius: 5px;
   background: var(--s2);
   color: var(--fg);
   font-size: 12px;
+  /* 🔴 行の高さも指定すること。既定（normal）は字の 1.7 倍ほどあり、
+        字を小さくしてもボタンの高さが思ったほど下がらない */
+  line-height: 1.4;
   cursor: pointer;
 }
 
@@ -394,7 +462,9 @@
 .tl-keys > summary {
   list-style: none;
   cursor: pointer;
-  padding: 4px 10px;
+  /* 🔴 となりのボタンと同じ高さに揃えること。ここだけ高いと棚全体が太る */
+  padding: 3px 9px;
+  line-height: 1.4;
   border: 1px solid var(--s4, #34343e);
   border-radius: 5px;
   background: var(--s2, #232329);

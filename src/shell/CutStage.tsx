@@ -21,6 +21,7 @@ import { EditorShell } from './EditorShell';
 import { Timeline, clock, type TimelineRegion } from './Timeline';
 import { Waveform } from './Waveform';
 import { Filmstrip } from './Filmstrip';
+import { MagnetToggle } from './MagnetToggle';
 import {
   KIND_LABEL,
   type CutCandidate,
@@ -1263,13 +1264,12 @@ export function CutStage({
           snapEnabled={snapEnabled}
           extraControls={
             <>
-              <button
-                className={`fcp-snap-toggle ${snapEnabled ? 'on' : ''}`}
-                onClick={() => setSnapEnabled((v) => !v)}
-                title="隣のカットの端に吸い付ける（N キー）"
-              >
-                🧲 吸着
-              </button>
+              <MagnetToggle
+                on={snapEnabled}
+                onToggle={() => setSnapEnabled((v) => !v)}
+                title="吸着（隣のカットの端に吸い付ける・N キー）"
+                label="吸着"
+              />
             {/* 🔴 見出しは枠の外に。中に入れるとボタンの1つに見える */}
             <span className="fcp-axis-label">カット箇所</span>
             <div className="fcp-axis" title="切る所を、暗くして見せるか、詰めて見せるか">

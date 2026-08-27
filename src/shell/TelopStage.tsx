@@ -15,6 +15,7 @@ import { EditorShell } from './EditorShell';
 import { Timeline, clock, type TimelineRegion } from './Timeline';
 import { Waveform } from './Waveform';
 import { Filmstrip } from './Filmstrip';
+import { MagnetToggle } from './MagnetToggle';
 import { buildLines, drawTelop, telopBounds, type Frame, type TelopBounds } from '../telop/render';
 import { type TelopCard } from '../telop/split';
 import { activeAt, laneOffsetY, laneStep, telopLanes } from '../telop/lanes';
@@ -1493,13 +1494,12 @@ export function TelopStage({
           zoomKeys={false}
           extraControls={
             <>
-              <button
-                className={`fcp-snap-toggle ${snapEnabled ? 'on' : ''}`}
-                onClick={() => setSnapEnabled((v) => !v)}
-                title="カットの切れ目に吸い付ける（N キー）"
-              >
-                🧲 吸着
-              </button>
+              <MagnetToggle
+                on={snapEnabled}
+                onToggle={() => setSnapEnabled((v) => !v)}
+                title="吸着（カットの切れ目に吸い付ける・N キー）"
+                label="吸着"
+              />
             {/* 🔴 見出しは枠の外に。中に入れるとボタンの1つに見える */}
             <span className="fcp-axis-label">カット箇所</span>
             <div className="fcp-axis" title="切る所を、暗くして見せるか、詰めて見せるか">
