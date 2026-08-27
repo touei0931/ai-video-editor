@@ -690,3 +690,24 @@
   top: auto;
   bottom: 0;
 }
+
+.tl-settings-line {
+  margin: 10px 0;
+  border: none;
+  border-top: 1px solid var(--line, #33333c);
+}
+
+.tl-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tl-check input {
+  flex: 0 0 auto;
+  margin: 0;
+}

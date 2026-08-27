@@ -23,6 +23,7 @@ const {
   importCutResult, placedTelops, telopsAt, clipName,
   addTelop, updateTelop, removeTelop, moveTelopEdge,
   renameClip, setClipGain, GAIN_RANGE,
+  duplicateClip, pasteClip, isGap,
 } = m;
 
 let failed = 0;
@@ -556,6 +557,90 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   eq('下限で止まる', setClipGain(p, id, -999).clips[0].gainDb, GAIN_RANGE.min);
   eq('0.1 まで刻む', setClipGain(p, id, -6.44).clips[0].gainDb, -6.4);
   eq('知らない id では作り直さない', setClipGain(p, 'ない', -3) === p, true);
+}
+
+/* ================================================ 複製と貼り付け */
+{
+  const base = () => importCutResult(emptyProject(), {
+    asset: { id: 'a', path: '/m/a.mp4', name: 'トーク', duration: 60, hasVideo: true, hasAudio: true },
+    keeps: [{ srcStart: 0, srcEnd: 5 }, { srcStart: 20, srcEnd: 25 }, { srcStart: 40, srcEnd: 45 }],
+  });
+
+  /* -------------------------------------------------------- 複製 */
+  let p = base();
+  const second = p.clips[1].id;
+  p = duplicateClip(p, second);
+
+  eq('本数が増える', p.clips.length, 4);
+  /*
+    🔴 すぐ後ろに入ること。
+       末尾に足すと、詰める設定では一番後ろへ飛び、
+       複製したものを毎回探して運ぶことになる。
+  */
+  eq('元のすぐ後ろに入る', p.clips.map((c) => c.srcStart), [0, 20, 20, 40]);
+  eq('中身は同じ', [p.clips[2].srcStart, p.clips[2].srcEnd], [20, 25]);
+  eq('別のクリップになっている', p.clips[1].id === p.clips[2].id, false);
+  // 🔴 同じ名前が2つあると、どちらを動かしたのか追えない
+  eq('名前は付け直す', p.clips[1].name === p.clips[2].name, false);
+
+  const place = layout(p);
+  eq('詰めた並び', place.map((c) => [c.start, c.end]),
+     [[0, 5], [5, 10], [10, 15], [15, 20]]);
+
+  // 空きは複製しない（複製しても何も映らないものが増えるだけ）
+  {
+    const one = base();
+    const g = removeClip(one, one.clips[0].id, 'lift');
+    eq('空きになっている', isGap(g.clips[0]), true);
+    eq('空きは複製しない', duplicateClip(g, g.clips[0].id) === g, true);
+  }
+  eq('知らない id では作り直さない', duplicateClip(p, 'ない') === p, true);
+
+  /* ------------------------------------------------ 貼り付け（詰める） */
+  let q = base();
+  const copied = { assetId: 'a', srcStart: 50, srcEnd: 53 };
+  // 再生位置 7 秒 = 2本目（5〜10秒）の上
+  q = pasteClip(q, copied, q.lanes[0].id, 7);
+  eq('貼った本数', q.clips.length, 4);
+  /*
+    🔴 詰めるレーンでは、再生位置がどのクリップの上かで割り込み先を決める。
+       位置は見ないレーンなので、末尾に足すと関係のない場所に出る。
+  */
+  eq('再生位置のクリップの前に入る', q.clips.map((c) => c.srcStart), [0, 50, 20, 40]);
+  eq('長さはそのまま', layout(q)[1].end - layout(q)[1].start, 3);
+
+  // 末尾より後ろなら末尾へ
+  const tail = pasteClip(base(), copied, base().lanes[0].id, 999);
+  eq('末尾より後ろなら末尾へ', tail.clips.map((c) => c.srcStart), [0, 20, 40, 50]);
+
+  /* ------------------------------------------------ 貼り付け（重ねる） */
+  let r = base();
+  r = addLane(r, { id: 'v1', kind: 'video', name: '重ね' });
+  r = pasteClip(r, copied, 'v1', 8.5);
+  const on = layout(r).find((c) => c.laneId === 'v1');
+  eq('重ねるレーンは位置をそのまま持つ', [on.start, on.end], [8.5, 11.5]);
+
+  /* ---------------------------------------------------- 通さないもの */
+  eq('素材が無ければ貼らない',
+     pasteClip(base(), { assetId: 'ない', srcStart: 0, srcEnd: 1 }, base().lanes[0].id, 0)
+       .clips.length, 3);
+  eq('レーンが無ければ貼らない',
+     pasteClip(base(), copied, 'ないレーン', 0).clips.length, 3);
+  eq('長さ0は貼らない',
+     pasteClip(base(), { assetId: 'a', srcStart: 5, srcEnd: 5 }, base().lanes[0].id, 0)
+       .clips.length, 3);
+
+  // 音量も一緒に控えられる
+  const withGain = pasteClip(base(), { ...copied, gainDb: -6 }, base().lanes[0].id, 0);
+  eq('音量も引き継ぐ', withGain.clips[0].gainDb, -6);
+}
+
+/* ================================================ 書き出しの選択 */
+{
+  const s = emptyProject().settings;
+  eq('既定は焼き込む', s.burnTelops, true);
+  eq('既定は字幕も作る', s.writeSrt, true);
+  eq('既定は音量をそろえる', s.loudnorm, true);
 }
 
 if (failed > 0) {

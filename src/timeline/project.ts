@@ -64,10 +64,36 @@ export interface ProjectSettings {
    *    「1コマ進める」を実装する段でここが効いてくる。
    */
   fps: number;
+  /**
+   * テロップを映像に焼き込むか。
+   *
+   * 🔴 選べるようにしておくこと。
+   *    既定のまま隠すと、字幕ファイルだけ欲しい人に手立てが無くなる。
+   *    以前、書き出しの選択を隠していたせいで
+   *    Final Cut への受け渡しが一度もできない状態で配りかけた。
+   */
+  burnTelops: boolean;
+  /** 字幕ファイル（.srt）も作るか */
+  writeSrt: boolean;
+  /**
+   * 全体の音量を配信の基準（-14 LUFS）へそろえるか。
+   *
+   * 🔴 切れるようにしておくこと。
+   *    編集ソフトとしては「勝手に音量が変わる」ほうが驚く。
+   *    喋り主体では入れたほうが楽なので、既定は入。
+   */
+  loudnorm: boolean;
 }
 
 /** 何も無いところから始めるときの大きさ。いちばん多い形 */
-export const DEFAULT_SETTINGS: ProjectSettings = { width: 1920, height: 1080, fps: 30 };
+export const DEFAULT_SETTINGS: ProjectSettings = {
+  width: 1920,
+  height: 1080,
+  fps: 30,
+  burnTelops: true,
+  writeSrt: true,
+  loudnorm: true,
+};
 
 export interface Lane {
   id: string;
@@ -670,6 +696,88 @@ export function placedTelops(project: Project): PlacedTelop[] {
     }
   }
   return out.sort((a, b) => a.start - b.start);
+}
+
+/**
+ * クリップを複製して、すぐ後ろに置く（⌘D）。
+ *
+ * 🔴 メインレーンでは**配列の並びに割り込ませる**こと。
+ *    末尾に足すと、詰める設定が入っているときに一番後ろへ飛ぶ。
+ *    「すぐ後ろ」に出ないと、複製したものを毎回探して運ぶことになる。
+ *
+ * 🔴 名前は付け直すこと。同じ名前が2つあると、
+ *    どちらを動かしたのか一覧でも履歴でも追えない。
+ */
+export function duplicateClip(project: Project, id: string): Project {
+  const i = project.clips.findIndex((c) => c.id === id);
+  if (i < 0) return project;
+  const src = project.clips[i];
+  if (isGap(src)) return project;
+
+  const copy: Clip = {
+    ...src,
+    id: newId('clip'),
+    name: clipName(project, src.assetId),
+  };
+
+  const lane = project.lanes.find((l) => l.id === src.laneId);
+  const magnetic = lane?.kind === 'main' && project.magnetic;
+  if (!magnetic) {
+    // 位置を持つレーンでは、元の終わりに置く
+    const placedSrc = layout(project).find((c) => c.id === id);
+    copy.at = round((placedSrc?.end ?? src.at ?? 0));
+  }
+
+  const clips = [...project.clips];
+  clips.splice(i + 1, 0, copy);
+  return { ...project, clips };
+}
+
+/**
+ * 控えたクリップを、そのレーンの再生位置へ置く（⌘V）。
+ *
+ * 🔴 素材が無くなっていたら置かないこと。
+ *    素材の無いクリップは画面に出せない幽霊になる。
+ */
+export function pasteClip(
+  project: Project,
+  source: Pick<Clip, 'assetId' | 'srcStart' | 'srcEnd' | 'gainDb'>,
+  laneId: string,
+  at: number,
+): Project {
+  const asset = project.assets.find((a) => a.id === source.assetId);
+  const lane = project.lanes.find((l) => l.id === laneId);
+  if (!asset || !lane || source.srcEnd - source.srcStart <= 0) return project;
+
+  const clip: Clip = {
+    id: newId('clip'),
+    name: clipName(project, source.assetId),
+    assetId: source.assetId,
+    laneId,
+    srcStart: round(source.srcStart),
+    srcEnd: round(source.srcEnd),
+    ...(source.gainDb ? { gainDb: source.gainDb } : {}),
+  };
+
+  const magnetic = lane.kind === 'main' && project.magnetic;
+  if (magnetic) {
+    /*
+      🔴 詰めるレーンでは「再生位置がどのクリップの上か」で割り込み先を決める。
+         位置（at）は見ないレーンなので、末尾に足すと
+         再生位置と関係のない場所に出てしまう。
+    */
+    const placed = layout(project).filter((c) => c.laneId === laneId);
+    const hit = placed.findIndex((c) => at < c.end - 0.0005);
+    const order = project.clips.map((c) => c.id);
+    const target = hit < 0 ? -1 : order.indexOf(placed[hit].id);
+    const clips = [...project.clips];
+    if (target < 0) clips.push(clip);
+    else clips.splice(target, 0, clip);
+    return { ...project, clips };
+  }
+
+  clip.at = Math.max(0, round(at));
+  return { ...project, clips: [...project.clips, clip] };
 }
 
 /* ------------------------------------------------------------ テロップ */

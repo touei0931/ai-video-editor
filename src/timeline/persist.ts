@@ -76,10 +76,15 @@ function toSettings(v: unknown): ProjectSettings {
   const h = num(v.height);
   const fps = num(v.fps);
   const even = (n: number) => Math.max(16, Math.round(n / 2) * 2);
+  // 🔴 入っていない項目は既定へ。古い書類が開けなくなる
+  const flag = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
   return {
     width: w && w > 0 ? even(w) : DEFAULT_SETTINGS.width,
     height: h && h > 0 ? even(h) : DEFAULT_SETTINGS.height,
     fps: fps && fps > 0 && fps <= 240 ? fps : DEFAULT_SETTINGS.fps,
+    burnTelops: flag(v.burnTelops, DEFAULT_SETTINGS.burnTelops),
+    writeSrt: flag(v.writeSrt, DEFAULT_SETTINGS.writeSrt),
+    loudnorm: flag(v.loudnorm, DEFAULT_SETTINGS.loudnorm),
   };
 }
 

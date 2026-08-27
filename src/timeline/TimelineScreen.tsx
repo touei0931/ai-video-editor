@@ -36,7 +36,10 @@ import {
   updateTelop,
   removeTelop,
   moveTelopEdge,
+  duplicateClip,
+  pasteClip,
   videoAt,
+  type Clip,
   removeClip,
   setMagnetic,
   timelineDuration,
@@ -451,26 +454,38 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
       let telops: unknown[] = [];
       let blankPng = '';
       const shown = placedTelops(project);
-      if (shown.length) {
+      // 焼き込まない場合でも、字幕ファイルを出すために時刻と文言は渡す
+      const wantPng = project.settings.burnTelops;
+      if (shown.length && (wantPng || project.settings.writeSrt)) {
         const cards = buildTimelineCards(shown, frame, styles);
-        const rendered = await renderTelopPngs(cards, frame, styles, (done, total) =>
-          setExporting(`テロップを描いています ${done}/${total}`),
-        );
-        const saved = await api.saveTelopFrames({
-          dir: `${workDir}/telops`,
-          frames: [
-            ...rendered.map((r) => ({ name: r.name, base64: r.base64 })),
-            { name: '_blank.png', base64: renderBlank(frame) },
-          ],
-        });
-        blankPng = saved['_blank.png'];
-        telops = cards.map((c, i) => ({
-          out_start: c.srcStart,
-          out_end: c.srcEnd,
-          text: c.text,
-          png: saved[rendered[i].name],
-          lane: rendered[i].lane,
-        }));
+        if (wantPng) {
+          const rendered = await renderTelopPngs(cards, frame, styles, (done, total) =>
+            setExporting(`テロップを描いています ${done}/${total}`),
+          );
+          const saved = await api.saveTelopFrames({
+            dir: `${workDir}/telops`,
+            frames: [
+              ...rendered.map((r) => ({ name: r.name, base64: r.base64 })),
+              { name: '_blank.png', base64: renderBlank(frame) },
+            ],
+          });
+          blankPng = saved['_blank.png'];
+          telops = cards.map((c, i) => ({
+            out_start: c.srcStart,
+            out_end: c.srcEnd,
+            text: c.text,
+            png: saved[rendered[i].name],
+            lane: rendered[i].lane,
+          }));
+        } else {
+          telops = cards.map((c) => ({
+            out_start: c.srcStart,
+            out_end: c.srcEnd,
+            text: c.text,
+            png: '',
+            lane: 0,
+          }));
+        }
       }
 
       const result = (await api.exportTimeline({
@@ -481,13 +496,15 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
         clips,
         telops,
         blank_png: blankPng,
-        burn_telops: telops.length > 0,
-        write_srt: telops.length > 0,
-      })) as { out_path?: string; telop_count?: number; size_mb?: number };
+        burn_telops: wantPng && telops.length > 0,
+        write_srt: project.settings.writeSrt && telops.length > 0,
+        loudnorm: project.settings.loudnorm,
+      })) as { out_path?: string; telop_count?: number; size_mb?: number; srt_path?: string };
 
       setNotice(
         `書き出しました（${clock(duration)} / ${result.size_mb ?? '?'}MB` +
-          `${result.telop_count ? ` / テロップ ${result.telop_count} 枚` : ''}）`,
+          `${result.telop_count ? ` / テロップ ${result.telop_count} 枚` : ''}` +
+          `${result.srt_path ? ' / 字幕も出しました' : ''}）`,
       );
       void api.revealFile?.(result.out_path ?? out);
     } catch (e) {
@@ -497,6 +514,54 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
       setExporting(null);
     }
   }, [project, placed, duration, styles, exporting]);
+
+  /**
+   * 控え（コピー）。
+   *
+   * 🔴 クリップそのものではなく「素材のどこか」を控えること。
+   *    クリップは消えたり分かれたりする。控えが元のクリップを指していると、
+   *    貼るときには既に無い、ということが起きる。
+   */
+  const [clipboard, setClipboard] = useState<Pick<
+    Clip,
+    'assetId' | 'srcStart' | 'srcEnd' | 'gainDb'
+  > | null>(null);
+
+  const copyClip = useCallback(() => {
+    const sel = parseSelection(selected);
+    if (sel?.kind !== 'clip') return;
+    const c = placed.find((x) => x.id === sel.clipId);
+    if (!c || isGap(c)) return;
+    setClipboard({ assetId: c.assetId, srcStart: c.srcStart, srcEnd: c.srcEnd, gainDb: c.gainDb });
+    setNotice(`${c.name} を控えました`);
+  }, [selected, placed]);
+
+  const paste = useCallback(() => {
+    if (!clipboard) {
+      setNotice('控えているものがありません');
+      return;
+    }
+    const laneId = selectedLane ?? project.lanes.find((l) => l.kind === 'main')?.id;
+    if (!laneId) return;
+    const next = pasteClip(project, clipboard, laneId, time);
+    if (next === project) {
+      setNotice('ここには貼れません');
+      return;
+    }
+    const added = next.clips.find((c) => !project.clips.some((o) => o.id === c.id));
+    apply(next, '貼りました');
+    setSelected(added?.id ?? null);
+  }, [clipboard, project, selectedLane, time, apply]);
+
+  const duplicate = useCallback(() => {
+    const sel = parseSelection(selected);
+    if (sel?.kind !== 'clip') return;
+    const next = duplicateClip(project, sel.clipId);
+    if (next === project) return;
+    const added = next.clips.find((c) => !project.clips.some((o) => o.id === c.id));
+    apply(next, '複製しました');
+    setSelected(added?.id ?? null);
+  }, [selected, project, apply]);
 
   /** 書き出しの大きさ・コマ数を変える */
   const setSettings = useCallback(
@@ -640,9 +705,22 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
       } else if (!mod && e.key.toLowerCase() === 'l') {
         e.preventDefault();
         player.play();
+      } else if (mod && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        copyClip();
+      } else if (mod && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        paste();
+      } else if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        duplicate();
       }
     },
-    [blade, undo, remove, addTelopHere, seekBy, seekEdit, fps, duration, project, apply, player],
+    [
+      blade, undo, remove, addTelopHere, seekBy, seekEdit,
+      copyClip, paste, duplicate,
+      fps, duration, project, apply, player,
+    ],
   );
 
   /* ------------------------------------------------------------- 見た目 */
@@ -833,6 +911,38 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
             <p className="tl-settings-note">
               素材はこの大きさに収めて書き出します（足りない分は黒で埋めます）。
             </p>
+
+            {/*
+              🔴 書き出しの選択は画面から変えられるようにしておくこと。
+                 既定のまま隠すと、字幕だけ欲しい人に手立てが無くなる。
+                 以前これを隠していて、Final Cut への受け渡しが
+                 一度もできない状態で配りかけた。
+            */}
+            <hr className="tl-settings-line" />
+            <label className="tl-check">
+              <input
+                type="checkbox"
+                checked={project.settings.burnTelops}
+                onChange={(e) => setSettings({ burnTelops: e.target.checked })}
+              />
+              テロップを映像に焼き込む
+            </label>
+            <label className="tl-check">
+              <input
+                type="checkbox"
+                checked={project.settings.writeSrt}
+                onChange={(e) => setSettings({ writeSrt: e.target.checked })}
+              />
+              字幕ファイル（.srt）も作る
+            </label>
+            <label className="tl-check">
+              <input
+                type="checkbox"
+                checked={project.settings.loudnorm}
+                onChange={(e) => setSettings({ loudnorm: e.target.checked })}
+              />
+              音量を配信の基準にそろえる
+            </label>
           </div>
         </details>
         <span className="tl-spacer" />
@@ -852,6 +962,8 @@ export function TimelineScreen({ project, onChange, pickFile, onImport }: Props)
             <div><dt>N</dt><dd>詰める の入 / 切</dd></div>
             <div><dt>⌘Z / Ctrl+Z</dt><dd>ひとつ戻す</dd></div>
             <div><dt>T</dt><dd>再生位置にテロップを足す</dd></div>
+            <div><dt>⌘C / ⌘V</dt><dd>控える / 貼る</dd></div>
+            <div><dt>⌘D</dt><dd>複製して後ろに置く</dd></div>
             <div><dt>← / →</dt><dd>1コマ戻す / 進める</dd></div>
             <div><dt>Shift+← / →</dt><dd>1秒戻す / 進める</dd></div>
             <div><dt>↑ / ↓</dt><dd>前 / 次の切れ目へ</dd></div>
