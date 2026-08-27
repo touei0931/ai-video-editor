@@ -165,9 +165,17 @@ export interface TimelineProps {
    */
   focusId?: string | null;
   /**
-   * 目盛りの右に置く追加の操作（時間軸の切り替えなど）。
+   * 目盛りの左（見出しのすぐ右）に置く追加の操作（時間軸の切り替えなど）。
    */
   extraControls?: ReactNode;
+  /**
+   * 時刻の表示と「再生地点」の間に置く操作。
+   *
+   * 🔴 再生位置まわりの操作は、ここにまとめること。
+   *    左端の見出しのそばに置くと、離れた場所にある時刻表示や
+   *    「再生地点」と組で使うものだと分からない。
+   */
+  timeControls?: ReactNode;
   /**
    * 吸着させたい時刻（秒）。カットの切れ目など。
    *
@@ -268,6 +276,7 @@ export function Timeline({
   initialPxPerSec,
   focusId,
   extraControls,
+  timeControls,
   range,
   snapPoints,
   snapEnabled = true,
@@ -876,7 +885,7 @@ export function Timeline({
          画面の外にある白線まで追いかけると、余白で動かした先や拡大した先から
          毎回引き戻される。引き戻されるたびに映っている範囲が変わるので、
          コマも取り直しになり、点滅しているように見える。
-         見失ったときは「白線へ」か「全体」で戻れる。
+         見失ったときは「再生地点」か「全体」で戻れる。
 
       🔴 見えていたかどうかは**進む前の位置**で判断すること。
          進んだ先で判断すると、1回の進みが大きいときに
@@ -977,8 +986,9 @@ export function Timeline({
         <span className="fcp-dim" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {clock(currentTime)} / {clock(duration)}
         </span>
+        {timeControls}
         <button onClick={toPlayhead} title="再生位置が見える所まで戻ります">
-          白線へ
+          再生地点
         </button>
         <button className="icon" onClick={() => zoom(0.8)} title="縮小（Ctrl+ホイール）">
           −

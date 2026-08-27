@@ -1383,7 +1383,7 @@ export function TimelineScreen({
         snapPoints={snapPoints}
         range={range}
         tracks={tracks}
-        extraControls={
+        timeControls={
           <MagnetToggle
             on={project.magnetic}
             onToggle={() => apply(setMagnetic(project, !project.magnetic))}

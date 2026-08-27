@@ -1262,14 +1262,16 @@ export function CutStage({
           focusId={focusId}
           snapPoints={snapPoints}
           snapEnabled={snapEnabled}
+          timeControls={
+            <MagnetToggle
+              on={snapEnabled}
+              onToggle={() => setSnapEnabled((v) => !v)}
+              title="吸着（隣のカットの端に吸い付ける・N キー）"
+              label="吸着"
+            />
+          }
           extraControls={
             <>
-              <MagnetToggle
-                on={snapEnabled}
-                onToggle={() => setSnapEnabled((v) => !v)}
-                title="吸着（隣のカットの端に吸い付ける・N キー）"
-                label="吸着"
-              />
             {/* 🔴 見出しは枠の外に。中に入れるとボタンの1つに見える */}
             <span className="fcp-axis-label">カット箇所</span>
             <div className="fcp-axis" title="切る所を、暗くして見せるか、詰めて見せるか">
