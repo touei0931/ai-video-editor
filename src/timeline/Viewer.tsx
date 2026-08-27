@@ -19,19 +19,12 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { placedTelops, type Project } from './project';
-import {
-  DEFAULT_STYLES,
-  buildTimelineCards,
-  drawCardsAt,
-  telopLayout,
-  type TelopStyles,
-} from './telopCanvas';
+import { buildTimelineCards, drawCardsAt, telopLayout } from './telopCanvas';
 import type { TimelinePlayer } from './useTimelinePlayer';
 
 interface Props {
   project: Project;
   player: TimelinePlayer;
-  styles?: TelopStyles;
 }
 
 const layer: CSSProperties = {
@@ -43,8 +36,10 @@ const layer: CSSProperties = {
   background: '#000',
 };
 
-export function Viewer({ project, player, styles = DEFAULT_STYLES }: Props) {
+export function Viewer({ project, player }: Props) {
   const empty = project.clips.length === 0;
+  // 🔴 見た目はプロジェクトのものを使う。書き出しと同じものでなければ意味がない
+  const styles = project.styles;
   const frame = useMemo(
     () => ({ width: project.settings.width, height: project.settings.height }),
     [project.settings.width, project.settings.height],

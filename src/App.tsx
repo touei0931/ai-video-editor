@@ -1343,6 +1343,8 @@ export function App({ onSendToTimeline }: AppProps = {}) {
                   ).map((sg) => ({ srcStart: sg.srcStart, srcEnd: sg.srcEnd }));
 
                   onSendToTimeline({
+                    // 🔴 整えた見た目も一緒に渡す。渡さないと並べた瞬間に既定へ戻る
+                    styles: finalState.styles,
                     asset: {
                       id: newId('asset'),
                       path: analysis.video_path,
@@ -1357,12 +1359,13 @@ export function App({ onSendToTimeline }: AppProps = {}) {
                       height: frame.height,
                     },
                     keeps,
+                    // 🔴 見た目の名前をそのまま渡す。2種類に潰さないこと。
+                    //    雛形も一緒に渡しているので、並べる画面でも同じ見た目で出る。
                     telops: finalState.cards.map((c) => ({
                       srcStart: c.srcStart,
                       srcEnd: c.srcEnd,
                       text: c.text,
-                      // 並べる画面は2種類しか持たない。note は通常に寄せる
-                      style: c.style === 'emphasis' ? 'emphasis' : 'normal',
+                      style: c.style,
                     })),
                   });
                 }

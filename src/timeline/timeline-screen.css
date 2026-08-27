@@ -11,6 +11,12 @@
 */
 .tl-screen {
   display: grid;
+  /*
+    Final Cut と同じ並び。上に道具、左に映像、右にインスペクタ、下にタイムライン。
+    🔴 場所は明示して置くこと。JSX に書いた順で流し込むと、
+       要素を1つ足すだけで並びが崩れる。
+  */
+  grid-template-columns: minmax(0, 1fr) 300px;
   grid-template-rows: auto minmax(0, 1fr) minmax(160px, 40%);
   height: 100%;
   min-height: 0;
@@ -30,7 +36,24 @@
 */
 .tl-screen > .fcp-timeline {
   grid-area: auto;
+  grid-column: 1 / -1;
+  grid-row: 3;
   min-height: 0;
+}
+
+.tl-screen > .tl-bar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.tl-screen > .tl-viewer {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.tl-screen > .tl-inspector {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .tl-bar {
@@ -506,4 +529,145 @@
   line-height: 1.6;
   color: var(--muted, #9aa0a6);
   white-space: normal;
+}
+
+/* ============================================================ インスペクタ */
+
+/*
+  選んだものを直す場所。
+
+  🔴 幅を決め打ちにして、縮ませないこと。
+     flex/grid の既定では中身の最小幅まで潰れ、
+     日本語のラベルが1文字ずつ改行される（このファイルで二度踏んでいる）。
+*/
+.tl-inspector {
+  /* 幅は格子（.tl-screen）が決める。ここで二重に決めると食い違う */
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 20px;
+  background: var(--s1, #1b1b20);
+  border-left: 1px solid var(--line, #33333c);
+  font-size: 12px;
+}
+
+.tl-inspector h2 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted, #9aa0a6);
+}
+
+.tl-field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.tl-field > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted, #9aa0a6);
+}
+
+.tl-field > span b {
+  color: var(--fg, #e8e8ea);
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-field input[type='text'],
+.tl-field input:not([type]),
+.tl-field textarea,
+.tl-field select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--s4, #34343e);
+  border-radius: 5px;
+  background: var(--s0, #131317);
+  color: var(--fg, #e8e8ea);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.tl-field textarea {
+  resize: vertical;
+}
+
+.tl-field input[type='range'] {
+  width: 100%;
+}
+
+.tl-readout {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-facts {
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tl-facts > div {
+  display: flex;
+  gap: 8px;
+}
+
+.tl-facts dt {
+  flex: 0 0 64px;
+  color: var(--muted, #9aa0a6);
+}
+
+.tl-facts dd {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 🔴 ボタンを縮めないこと（.tl-bar と同じ理由） */
+.tl-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.tl-row button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 3px 7px;
+  font-size: 11px;
+}
+
+.tl-nudge {
+  align-items: center;
+}
+
+.tl-nudge-label {
+  flex: 0 0 44px;
+  color: var(--muted, #9aa0a6);
+}
+
+.tl-hint {
+  margin: 0 0 12px;
+  line-height: 1.7;
+  color: var(--muted, #9aa0a6);
+}
+
+.tl-danger {
+  width: 100%;
+  padding: 6px;
+  border-color: #7a3030;
+  color: #ff9c9c;
+}
+
+.tl-inspector-empty {
+  color: var(--muted, #9aa0a6);
 }

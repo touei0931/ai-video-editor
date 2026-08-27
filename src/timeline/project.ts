@@ -16,6 +16,8 @@
  *    位置から順番を決めると、同じ位置に2つ来たときに順番が揺れる。
  */
 
+import { DEFAULT_STYLES, type StyleMap, type TelopStyleName } from '../telop/style';
+
 /** レーンの種類 */
 export type LaneKind =
   /** 土台。ここに置いたものが作品の背骨になる（Final Cut のプライマリ） */
@@ -114,6 +116,15 @@ export interface Clip {
    *    実際の並びと食い違った数字が残り続ける。
    */
   at?: number;
+  /**
+   * このクリップだけの音量（デシベル）。0 が素材のまま。
+   *
+   * 🔴 倍率ではなくデシベルで持つこと。
+   *    人が「小さくしたい」と思う量は倍率では等間隔にならない
+   *    （0.5 倍と 0.25 倍の差は、耳には同じ「半分」に聞こえる）。
+   *    編集ソフトが揃ってデシベルなのはそのため。
+   */
+  gainDb?: number;
 }
 
 /**
@@ -131,7 +142,15 @@ export interface Telop {
   srcStart: number;
   srcEnd: number;
   text: string;
-  style: 'normal' | 'emphasis';
+  /**
+   * どの見た目で出すか。雛形の名前。
+   *
+   * 🔴 'normal' | 'emphasis' に狭めないこと。
+   *    子画面では名前を付けた雛形を何組でも作れる。狭めると、
+   *    せっかく整えた見た目が**並べた瞬間に既定へ潰れる**。
+   *    知らない名前は描くときに通常へ寄る（resolveStyle）ので、ここでは通す。
+   */
+  style: TelopStyleName;
 }
 
 export interface Project {
@@ -143,6 +162,14 @@ export interface Project {
   magnetic: boolean;
   /** 書き出しの大きさとコマ数 */
   settings: ProjectSettings;
+  /**
+   * テロップの見た目の雛形。
+   *
+   * 🔴 プロジェクトが持つこと。画面ごとに持たない。
+   *    プレビューと書き出しで別のものを見ると、画面で整えた見た目と
+   *    書き出したものが違うことになる。しかも見比べないと気づけない。
+   */
+  styles: StyleMap;
 }
 
 /** 位置が決まったクリップ */
@@ -242,6 +269,7 @@ export function emptyProject(): Project {
     telops: [],
     magnetic: true,
     settings: { ...DEFAULT_SETTINGS },
+    styles: DEFAULT_STYLES,
   };
 }
 
@@ -556,6 +584,8 @@ export function setMagnetic(project: Project, on: boolean): Project {
 /** 子画面（自動カット）から返ってくるもの */
 export interface CutResult {
   asset: Asset;
+  /** 子画面で整えたテロップの見た目。渡さないと既定のまま並ぶ */
+  styles?: StyleMap;
   /** 残す区間。素材の中の時刻 */
   keeps: readonly { srcStart: number; srcEnd: number }[];
   /** テロップ。素材の中の時刻 */
@@ -579,6 +609,9 @@ export interface CutResult {
  *    「取り込む＝作り直し」にすると、2本目を取り込んだ時に1本目が消える。
  */
 export function importCutResult(project: Project, result: CutResult): Project {
+  // 🔴 子画面で整えた見た目を引き継ぐ。引き継がないと、
+  //    整えたはずのテロップが並べた瞬間に既定の見た目へ戻る。
+  if (result.styles) project = { ...project, styles: result.styles };
   // 🔴 最初の取り込みなら、その素材の大きさをプロジェクトの大きさにする。
   //    ここで決めないと、縦動画を下ごしらえしても書き出しが横の 1920x1080 になり、
   //    左右に黒い帯が付いたまま出てしまう。
@@ -637,6 +670,145 @@ export function placedTelops(project: Project): PlacedTelop[] {
     }
   }
   return out.sort((a, b) => a.start - b.start);
+}
+
+/* ------------------------------------------------------------ テロップ */
+
+/**
+ * テロップを1枚足す。
+ *
+ * 🔴 置き先は「クリップ」ではなく「素材の中の時刻」。
+ *    クリップは分けたり消したりされる。素材に結び付けておけば、
+ *    残ったクリップの上に自動で出る。
+ */
+export function addTelop(
+  project: Project,
+  clip: PlacedClip,
+  at: number,
+  seconds = 2,
+  text = '',
+  style: TelopStyleName = 'normal',
+): Project {
+  if (isGap(clip)) return project;
+  const srcStart = Math.max(
+    clip.srcStart,
+    Math.min(toSourceTime(clip, at), clip.srcEnd - 0.2),
+  );
+  const srcEnd = Math.min(clip.srcEnd, srcStart + seconds);
+  if (srcEnd - srcStart <= 0.05) return project;
+  return {
+    ...project,
+    telops: [
+      ...project.telops,
+      {
+        id: newId('telop'),
+        assetId: clip.assetId,
+        srcStart: round(srcStart),
+        srcEnd: round(srcEnd),
+        text,
+        style,
+      },
+    ],
+  };
+}
+
+/**
+ * テロップを直す。
+ *
+ * 🔴 長さが 0 以下になる直しは通さないこと。
+ *    通すと画面にもプレビューにも出なくなり、
+ *    「消えた」のか「一瞬になった」のか分からないテロップが残る。
+ */
+export function updateTelop(
+  project: Project,
+  id: string,
+  patch: Partial<Pick<Telop, 'text' | 'style' | 'srcStart' | 'srcEnd'>>,
+): Project {
+  const i = project.telops.findIndex((t) => t.id === id);
+  if (i < 0) return project;
+  const before = project.telops[i];
+  const next: Telop = {
+    ...before,
+    ...patch,
+    srcStart: round(Math.max(0, patch.srcStart ?? before.srcStart)),
+    srcEnd: round(Math.max(0, patch.srcEnd ?? before.srcEnd)),
+  };
+  if (next.srcEnd - next.srcStart < 0.05) return project;
+  if (
+    next.text === before.text &&
+    next.style === before.style &&
+    next.srcStart === before.srcStart &&
+    next.srcEnd === before.srcEnd
+  ) {
+    return project;
+  }
+  const telops = [...project.telops];
+  telops[i] = next;
+  return { ...project, telops };
+}
+
+/** テロップを消す */
+export function removeTelop(project: Project, id: string): Project {
+  const telops = project.telops.filter((t) => t.id !== id);
+  return telops.length === project.telops.length ? project : { ...project, telops };
+}
+
+/**
+ * テロップの表示時間を、タイムライン上の時刻で直す。
+ *
+ * 🔴 素材の時刻へ直してから入れること。
+ *    テロップは素材に結び付いている。タイムラインの時刻のまま入れると、
+ *    そのクリップを動かした瞬間にテロップだけ元の場所に取り残される。
+ */
+export function moveTelopEdge(
+  project: Project,
+  telopId: string,
+  clip: PlacedClip,
+  edge: 'start' | 'end',
+  at: number,
+): Project {
+  const src = toSourceTime(clip, at);
+  return updateTelop(project, telopId, edge === 'start' ? { srcStart: src } : { srcEnd: src });
+}
+
+/* ---------------------------------------------------------------- クリップ */
+
+/** クリップの名前を変える */
+export function renameClip(project: Project, id: string, name: string): Project {
+  const trimmed = name.trim();
+  if (!trimmed) return project;
+  const i = project.clips.findIndex((c) => c.id === id);
+  if (i < 0 || project.clips[i].name === trimmed) return project;
+  const clips = [...project.clips];
+  clips[i] = { ...clips[i], name: trimmed };
+  return { ...project, clips };
+}
+
+/**
+ * クリップの音量の範囲（デシベル）。
+ *
+ * 🔴 上限と下限を決めること。
+ *    +60dB は 1000 倍で、耳を痛めるうえに書き出しが割れる。
+ *    下は -60dB まで。それ以下は実質無音なので、刻んでも意味がない。
+ */
+export const GAIN_RANGE = { min: -60, max: 12 };
+
+/** クリップの音量を変える（デシベル） */
+export function setClipGain(project: Project, id: string, db: number): Project {
+  const clamped = Math.max(GAIN_RANGE.min, Math.min(GAIN_RANGE.max, Math.round(db * 10) / 10));
+  const i = project.clips.findIndex((c) => c.id === id);
+  if (i < 0) return project;
+  const before = project.clips[i].gainDb ?? 0;
+  if (before === clamped) return project;
+  const clips = [...project.clips];
+  if (clamped === 0) {
+    // 0 は既定なので持たない。書類を無駄に太らせない
+    const { gainDb: _drop, ...rest } = clips[i];
+    clips[i] = rest;
+  } else {
+    clips[i] = { ...clips[i], gainDb: clamped };
+  }
+  return { ...project, clips };
 }
 
 /** その時刻に出ているテロップ */

@@ -11,7 +11,8 @@
  *    素材が移動・削除されていることはあるので、開いた側で確かめる。
  */
 
-import { DEFAULT_SETTINGS, type Asset, type Clip, type Lane, type Project, type ProjectSettings, type Telop } from './project';
+import { DEFAULT_SETTINGS, GAIN_RANGE, type Asset, type Clip, type Lane, type Project, type ProjectSettings, type Telop } from './project';
+import { sanitizeStyles, type StyleMap } from '../telop/style';
 
 /** 書類の版。形を変えたら上げる */
 export const SAVE_VERSION = 1;
@@ -102,6 +103,16 @@ function toClip(v: unknown, assets: Set<string>, lanes: Set<string>): Clip | nul
   if (!assets.has(assetId) || !lanes.has(laneId)) return null;
   if (srcEnd - srcStart <= 0) return null;
   const at = num(v.at);
+  /*
+    🔴 音量は範囲で縛ること。
+       書類は人が手で書き換えられる場所にある。+60dB のまま通すと
+       書き出しが割れるうえ、再生でも耳を痛める。
+  */
+  const gain = num(v.gainDb);
+  const gainDb =
+    gain === null || gain === 0
+      ? null
+      : Math.max(GAIN_RANGE.min, Math.min(GAIN_RANGE.max, gain));
   return {
     id,
     // 🔴 古い書類には名前が無い。無いものは素材の名前で補う
@@ -111,10 +122,11 @@ function toClip(v: unknown, assets: Set<string>, lanes: Set<string>): Clip | nul
     srcStart,
     srcEnd,
     ...(at === null ? {} : { at: Math.max(0, at) }),
+    ...(gainDb === null ? {} : { gainDb }),
   };
 }
 
-function toTelop(v: unknown, assets: Set<string>): Telop | null {
+function toTelop(v: unknown, assets: Set<string>, styleNames: Set<string>): Telop | null {
   if (!isObj(v)) return null;
   const id = str(v.id);
   const assetId = str(v.assetId);
@@ -123,14 +135,14 @@ function toTelop(v: unknown, assets: Set<string>): Telop | null {
   const text = typeof v.text === 'string' ? v.text : null;
   if (!id || !assetId || srcStart === null || srcEnd === null || text === null) return null;
   if (!assets.has(assetId) || srcEnd - srcStart <= 0) return null;
-  return {
-    id,
-    assetId,
-    srcStart,
-    srcEnd,
-    text,
-    style: v.style === 'emphasis' ? 'emphasis' : 'normal',
-  };
+  /*
+    🔴 知らない雛形の名前は通常へ寄せること。
+       名前を付けた雛形は消せる。消えた名前をそのまま残すと、
+       描くたびに雛形を探して見つからない状態が続く。
+       雛形が残っている名前は、そのまま通す（せっかく整えた見た目を潰さない）。
+  */
+  const style = typeof v.style === 'string' && styleNames.has(v.style) ? v.style : 'normal';
+  return { id, assetId, srcStart, srcEnd, text, style };
 }
 
 /**
@@ -160,8 +172,15 @@ export function fromSaved(raw: unknown): Project | null {
   const clips = (Array.isArray(body.clips) ? body.clips : [])
     .map((c) => toClip(c, assetIds, laneIds))
     .filter((c): c is Clip => c !== null);
+  /*
+    🔴 雛形は telops より先に整えること。
+       どの名前が生きているかが決まらないと、テロップの見た目を確かめられない。
+  */
+  const styles: StyleMap = sanitizeStyles(body.styles);
+  const styleNames = new Set(Object.keys(styles));
+
   const telops = (Array.isArray(body.telops) ? body.telops : [])
-    .map((t) => toTelop(t, assetIds))
+    .map((t) => toTelop(t, assetIds, styleNames))
     .filter((t): t is Telop => t !== null);
 
   return {
@@ -171,5 +190,6 @@ export function fromSaved(raw: unknown): Project | null {
     telops,
     magnetic: body.magnetic !== false,
     settings: toSettings(body.settings),
+    styles,
   };
 }

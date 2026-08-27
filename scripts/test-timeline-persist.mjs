@@ -12,6 +12,8 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const P = await import(pathToFileURL(join(root, 'src/timeline/project.ts')).href);
 const S = await import(pathToFileURL(join(root, 'src/timeline/persist.ts')).href);
+const ST = await import(pathToFileURL(join(root, 'src/telop/style.ts')).href);
+const { DEFAULT_STYLES } = ST;
 
 const { emptyProject, addAsset, addLane, appendToMain, placeOnLane, importCutResult,
         adoptSettings } = P;
@@ -235,6 +237,73 @@ eq('本編のレーンが無い',
                   hasVideo: false, hasAudio: true };
   eq('音だけの素材では変えない',
      adoptSettings(emptyProject(), audio).settings.width, 1920);
+}
+
+/* ------------------------------------------ テロップの見た目の引き継ぎ */
+{
+  const bare = {
+    kind: 'pac-timeline', version: 1,
+    project: { assets: [], lanes: [{ id: 'main', kind: 'main' }], clips: [], telops: [] },
+  };
+
+  // 古い書類には無い。既定の3種類がそろうこと
+  const old = fromSaved(bare);
+  check('見た目が無い古い書類も開ける', old !== null);
+  eq('既定の3種類がそろう',
+     ['normal', 'note', 'emphasis'].every((n) => !!old.styles[n]), true);
+
+  /*
+    🔴 子画面で整えた見た目が、並べた画面へ渡ること。
+       渡らないと、整えたテロップが並べた瞬間に既定の見た目へ戻る。
+       しかもプレビューも書き出しも同じ既定なので、見比べても気づけない。
+  */
+  const mine = {
+    ...DEFAULT_STYLES,
+    normal: { ...DEFAULT_STYLES.normal, color: '#ff0000' },
+    // 名前を付けた雛形
+    ツッコミ: { ...DEFAULT_STYLES.emphasis, color: '#00ff88' },
+  };
+  const imported = importCutResult(emptyProject(), {
+    asset: { id: 'a', path: '/m/a.mp4', name: 'a', duration: 30, hasVideo: true, hasAudio: true },
+    keeps: [{ srcStart: 0, srcEnd: 10 }],
+    styles: mine,
+    telops: [{ srcStart: 1, srcEnd: 3, text: 'やあ', style: 'ツッコミ' }],
+  });
+  eq('取り込みで見た目が入る', imported.styles.normal.color, '#ff0000');
+  eq('名前を付けた雛形も入る', !!imported.styles['ツッコミ'], true);
+  /*
+    🔴 見た目の名前を2種類に潰さないこと。
+       以前は normal / emphasis のどちらかへ寄せていたので、
+       名前を付けた雛形は取り込んだ時点で失われていた。
+  */
+  eq('テロップの見た目の名前が残る', imported.telops[0].style, 'ツッコミ');
+
+  // 往復
+  const round = fromSaved(JSON.parse(JSON.stringify(toSaved(imported))));
+  eq('往復しても見た目が残る', round.styles.normal.color, '#ff0000');
+  eq('往復しても名前付きの雛形が残る', !!round.styles['ツッコミ'], true);
+  eq('往復してもテロップの名前が残る', round.telops[0].style, 'ツッコミ');
+
+  /*
+    🔴 雛形が消えた名前は通常へ寄せること。
+       残すと、描くたびに見つからない雛形を探し続けることになる。
+  */
+  const gone = fromSaved({
+    kind: 'pac-timeline', version: 1,
+    project: {
+      assets: [{ id: 'a', path: '/m/a.mp4', duration: 30 }],
+      lanes: [{ id: 'main', kind: 'main' }],
+      clips: [],
+      // styles を渡さない = 既定の3種類しかない
+      telops: [{ id: 't', assetId: 'a', srcStart: 0, srcEnd: 1, text: 'x', style: 'ツッコミ' }],
+    },
+  });
+  eq('消えた雛形の名前は通常に寄せる', gone.telops[0].style, 'normal');
+
+  // 壊れた見た目でも開ける
+  const broken = fromSaved({ ...bare, project: { ...bare.project, styles: '雛形' } });
+  check('壊れた見た目でも開ける', broken !== null);
+  eq('壊れていても既定がそろう', !!broken.styles.normal, true);
 }
 
 if (failed > 0) {

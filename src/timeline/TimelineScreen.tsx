@@ -32,6 +32,11 @@ import {
   placedTelops,
   isGap,
   clipLength,
+  addTelop,
+  updateTelop,
+  removeTelop,
+  moveTelopEdge,
+  videoAt,
   removeClip,
   setMagnetic,
   timelineDuration,
@@ -42,7 +47,8 @@ import {
   type ProjectSettings,
 } from './project';
 import { ProbeError, probeAsset } from './probe';
-import { DEFAULT_STYLES, buildTimelineCards, type TelopStyles } from './telopCanvas';
+import { Inspector, parseSelection } from './Inspector';
+import { buildTimelineCards } from './telopCanvas';
 import { renderBlank, renderTelopPngs } from '../telop/rasterize';
 import { ClipFilmstrip } from './ClipFilmstrip';
 import { buildFCPXML } from './fcpxml';
@@ -64,12 +70,6 @@ interface Props {
   pickFile?(): Promise<string | null>;
   /** 「取り込み（自動カット）」を押したとき。子画面を開くのは呼び出し側の仕事 */
   onImport?(): void;
-  /**
-   * テロップの見た目。
-   * 🔴 プレビューと書き出しで**同じものを渡すこと**。片方だけ既定に落とすと、
-   *    画面で確かめた見た目と書き出した見た目が違うものになる。
-   */
-  styles?: TelopStyles;
 }
 
 /**
@@ -106,13 +106,13 @@ const LANE_LABEL: Record<Lane['kind'], string> = {
   audio: '音',
 };
 
-export function TimelineScreen({
-  project,
-  onChange,
-  pickFile,
-  onImport,
-  styles = DEFAULT_STYLES,
-}: Props) {
+export function TimelineScreen({ project, onChange, pickFile, onImport }: Props) {
+  /*
+    テロップの見た目はプロジェクトが持つ。
+    🔴 画面側で既定に落とさないこと。子画面で整えた見た目が
+       並べた瞬間に潰れ、しかも書き出すまで気づけない。
+  */
+  const styles = project.styles;
   /*
     コマ数はプロジェクトが持つ（Final Cut の「プロジェクトのプロパティ」）。
     🔴 素材から決めないこと。素材を1本足すたびに書き出しのコマ数が変わる。
@@ -186,15 +186,48 @@ export function TimelineScreen({
    */
   const remove = useCallback(
     (lift: boolean) => {
-      if (!selected) return;
+      const sel = parseSelection(selected);
+      if (!sel) return;
+      /*
+        🔴 テロップを選んでいるときは、テロップを消すこと。
+           下のクリップを消すと、選んでいないものが消えることになる。
+      */
+      if (sel.kind === 'telop') {
+        apply(removeTelop(project, sel.telopId), 'テロップを消しました');
+        setSelected(null);
+        return;
+      }
       apply(
-        removeClip(project, selected, lift ? 'lift' : 'ripple'),
+        removeClip(project, sel.clipId, lift ? 'lift' : 'ripple'),
         lift ? '空きにしました' : '消して詰めました',
       );
       setSelected(null);
     },
     [project, selected, apply],
   );
+
+  /**
+   * 再生位置にテロップを1枚足す。
+   *
+   * 🔴 置き先は「その時見えている映像のクリップ」。
+   *    レーンを選ばせない。テロップは素材に結び付くので、
+   *    どのクリップの上かが決まれば置き場所は決まる。
+   */
+  const addTelopHere = useCallback(() => {
+    const clip = videoAt(project, time);
+    if (!clip) {
+      setNotice('白線の所に映像がありません');
+      return;
+    }
+    const next = addTelop(project, clip, time, 2, '新しいテロップ');
+    if (next === project) {
+      setNotice('ここにはテロップを置けません');
+      return;
+    }
+    const added = next.telops[next.telops.length - 1];
+    apply(next, 'テロップを足しました');
+    setSelected(`telop:${added.id}:${clip.id}`);
+  }, [project, time, apply]);
 
   /** 上に重ねるレーンを1本足す */
   const addLaneAbove = useCallback(
@@ -219,6 +252,34 @@ export function TimelineScreen({
    */
   const onTrim = useCallback(
     (id: string, start: number, end: number) => {
+      /*
+        テロップの帯を掴んだとき。
+        🔴 素材の時刻へ直してから入れること。タイムライン上の時刻のまま入れると、
+           そのクリップを動かした瞬間にテロップだけ取り残される。
+      */
+      const sel = parseSelection(id);
+      if (sel?.kind === 'telop') {
+        const shown = telops.find((t) => t.id === sel.telopId && t.clipId === sel.clipId);
+        const raw = project.telops.find((t) => t.id === sel.telopId);
+        const on = placed.find((c) => c.id === sel.clipId);
+        if (!shown || !raw || !on) return;
+        if (Math.abs(end - start - (shown.end - shown.start)) < 0.002) {
+          // まるごと動かす
+          const d = start - shown.start;
+          apply(updateTelop(project, raw.id, { srcStart: raw.srcStart + d, srcEnd: raw.srcEnd + d }));
+          return;
+        }
+        let next = project;
+        if (Math.abs(start - shown.start) > 0.002) {
+          next = moveTelopEdge(next, raw.id, on, 'start', start);
+        }
+        if (Math.abs(end - shown.end) > 0.002) {
+          next = moveTelopEdge(next, raw.id, on, 'end', end);
+        }
+        apply(next);
+        return;
+      }
+
       const before = placed.find((c) => c.id === id);
       if (!before) return;
       const movedWhole = Math.abs(end - start - (before.end - before.start)) < 0.002;
@@ -234,12 +295,18 @@ export function TimelineScreen({
         apply(trimClip(project, id, 'end', end - before.end));
       }
     },
-    [placed, project, apply],
+    [placed, telops, project, apply],
   );
 
   /** 別のレーンへ放したとき */
   const onMoveToLane = useCallback(
     (id: string, start: number, laneId: string) => {
+      /*
+        🔴 テロップは段を跨がせないこと。
+           テロップの段は「どこに出るか」を見せるための場所で、レーンではない。
+           そこへ落としたクリップは行き先を失う。
+      */
+      if (id.startsWith('telop:') || laneId === 'telops') return;
       apply(moveClip(project, id, laneId, start), 'レーンを移しました');
     },
     [project, apply],
@@ -363,6 +430,7 @@ export function TimelineScreen({
           // 音のレーンに置かれた映像素材は、音だけ使う（Final Cut と同じ）
           video: lane.kind !== 'audio' && asset.hasVideo,
           audio: asset.hasAudio,
+          gain_db: c.gainDb ?? 0,
         };
       })
       .filter((c): c is NonNullable<typeof c> => c !== null);
@@ -483,6 +551,12 @@ export function TimelineScreen({
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return;
       const mod = e.ctrlKey || e.metaKey;
 
+      if (!mod && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        addTelopHere();
+        return;
+      }
+
       if (mod && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         blade();
@@ -500,7 +574,7 @@ export function TimelineScreen({
         apply(setMagnetic(project, !project.magnetic));
       }
     },
-    [blade, undo, remove, project, apply, player],
+    [blade, undo, remove, addTelopHere, project, apply, player],
   );
 
   /* ------------------------------------------------------------- 見た目 */
@@ -531,9 +605,9 @@ export function TimelineScreen({
             start: t.start,
             end: t.end,
             kind: 'telop' as const,
-            label: t.text,
-            // 直すのは下ごしらえの子画面。ここでは場所を見せるだけ
-            fixed: true,
+            label: t.text || '（空）',
+            // 掴んで動かせる。本文と見た目はインスペクタで直す
+            fixed: false,
           })),
         }
       : null;
@@ -599,6 +673,9 @@ export function TimelineScreen({
         </button>
         <button onClick={() => addLaneAbove('audio')} title="BGM や効果音のレーン">
           ＋音
+        </button>
+        <button onClick={addTelopHere} title="再生位置にテロップを1枚足す（T）">
+          ＋テロップ
         </button>
         <span className="tl-sep" />
         <button onClick={blade} title="再生位置で素材を分ける（⌘B / Ctrl+B）">
@@ -687,6 +764,7 @@ export function TimelineScreen({
             <div><dt>Shift+Delete</dt><dd>その場を空きにする</dd></div>
             <div><dt>N</dt><dd>詰める の入 / 切</dd></div>
             <div><dt>⌘Z / Ctrl+Z</dt><dd>ひとつ戻す</dd></div>
+            <div><dt>T</dt><dd>再生位置にテロップを足す</dd></div>
             <div><dt>1 / 2</dt><dd>拡大 / 縮小</dd></div>
             <div><dt>Shift+1 / 2</dt><dd>コマを大きく / 小さく</dd></div>
           </dl>
@@ -699,7 +777,17 @@ export function TimelineScreen({
         </div>
       )}
 
-      <Viewer project={project} player={player} styles={styles} />
+      <Inspector
+        project={project}
+        placed={placed}
+        telops={telops}
+        selected={selected}
+        time={time}
+        onChange={apply}
+        onSelect={setSelected}
+      />
+
+      <Viewer project={project} player={player} />
 
       {/*
         🔴 書き出し中は何が起きているか出し続けること。

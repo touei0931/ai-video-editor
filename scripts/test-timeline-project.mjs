@@ -21,6 +21,8 @@ const {
   layout, timelineDuration, clipAt, videoAt, toSourceTime,
   bladeAt, removeClip, trimClip, moveClip, setMagnetic,
   importCutResult, placedTelops, telopsAt, clipName,
+  addTelop, updateTelop, removeTelop, moveTelopEdge,
+  renameClip, setClipGain, GAIN_RANGE,
 } = m;
 
 let failed = 0;
@@ -422,6 +424,138 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
 
   // 名前だけを引くこともできる
   eq('次に付く名前が引ける', clipName(p, 'b'), 'B 2');
+}
+
+/* ==================================================== テロップの直し */
+{
+  const base = () => importCutResult(emptyProject(), {
+    asset: { id: 'a', path: '/m/a.mp4', name: 'a', duration: 60, hasVideo: true, hasAudio: true },
+    // 20秒ぶんを2つに割って置く
+    keeps: [{ srcStart: 0, srcEnd: 10 }, { srcStart: 30, srcEnd: 40 }],
+    telops: [{ srcStart: 2, srcEnd: 5, text: 'まえ', style: 'normal' }],
+  });
+
+  /* ------------------------------------------------------------ 直す */
+  let p = base();
+  const tid = p.telops[0].id;
+
+  p = updateTelop(p, tid, { text: 'なおした' });
+  eq('本文が変わる', p.telops[0].text, 'なおした');
+  eq('時刻は変わらない', [p.telops[0].srcStart, p.telops[0].srcEnd], [2, 5]);
+
+  p = updateTelop(p, tid, { style: 'emphasis' });
+  eq('見た目が変わる', p.telops[0].style, 'emphasis');
+
+  /*
+    🔴 何も変わらない直しでは、同じものを返すこと。
+       毎回新しい project を作ると、取り消しの履歴が
+       「何も変わっていない状態」で埋まる。
+  */
+  eq('同じ内容なら作り直さない', updateTelop(p, tid, { text: 'なおした' }) === p, true);
+
+  /*
+    🔴 長さが 0 以下になる直しは通さない。
+       通すと画面にもプレビューにも出なくなり、
+       「消えた」のか「一瞬になった」のか分からないテロップが残る。
+  */
+  eq('終わりを始まりより前にはできない', updateTelop(p, tid, { srcEnd: 1 }) === p, true);
+  eq('一瞬すぎる長さにはできない', updateTelop(p, tid, { srcEnd: 2.02 }) === p, true);
+  eq('知らない id は何もしない', updateTelop(p, 'ない', { text: 'x' }) === p, true);
+
+  /* ------------------------------------------------------------ 消す */
+  const gone = removeTelop(p, tid);
+  eq('消える', gone.telops.length, 0);
+  eq('知らない id では作り直さない', removeTelop(gone, tid) === gone, true);
+
+  /* ------------------------------------------------------------ 足す */
+  let q = base();
+  const clips = layout(q);
+  q = addTelop(q, clips[0], 3, 2, 'あたらしい');
+  eq('足した本数', q.telops.length, 2);
+  const added = q.telops[1];
+  eq('置いた位置は素材の時刻', [added.srcStart, added.srcEnd], [3, 5]);
+
+  /*
+    🔴 クリップの外へはみ出させないこと。
+       はみ出した分は、そのクリップの上には出ないので
+       「足したのに出てこない」ように見える。
+  */
+  const late = addTelop(base(), clips[0], 9.5, 5, 'はみ出す');
+  eq('クリップの終わりで止まる', late.telops[1].srcEnd, 10);
+
+  /*
+    🔴 空きにはテロップを置けないこと。
+       素材が無いので、置いても出す先が無い。
+  */
+  const empty = base();
+  eq('空きには置けない',
+     addTelop(empty, { ...layout(empty)[0], assetId: '' }, 3) === empty, true);
+
+  /* ------------------------- 2つ目のクリップに足す（素材の時刻が飛ぶ） */
+  let r = base();
+  const cl = layout(r);
+  // 2つ目のクリップは素材の30秒目から。タイムラインでは10秒目から始まる
+  eq('2つ目の置き場所', [cl[1].start, cl[1].srcStart], [10, 30]);
+  r = addTelop(r, cl[1], 12, 2, 'あと');
+  /*
+    🔴 タイムラインの時刻をそのまま入れないこと。
+       素材の時刻へ直さないと、テロップだけ元の場所（素材の12秒目）に置かれ、
+       出したい場所には何も出ない。
+  */
+  eq('素材の時刻へ直して置く', [r.telops[1].srcStart, r.telops[1].srcEnd], [32, 34]);
+
+  const shown = placedTelops(r).find((t) => t.text === 'あと');
+  eq('タイムライン上では 12 秒から', [shown.start, shown.end], [12, 14]);
+
+  /* --------------------------------------------- 端をタイムラインで動かす */
+  let s = base();
+  const c0 = layout(s)[0];
+  s = moveTelopEdge(s, s.telops[0].id, c0, 'end', 7);
+  eq('終わりを 7 秒へ', s.telops[0].srcEnd, 7);
+
+  let s2 = base();
+  const c1 = layout(s2)[1];
+  s2 = addTelop(s2, c1, 12, 2, 'あと');
+  const t2 = s2.telops[1].id;
+  s2 = moveTelopEdge(s2, t2, c1, 'end', 15);
+  eq('2つ目のクリップでも素材の時刻に直る', s2.telops[1].srcEnd, 35);
+}
+
+/* ==================================================== クリップの名前と音量 */
+{
+  let p = importCutResult(emptyProject(), {
+    asset: { id: 'a', path: '/m/a.mp4', name: 'トーク', duration: 60, hasVideo: true, hasAudio: true },
+    keeps: [{ srcStart: 0, srcEnd: 10 }],
+  });
+  const id = p.clips[0].id;
+
+  eq('自動で付く名前', p.clips[0].name, 'トーク 1');
+  p = renameClip(p, id, '  導入  ');
+  eq('前後の空白は落とす', p.clips[0].name, '導入');
+  eq('空の名前にはできない', renameClip(p, id, '   ') === p, true);
+  eq('同じ名前なら作り直さない', renameClip(p, id, '導入') === p, true);
+
+  /* ------------------------------------------------------------ 音量 */
+  eq('既定では持たない', p.clips[0].gainDb, undefined);
+
+  p = setClipGain(p, id, -6);
+  eq('下げられる', p.clips[0].gainDb, -6);
+
+  /*
+    🔴 0 に戻したら持たないこと。
+       0 は「素材のまま」なので、書類に残すと
+       意味のない値でファイルが太るうえ、差分も汚れる。
+  */
+  p = setClipGain(p, id, 0);
+  eq('0 に戻すと消える', 'gainDb' in p.clips[0], false);
+
+  /*
+    🔴 範囲で縛ること。+60dB は 1000 倍で、書き出しが割れる。
+  */
+  eq('上限で止まる', setClipGain(p, id, 999).clips[0].gainDb, GAIN_RANGE.max);
+  eq('下限で止まる', setClipGain(p, id, -999).clips[0].gainDb, GAIN_RANGE.min);
+  eq('0.1 まで刻む', setClipGain(p, id, -6.44).clips[0].gainDb, -6.4);
+  eq('知らない id では作り直さない', setClipGain(p, 'ない', -3) === p, true);
 }
 
 if (failed > 0) {
