@@ -22,6 +22,7 @@
     "test:music": "python scripts/test_music_mix.py",
     "test:time": "node scripts/test-edited-time.mjs",
     "test:rows": "node scripts/test-timeline-rows.mjs",
+    "test:timeline": "node scripts/test-timeline-project.mjs",
     "test:lanes": "python scripts/test_telop_lanes.py",
     "test:align": "node scripts/test-telop-align.mjs",
     "smoke": "electron . --smoke-test",
