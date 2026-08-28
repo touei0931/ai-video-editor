@@ -84,10 +84,24 @@ targets:
         HEADER_SEARCH_PATHS:
           - /usr/include
           - "$(inherited)"
+        # 🔴 Final Cut の中も探しに行かせること。
+        #
+        #    拡張は ProExtensionHost.framework を @rpath で要求する。
+        #    その本体は **Final Cut Pro 自身の中**にあり、こちらには入っていない
+        #    （Apple の SDK は再配布できないので同梱できない）。
+        #    ここを書かないと、どのMacでも起動前に「見つからない」で落ちる。
+        #
+        #    ビルドは通り、署名も通り、PluginKit にも登録される。
+        #    落ちるのは FCP がパネルを開いた瞬間なので、
+        #    **CI では一度も起動しないぶん、全部緑のまま出荷される**。
+        #    実際に友達の Mac で「読み込み中…」から進まなかった（2026-08-28）。
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/../Frameworks"
           - "@executable_path/../../../../Frameworks"
+          - "/Applications/Final Cut Pro.app/Contents/Frameworks"
+          # SDK を入れている開発機ではこちらで解決する
+          - "/Library/Frameworks"
 
 schemes:
   PAC:

@@ -70,7 +70,26 @@ fi
 echo "--- @rpath で探すもの（相手の Mac に無ければ起動できない） ---"
 otool -L "$APPEX/Contents/MacOS/WorkflowExtension" | tail -n +2 | awk '{print $1}'   | grep '^@rpath/' || echo "(なし)"
 echo "--- どこを探しに行くか（LC_RPATH） ---"
-otool -l "$APPEX/Contents/MacOS/WorkflowExtension"   | awk '/LC_RPATH/{f=1} f&&/path /{print $2; f=0}' || echo "(なし)"
+RPATHS=$(otool -l "$APPEX/Contents/MacOS/WorkflowExtension"   | awk '/LC_RPATH/{f=1} f&&/path /{print $2; f=0}')
+echo "${RPATHS:-(なし)}"
+
+# 🔴 @rpath で要るものが、実際に見つかる場所を探しに行くか。
+#
+#    ProExtensionHost.framework の本体は Final Cut Pro 自身の中にある。
+#    こちらには同梱できない（Apple の SDK は再配布不可）ので、
+#    FCP の中を探すよう伝えていないと、**どの Mac でも起動前に落ちる**。
+#
+#    これはビルド・署名・登録のどれも通ってしまい、
+#    CI は拡張を一度も起動しないので全部緑のまま出荷される。
+#    実機で「読み込み中…」から進まない形でしか現れない（2026-08-28に踏んだ）。
+NEEDS_HOST=$(otool -L "$APPEX/Contents/MacOS/WorkflowExtension"   | grep -c 'ProExtensionHost' || true)
+if [ "$NEEDS_HOST" -gt 0 ]; then
+  if echo "$RPATHS" | grep -q '^/Applications/Final Cut Pro.app/Contents/Frameworks$'; then
+    ok "ProExtensionHost を Final Cut の中に探しに行く"
+  else
+    ng "ProExtensionHost を要求しているのに、Final Cut の中を探しに行かない（起動できません）"
+  fi
+fi
 
 # 7. 解析エンジンと ffmpeg（同梱している場合）
 ENGINE="$APP/Contents/Resources/engine/pac-engine/pac-engine"
