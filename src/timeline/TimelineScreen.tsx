@@ -128,12 +128,16 @@ const SIZE_PRESETS = [
 const FPS_PRESETS = [24, 25, 29.97, 30, 60];
 
 /**
- * 段1つぶんの高さ。
+ * 段1つぶんの高さ（＝コマの大きさ）のはじめの値。
  *
  * 🔴 1つのクリップに絵と波を両方入れるので、細いと両方とも読めなくなる。
  *    ここを削るくらいなら段の数を減らす。
+ *
+ * 🔴 決め打ちにしないこと。素材によって、コマで探したいときと
+ *    波で探したいときがある。人が変えられるようにして、覚えておく。
  */
 const LANE_ROW_H = 64;
+
 
 /**
  * 空の段（放す先を用意しているだけの段）の高さ。
@@ -919,10 +923,14 @@ export function TimelineScreen({
       } else if (!mod && e.key === 'ArrowRight') {
         e.preventDefault();
         seekBy(e.shiftKey ? 1 : 1 / fps);
-      } else if (!mod && e.key === 'ArrowUp') {
+      } else if (!mod && !e.shiftKey && e.key === 'ArrowUp') {
+        /*
+          🔴 Shift 付きは受け取らないこと。あちらはコマの大きさで、
+             Timeline が窓ぜんぶで受けている。ここでも受けると2回効く。
+        */
         e.preventDefault();
         seekEdit(-1);
-      } else if (!mod && e.key === 'ArrowDown') {
+      } else if (!mod && !e.shiftKey && e.key === 'ArrowDown') {
         e.preventDefault();
         seekEdit(1);
       } else if (!mod && e.key === 'Home') {
@@ -1054,6 +1062,12 @@ export function TimelineScreen({
       laneId: l ? l.id : i === 0 ? ABOVE_LANE : BELOW_LANE,
       main: l?.kind === 'main',
       height: l ? LANE_ROW_H : EMPTY_ROW_H,
+      /*
+        🔴 空の段（放す先）は、コマを大きくしても細いままにすること。
+           一緒に大きくすると、大きくするほど何も置いていない場所が
+           画面を占めて、肝心の土台が押し出される。
+      */
+      fixedHeight: !l,
     }));
 
     const regions: TimelineRegion[] = placed.map((c) => ({
@@ -1082,20 +1096,20 @@ export function TimelineScreen({
       scalable: true,
       render: (v: TimelineView) => {
         /*
-          🔴 段の高さは一定ではない（空の段は細い）。
-             均等割りにすると、絵と波がクリップの枠からずれる。
+          段の上端と高さは Timeline から受け取る。
+
+          🔴 ここで計算し直さないこと。
+             段の高さは一定ではない（空の段は細い）うえ、
+             コマの大きさの倍率でも変わる。同じ式を2か所に書くと、
+             倍率を変えた瞬間に**絵と波だけがクリップの枠からずれる**。
         */
-        const tops: number[] = [];
-        order.reduce((acc, l) => {
-          tops.push(acc);
-          return acc + (l ? LANE_ROW_H : EMPTY_ROW_H);
-        }, 0);
+        const geom = v.bands;
+        if (!geom) return null;
         return (
           <>
             {order.map((lane, i) => {
               if (!lane) return null;
-              const rowH = LANE_ROW_H;
-              const innerH = rowH - ROW_INSET * 2;
+              const innerH = geom[i].height - ROW_INSET * 2;
               const mine = placed.filter((c) => c.laneId === lane.id);
               if (mine.length === 0) return null;
               /*
@@ -1116,7 +1130,7 @@ export function TimelineScreen({
                 <div
                   key={lane.id}
                   className="tl-lane-layer"
-                  style={{ top: tops[i] + ROW_INSET, height: innerH }}
+                  style={{ top: geom[i].top + ROW_INSET, height: innerH }}
                 >
                   {filmH > 0 && (
                     <ClipFilmstrip
@@ -1333,6 +1347,7 @@ export function TimelineScreen({
             <div><dt>Delete</dt><dd>消して後ろを詰める</dd></div>
             <div><dt>Shift+Delete</dt><dd>その場を空きにする</dd></div>
             <div><dt>V</dt><dd>切る（あとで戻せます）</dd></div>
+            <div><dt>Shift+↑ / ↓</dt><dd>コマを大きく / 小さく</dd></div>
             <div><dt>N</dt><dd>詰める の入 / 切</dd></div>
             <div><dt>⌘Z / Ctrl+Z</dt><dd>ひとつ戻す</dd></div>
             <div><dt>⌘⇧Z</dt><dd>ひとつやり直す</dd></div>

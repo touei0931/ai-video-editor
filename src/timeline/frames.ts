@@ -87,6 +87,14 @@ export function captureScale(): number {
  */
 const FAST_SEEK_STEP = 2;
 
+/**
+ * 何倍まで大きくなったら取り直すか。
+ *
+ * 🔴 少しの違いで取り直さないこと。パネルの幅を掴んで動かすだけで
+ *    毎回全部取り直しになり、そのあいだコマが消える。
+ */
+const REGRAB_RATIO = 1.15;
+
 interface Store {
   video: HTMLVideoElement;
   canvas: HTMLCanvasElement;
@@ -103,6 +111,15 @@ interface Store {
   size: { w: number; h: number };
   /** いまの刻み（秒）。キーフレーム送りを使ってよいかの判断に使う */
   step: number;
+  /**
+   * 取り出した大きさの世代。捨てるたびに1つ進む。
+   *
+   * 🔴 取り出し中に大きさが変わったら、出来上がったものを捨てること。
+   *    取り出しは1枚ずつ非同期に進むので、捨てた**あと**に
+   *    古い大きさの1枚が届いて、まっさらな棚に紛れ込む。
+   *    その1枚だけが引き伸ばされてぼやけ、原因が分からなくなる。
+   */
+  gen: number;
   listeners: Set<() => void>;
 }
 
@@ -151,6 +168,7 @@ function storeFor(path: string): Store {
     window: { from: 0, to: 0 },
     running: false,
     misses: 0,
+    gen: 0,
     failed: false,
     size: { w: 160, h: 90 },
     step: 1,
@@ -220,7 +238,27 @@ export function requestFrames(
   const s = storeFor(path);
   if (s.failed) return;
   const k = captureScale();
-  s.size = { w: Math.round(size.w * k), h: Math.round(size.h * k) };
+  const want = { w: Math.round(size.w * k), h: Math.round(size.h * k) };
+
+  /*
+    🔴 出す大きさが**大きくなったら、覚えているコマを捨てること**。
+
+       捨てないと、小さく取り出したコマをそのまま引き伸ばして出すことになり、
+       段を大きくするほどぼやける（大きくした意味が無くなる）。
+       エラーは出ないので、見た目でしか気づけない。
+
+    🔴 小さくなったときは捨てないこと。
+       縮めるぶんには画質は落ちないし、捨てると取り直しのあいだ
+       画面が空になって点滅して見える。
+  */
+  if (want.w > s.size.w * REGRAB_RATIO) {
+    for (const url of s.shots.values()) URL.revokeObjectURL(url);
+    s.shots.clear();
+    s.misses = 0;
+    s.gen += 1;
+    changed(s);
+  }
+  s.size = want;
   s.step = step;
 
   const seen = new Set<number>();
@@ -256,8 +294,14 @@ async function pump(path: string, s: Store): Promise<void> {
       const next = s.wanted.find((t) => !s.shots.has(t));
       if (next === undefined) break;
 
+      const gen = s.gen;
       const url = await grab(s, next, s.step >= FAST_SEEK_STEP);
       if (url) {
+        // 🔴 取り出している間に大きさが変わっていたら捨てる（古い大きさなので）
+        if (s.gen !== gen) {
+          URL.revokeObjectURL(url);
+          continue;
+        }
         s.misses = 0;
         s.shots.set(next, url);
         evict(s);

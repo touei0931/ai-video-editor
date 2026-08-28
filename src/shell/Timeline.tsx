@@ -123,6 +123,14 @@ export interface TimelineBand {
    *    外へ押し出されて、掴むことも放すこともできなくなる（実際にそうなった）。
    */
   height?: number;
+  /**
+   * コマの大きさを変えても、この段の高さは変えないか。
+   *
+   * 🔴 放す先を用意しているだけの空の段に使う。
+   *    ここまで一緒に大きくすると、段を大きくするほど
+   *    何も置いていない場所が画面を占めることになる。
+   */
+  fixedHeight?: boolean;
 }
 
 export interface TimelineView {
@@ -136,6 +144,14 @@ export interface TimelineView {
   height: number;
   /** 素材全体の長さ（秒） */
   duration: number;
+  /**
+   * 段ごとの上端と高さ（bands を渡した track だけ）。
+   *
+   * 🔴 受け取る側でもう一度計算しないこと。
+   *    コマの大きさは倍率で変わるので、同じ式を2か所に書くと
+   *    倍率を変えた瞬間に、絵と波だけがクリップの枠からずれる。
+   */
+  bands?: readonly { top: number; height: number }[];
 }
 
 export interface TimelineProps {
@@ -208,6 +224,30 @@ export interface TimelineProps {
  *    友達の「カット余白を伸ばしづらい」はここ。拡大を人任せにしない。
  */
 const GRABBABLE = 64;
+
+/**
+ * コマの大きさ（段の高さの倍率）。
+ *
+ * 🔴 下限は波形が読める大きさまで。これより小さいと、絵も波もただの帯になる。
+ * 🔴 上限は、段を重ねても土台が画面に残る程度まで。
+ * 🔴 1回の変化は手応えが要る。細かすぎると何度押しても変わらないように見える。
+ */
+const LANE_SCALE = { min: 0.5, max: 3, step: 1.35 };
+
+/** 覚え先。画面をまたいで同じ大きさにする */
+const LANE_SCALE_KEY = 'pac.laneScale';
+
+function loadLaneScale(): number {
+  try {
+    const v = Number(localStorage.getItem(LANE_SCALE_KEY));
+    if (Number.isFinite(v) && v > 0) {
+      return Math.min(LANE_SCALE.max, Math.max(LANE_SCALE.min, v));
+    }
+  } catch {
+    /* 読めなくても既定で続ける */
+  }
+  return 1;
+}
 
 /**
  * 「いちばん上の段より上」を表す行き先。
@@ -288,8 +328,28 @@ export function Timeline({
    * 🔴 コマは「どこを触っているか」を目で探すためのもの。
    *    小さいと絵が潰れて探せず、大きいと他のレーンが見えない。
    *    その時の作業で要る大きさが違うので、手元で変えられるようにする。
+   *
+   * 🔴 覚えておくこと。開き直すたびに元に戻ると、そのたびに合わせ直しになる。
+   * 🔴 画面ごとに分けないこと。コマの大きさは好みなので、
+   *    子画面と並べる画面で違うと、行き来するたびに目が合わせ直しになる。
    */
-  const [laneScale, setLaneScale] = useState(1);
+  const [laneScale, setLaneScale] = useState(loadLaneScale);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LANE_SCALE_KEY, String(laneScale));
+    } catch {
+      /* 覚えられなくても操作は続く */
+    }
+  }, [laneScale]);
+
+  const zoomLane = useCallback(
+    (by: number) =>
+      setLaneScale((v) =>
+        Number(Math.min(LANE_SCALE.max, Math.max(LANE_SCALE.min, v * by)).toFixed(3)),
+      ),
+    [],
+  );
   const [pxPerSec, setPxPerSec] = useState(initialPxPerSec ?? 0);
   const [drag, setDrag] = useState<Dragging | null>(null);
 
@@ -945,10 +1005,20 @@ export function Timeline({
       if (e.shiftKey) {
         if (e.key === '1' || e.key === '!') {
           e.preventDefault();
-          setLaneScale((v) => Math.min(3, Number((v * 1.35).toFixed(3))));
+          zoomLane(LANE_SCALE.step);
         } else if (e.key === '2' || e.key === '"' || e.key === '@') {
           e.preventDefault();
-          setLaneScale((v) => Math.max(0.5, Number((v / 1.35).toFixed(3))));
+          zoomLane(1 / LANE_SCALE.step);
+        } else if (e.key === 'ArrowUp') {
+          /*
+            🔴 上が大きく・下が小さく。逆にしないこと。
+               「上へ伸ばす」と体が覚えている向きに合わせる。
+          */
+          e.preventDefault();
+          zoomLane(LANE_SCALE.step);
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          zoomLane(1 / LANE_SCALE.step);
         }
         return;
       }
@@ -962,7 +1032,7 @@ export function Timeline({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zoomKeys, zoom, fit]);
+  }, [zoomKeys, zoom, fit, zoomLane]);
 
   const ticks = useMemo(() => {
     const out: { t: number; major: boolean }[] = [];
@@ -981,6 +1051,28 @@ export function Timeline({
     <section className="fcp-timeline" aria-label="タイムライン">
       <div className="fcp-tl-bar">
         <span className="fcp-dim">タイムライン</span>
+        {/*
+          コマの大きさ。
+          🔴 右の ＋ / −（横の拡大）と離し、ラベルを付けること。
+             並べて置くと、どちらが何を変えるのか画面から読み取れない。
+        */}
+        <span className="fcp-dim">コマ</span>
+        <button
+          className="icon"
+          onClick={() => zoomLane(1 / LANE_SCALE.step)}
+          disabled={laneScale <= LANE_SCALE.min}
+          title="コマを小さく（Shift+↓）"
+        >
+          −
+        </button>
+        <button
+          className="icon"
+          onClick={() => zoomLane(LANE_SCALE.step)}
+          disabled={laneScale >= LANE_SCALE.max}
+          title="コマを大きく（Shift+↑）"
+        >
+          ＋
+        </button>
         {extraControls}
         <div className="fcp-spacer" />
         <span className="fcp-dim" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -1071,8 +1163,19 @@ export function Timeline({
               🔴 全部を同じ高さにしないこと。空の段まで太いと、
                  段が増えたときに土台がタイムラインの外へ押し出される。
             */
+            /*
+              🔴 段の高さにも倍率を効かせること。
+                 ここを素通しにすると、段の高さを自分で決めている画面
+                 （並べる画面）では**コマの大きさを変えても何も起きない**。
+                 押しても無反応なので、効かない理由が画面から分からない。
+            */
+            const laneMul = track.scalable ? laneScale : 1;
             const bandH = track.bands
-              ? track.bands.map((b) => b.height ?? rowH)
+              ? track.bands.map((b) =>
+                  b.height === undefined
+                    ? rowH
+                    : Math.round(b.height * (b.fixedHeight ? 1 : laneMul)),
+                )
               : Array.from({ length: rowCount }, () => rowH);
             const bandTop: number[] = [];
             bandH.reduce((acc, h) => {
@@ -1125,6 +1228,9 @@ export function Timeline({
                   to: (view.left + view.width) / scale,
                   height: totalH,
                   duration,
+                  ...(track.bands
+                    ? { bands: bandH.map((h, i) => ({ top: bandTop[i], height: h })) }
+                    : {}),
                 })}
 
                 {track.regions.map((r) => {

@@ -92,7 +92,7 @@ export const SHORTCUT_HELP: { keys: string; label: string }[] = [
   { keys: 'Ctrl + B', label: 'ここで素材を分ける（切り込み）' },
   { keys: 'Q / W', label: 'クリップの先頭 / 末尾まで切る（カット画面）' },
   { keys: '1 / 2', label: '拡大 / 縮小（テロップ画面を除く）' },
-  { keys: 'Shift + 1 / 2', label: '素材のコマを大きく / 小さく（テロップ画面を除く）' },
+  { keys: 'Shift + ↑ / ↓', label: '素材のコマを大きく / 小さく（Shift + 1 / 2 も同じ）' },
 ];
 
 /** 文字を打っている最中か。打っているならキーを奪わない */
