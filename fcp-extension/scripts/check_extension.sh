@@ -62,6 +62,16 @@ else
   ok "システムライブラリのみに依存"
 fi
 
+# 🔴 @rpath は素通しにしないこと。
+#    ここは「ビルドした所では解決できる」だけで、相手の Mac で解決できるかは別。
+#    CI では拡張を一度も起動しないので、解決できなくても緑のまま通る。
+#    実際、友達の Mac で拡張が起動せず、パネルが「読み込み中…」から
+#    進まなかった（2026-08-28）。どこを探しに行くのかを必ず目に見えるようにする。
+echo "--- @rpath で探すもの（相手の Mac に無ければ起動できない） ---"
+otool -L "$APPEX/Contents/MacOS/WorkflowExtension" | tail -n +2 | awk '{print $1}'   | grep '^@rpath/' || echo "(なし)"
+echo "--- どこを探しに行くか（LC_RPATH） ---"
+otool -l "$APPEX/Contents/MacOS/WorkflowExtension"   | awk '/LC_RPATH/{f=1} f&&/path /{print $2; f=0}' || echo "(なし)"
+
 # 7. 解析エンジンと ffmpeg（同梱している場合）
 ENGINE="$APP/Contents/Resources/engine/pac-engine/pac-engine"
 FFMPEG_BIN="$APP/Contents/Resources/ffmpeg/ffmpeg"

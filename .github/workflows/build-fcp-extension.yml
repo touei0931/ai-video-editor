@@ -163,8 +163,12 @@ jobs:
           #    ダブルクリックしても動かなくなる。
           cp -R "fcp-extension/build/Build/Products/Release/PAC for Final Cut.app" "$PACK/"
           cp "$GITHUB_WORKSPACE/fcp-extension/deliver/インストールと確認.command" "$PACK/"
+          # 🔴 うまくいかなかったときの診断も一緒に入れること。
+          #    あとから送ると、相手はもう一度ファイルを受け取る所からになる。
+          cp "$GITHUB_WORKSPACE/fcp-extension/deliver/パネルが出ないとき.command" "$PACK/"
           cp "$GITHUB_WORKSPACE/fcp-extension/deliver/はじめに読んでね.md" "$PACK/はじめに読んでね.txt"
           chmod +x "$PACK/インストールと確認.command"
+          chmod +x "$PACK/パネルが出ないとき.command"
 
           cd "$GITHUB_WORKSPACE/pack"
           ditto -c -k --sequesterRsrc --keepParent "PAC-FCPプラグイン版" "$OUT/PAC-FCPプラグイン版.zip"
