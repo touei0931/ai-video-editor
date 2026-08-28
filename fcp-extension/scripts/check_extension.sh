@@ -70,12 +70,7 @@ fi
 echo "--- @rpath で探すもの（相手の Mac に無ければ起動できない） ---"
 otool -L "$APPEX/Contents/MacOS/WorkflowExtension" | tail -n +2 | awk '{print $1}'   | grep '^@rpath/' || echo "(なし)"
 echo "--- どこを探しに行くか（LC_RPATH） ---"
-# 🔴 空白で切らないこと。「Final Cut Pro.app」には空白が入っているので、
-#    $2 で取ると "/Applications/Final" までしか取れず、
-#    **正しく入っているのに「入っていない」と嘘の不合格が出る**。
-#    同じ罠を b82e918 でも踏んでいる（アプリ名の空白）。
-RPATHS=$(otool -l "$APPEX/Contents/MacOS/WorkflowExtension"   | awk '/LC_RPATH/{f=1; next} f&&/^ *path /{sub(/^ *path /,""); sub(/ \(offset [0-9]+\)$/,""); print; f=0}')
-echo "${RPATHS:-(なし)}"
+otool -l "$APPEX/Contents/MacOS/WorkflowExtension" | sed -n 's/^[[:space:]]*path \(.*\) (offset [0-9]*)$//p'
 
 # 🔴 @rpath で要るものが、実際に見つかる場所を探しに行くか。
 #
@@ -83,12 +78,18 @@ echo "${RPATHS:-(なし)}"
 #    こちらには同梱できない（Apple の SDK は再配布不可）ので、
 #    FCP の中を探すよう伝えていないと、**どの Mac でも起動前に落ちる**。
 #
-#    これはビルド・署名・登録のどれも通ってしまい、
+#    ビルド・署名・PluginKit への登録はどれも通ってしまい、
 #    CI は拡張を一度も起動しないので全部緑のまま出荷される。
 #    実機で「読み込み中…」から進まない形でしか現れない（2026-08-28に踏んだ）。
-NEEDS_HOST=$(otool -L "$APPEX/Contents/MacOS/WorkflowExtension"   | grep -c 'ProExtensionHost' || true)
-if [ "$NEEDS_HOST" -gt 0 ]; then
-  if echo "$RPATHS" | grep -q '^/Applications/Final Cut Pro.app/Contents/Frameworks$'; then
+#
+# 🔴 otool の出力を切り分けないこと。
+#    「Final Cut Pro.app」には空白が入る。$2 で取ると
+#    "/Applications/Final" までしか取れず、**正しく入っているのに
+#    嘘の不合格**が出る（b82e918 でも同じ罠を踏んでいる）。
+#    まるごと1行として探せば、区切り方を間違えようがない。
+FCP_RPATH="/Applications/Final Cut Pro.app/Contents/Frameworks"
+if otool -L "$APPEX/Contents/MacOS/WorkflowExtension" | grep -q 'ProExtensionHost'; then
+  if otool -l "$APPEX/Contents/MacOS/WorkflowExtension" | grep -qF "path $FCP_RPATH "; then
     ok "ProExtensionHost を Final Cut の中に探しに行く"
   else
     ng "ProExtensionHost を要求しているのに、Final Cut の中を探しに行かない（起動できません）"
