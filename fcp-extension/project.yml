@@ -99,7 +99,11 @@ targets:
           - "$(inherited)"
           - "@executable_path/../Frameworks"
           - "@executable_path/../../../../Frameworks"
-          - "/Applications/Final Cut Pro.app/Contents/Frameworks"
+          # 🔴 空白の入ったパスは、値の中で引用符に包むこと。
+          #    この設定は空白区切りの1本の文字列として渡るので、
+          #    包まないと「/Applications/Final」「Cut」「Pro.app/...」の
+          #    3つに割れる。割れても警告は出ず、探しに行く先が増えただけに見える。
+          - '"/Applications/Final Cut Pro.app/Contents/Frameworks"'
           # SDK を入れている開発機ではこちらで解決する
           - "/Library/Frameworks"
 
