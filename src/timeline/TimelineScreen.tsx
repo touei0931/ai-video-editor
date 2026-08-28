@@ -30,6 +30,7 @@ import {
   appendToMain,
   bladeAt,
   clipAt,
+  cutMarks,
   layout,
   moveClip,
   newId,
@@ -51,6 +52,7 @@ import {
   videoAt,
   type Clip,
   removeClip,
+  setClipEnabled,
   setMagnetic,
   timelineDuration,
   trimClip,
@@ -277,6 +279,12 @@ export function TimelineScreen({
 
   const duration = useMemo(() => timelineDuration(project), [project]);
   const placed = useMemo(() => layout(project), [project]);
+  /*
+    切ってある所。時間は取らないので、切れ目の1点として出す。
+    🔴 見せるだけにすること。押せるようにすると、幅が0なので
+       必ずとなりのクリップの端（掴んで伸ばす所）に重なる。戻すのは右のインスペクタ。
+  */
+  const marks = useMemo(() => cutMarks(project), [project]);
   const telops = useMemo(() => placedTelops(project), [project]);
 
   /** 選んでいるクリップが乗っているレーン */
@@ -883,6 +891,23 @@ export function TimelineScreen({
       } else if (!mod && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         apply(setMagnetic(project, !project.magnetic));
+      } else if (!mod && e.key.toLowerCase() === 'v') {
+        /*
+          選んだクリップを切る（Final Cut の V と同じキー）。
+
+          🔴 消すのとは別にしておくこと。
+             切ったものはその場に残るので、となりのクリップを選べば戻せる。
+             消す（Delete）と違って、押し間違えても取り返しがつく。
+        */
+        e.preventDefault();
+        const sel = parseSelection(selected);
+        if (sel?.kind === 'clip') {
+          const c = project.clips.find((x) => x.id === sel.clipId);
+          if (c && !isGap(c)) {
+            setSelected(null);
+            apply(setClipEnabled(project, c.id, false), `${c.name} を切りました`);
+          }
+        }
       } else if (!mod && e.key === 'ArrowLeft') {
         /*
           🔴 1コマ単位を用意すること。
@@ -1110,6 +1135,16 @@ export function TimelineScreen({
                       color="rgba(120, 220, 170, 0.9)"
                     />
                   </div>
+                  {marks
+                    .filter((m) => m.laneId === lane.id)
+                    .map((m) => (
+                      <div
+                        key={m.id}
+                        className="tl-cut-mark"
+                        style={{ left: m.at * v.scale }}
+                        title={`ここで ${m.length.toFixed(2)} 秒 切ってあります`}
+                      />
+                    ))}
                 </div>
               );
             })}
@@ -1119,7 +1154,7 @@ export function TimelineScreen({
     };
 
     return telopTrack ? [telopTrack, laneTrack] : [laneTrack];
-  }, [project.lanes, project.assets, placed, telops]);
+  }, [project.lanes, project.assets, placed, telops, marks]);
 
 
   /**
@@ -1297,6 +1332,7 @@ export function TimelineScreen({
             <div><dt>⌘B / Ctrl+B</dt><dd>再生位置で分ける</dd></div>
             <div><dt>Delete</dt><dd>消して後ろを詰める</dd></div>
             <div><dt>Shift+Delete</dt><dd>その場を空きにする</dd></div>
+            <div><dt>V</dt><dd>切る（あとで戻せます）</dd></div>
             <div><dt>N</dt><dd>詰める の入 / 切</dd></div>
             <div><dt>⌘Z / Ctrl+Z</dt><dd>ひとつ戻す</dd></div>
             <div><dt>⌘⇧Z</dt><dd>ひとつやり直す</dd></div>

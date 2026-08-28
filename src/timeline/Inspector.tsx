@@ -21,8 +21,10 @@ import {
   NO_TRANSFORM,
   TRANSFORM_RANGE,
   clipsOnLane,
+  cutMarks,
   fillScale,
   isGap,
+  setClipEnabled,
   setClipTransform,
   removeLane,
   renameLane,
@@ -223,6 +225,8 @@ export function Inspector({
             <dd>{(clip.end - clip.start).toFixed(2)} 秒</dd>
           </div>
         </dl>
+
+        <CutsAround project={project} clipId={clip.id} onChange={onChange} />
 
         {/*
           音量。
@@ -478,6 +482,59 @@ function TimeNudge({
       <button onClick={onPlayhead} title="再生位置（白線）に合わせる">
         白線へ
       </button>
+    </div>
+  );
+}
+
+/**
+ * このクリップの前後で切ってある所。
+ *
+ * 🔴 タイムラインからは押させないこと。
+ *    切ってある所は幅が0なので、押せる大きさにすると
+ *    となりのクリップの端（掴んで伸ばす所）に必ず重なる。
+ *    印はタイムラインで**見せるだけ**にして、戻すのはここでやる。
+ *
+ * 🔴 「この前」「この後ろ」と書くこと。秒数だけ並べても、
+ *    どっち側の切れ目なのかが分からない。
+ */
+function CutsAround({
+  project,
+  clipId,
+  onChange,
+}: {
+  project: Project;
+  clipId: string;
+  onChange(next: Project, message?: string): void;
+}) {
+  const around = cutMarks(project).filter((m) => m.prevId === clipId || m.nextId === clipId);
+  if (around.length === 0) return null;
+
+  return (
+    <div className="tl-cuts">
+      <h3>切ってある所</h3>
+      <ul>
+        {around.map((m) => (
+          <li key={m.id}>
+            <span>
+              {m.nextId === clipId ? 'この前' : 'この後ろ'} <b>{m.length.toFixed(2)} 秒</b>
+            </span>
+            <button
+              onClick={() =>
+                onChange(
+                  setClipEnabled(project, m.id, true),
+                  `${m.length.toFixed(2)} 秒 戻しました`,
+                )
+              }
+              title="切った分を元に戻します（そのぶん長くなります）"
+            >
+              戻す
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="tl-hint">
+        自動カットで切った所です。切りすぎていたら戻せます。
+      </p>
     </div>
   );
 }

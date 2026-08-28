@@ -117,6 +117,14 @@ export function isGap(c: Clip): boolean {
   return c.assetId === GAP;
 }
 
+/**
+ * そのクリップが有効（切られていない）か。
+ * 🔴 未指定は有効。古い書類にはこの項目が無い。
+ */
+export function isEnabled(c: Clip): boolean {
+  return c.enabled !== false;
+}
+
 /** タイムラインに置かれたひとかたまり */
 export interface Clip {
   id: string;
@@ -131,6 +139,21 @@ export interface Clip {
   /** 素材の名前。GAP（空文字）なら「空き」 */
   assetId: string;
   laneId: string;
+  /**
+   * 切ってあるか（false なら切ってある）。
+   *
+   * 🔴 切ったものを配列から消さないこと。
+   *    手直しの大半は「切りすぎたので少し戻す」で、
+   *    消してしまうと ⌘Z を積み直す以外に戻す道が無くなる。
+   *    切ったものは**その場に残したまま、時間だけ取らない**ようにする。
+   *    こうすると、戻すのは印を消すだけで済み、
+   *    どこで何秒切ったのかも画面に出せる。
+   *
+   * 🔴 既定は有効。切ってあるときだけ false を持つこと。
+   *    全部に true を書くと書類が無駄に太るし、
+   *    古い書類（この項目が無いもの）は有効として読める必要がある。
+   */
+  enabled?: boolean;
   /** 素材の中での範囲（秒） */
   srcStart: number;
   srcEnd: number;
@@ -171,6 +194,21 @@ export interface Clip {
 export interface Telop {
   id: string;
   assetId: string;
+  /**
+   * 切ってあるか（false なら切ってある）。
+   *
+   * 🔴 切ったものを配列から消さないこと。
+   *    手直しの大半は「切りすぎたので少し戻す」で、
+   *    消してしまうと ⌘Z を積み直す以外に戻す道が無くなる。
+   *    切ったものは**その場に残したまま、時間だけ取らない**ようにする。
+   *    こうすると、戻すのは印を消すだけで済み、
+   *    どこで何秒切ったのかも画面に出せる。
+   *
+   * 🔴 既定は有効。切ってあるときだけ false を持つこと。
+   *    全部に true を書くと書類が無駄に太るし、
+   *    古い書類（この項目が無いもの）は有効として読める必要がある。
+   */
+  enabled?: boolean;
   /** 素材の中での範囲（秒） */
   srcStart: number;
   srcEnd: number;
@@ -230,13 +268,18 @@ function round(v: number): number {
  *    at は見ない。切ったり消したりしたときに後ろが自動で詰まるのは、
  *    この計算がそうなっているからで、消す側で位置を書き換えてはいけない。
  */
-export function layout(project: Project): PlacedClip[] {
+function walk(project: Project): PlacedClip[] {
   const out: PlacedClip[] = [];
   const mainIds = new Set(project.lanes.filter((l) => l.kind === 'main').map((l) => l.id));
 
   let cursor = 0;
   for (const c of project.clips) {
-    const len = clipLength(c);
+    /*
+      🔴 切ってあるものは**長さ0の点**として置くこと。
+         配列から外して数えると、切れ目がどこだったのか分からなくなる。
+         位置は要るが、時間は取らない。これが「切ってある」の意味。
+    */
+    const len = isEnabled(c) ? clipLength(c) : 0;
     if (mainIds.has(c.laneId) && project.magnetic) {
       out.push({ ...c, start: round(cursor), end: round(cursor + len) });
       cursor = round(cursor + len);
@@ -246,6 +289,98 @@ export function layout(project: Project): PlacedClip[] {
     }
   }
   return out;
+}
+
+export function layout(project: Project): PlacedClip[] {
+  return walk(project).filter(isEnabled);
+}
+
+/* ------------------------------------------------------------ 切ってある所 */
+
+/**
+ * 切ってある区間。タイムラインには出ないが、その場に残っている。
+ *
+ * 🔴 これを「消したものの履歴」にしないこと。
+ *    履歴は ⌘Z が持つ。こちらは**いまの状態の一部**で、
+ *    保存して開き直しても残るし、戻せば時間が返ってくる。
+ */
+export interface CutMark {
+  /** 切ってあるクリップの id。これを有効に戻す */
+  id: string;
+  name: string;
+  laneId: string;
+  /** タイムライン上のどこで切れているか（秒） */
+  at: number;
+  /** 戻すと増える長さ（秒） */
+  length: number;
+  /** この切れ目の手前・後ろにあるクリップ */
+  prevId?: string;
+  nextId?: string;
+}
+
+/**
+ * 切ってある所を、位置つきで並べる。
+ *
+ * 🔴 置き場所の計算は layout と同じものを使うこと（walk）。
+ *    ここで並べ方をもう一度書くと、詰める設定や自由配置の扱いが
+ *    片方だけ古くなり、印だけ違う場所に出る。
+ */
+export function cutMarks(project: Project): CutMark[] {
+  const slots = walk(project);
+  const out: CutMark[] = [];
+  for (let i = 0; i < slots.length; i += 1) {
+    const c = slots[i];
+    if (isEnabled(c)) continue;
+    // 同じレーンの、前後でいちばん近い「生きているクリップ」
+    let prevId: string | undefined;
+    for (let k = i - 1; k >= 0; k -= 1) {
+      if (slots[k].laneId === c.laneId && isEnabled(slots[k])) {
+        prevId = slots[k].id;
+        break;
+      }
+    }
+    let nextId: string | undefined;
+    for (let k = i + 1; k < slots.length; k += 1) {
+      if (slots[k].laneId === c.laneId && isEnabled(slots[k])) {
+        nextId = slots[k].id;
+        break;
+      }
+    }
+    out.push({
+      id: c.id,
+      name: c.name,
+      laneId: c.laneId,
+      at: c.start,
+      length: round(clipLength(c)),
+      ...(prevId ? { prevId } : {}),
+      ...(nextId ? { nextId } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * 切る / 戻すを切り替える。
+ *
+ * 🔴 空きは切れないこと。空きは「ここには何も映さない」という置き物で、
+ *    切ってしまうと画面から消え、戻す取っ掛かりが無くなる。消すのは Delete。
+ */
+export function setClipEnabled(project: Project, id: string, on: boolean): Project {
+  const i = project.clips.findIndex((c) => c.id === id);
+  if (i < 0) return project;
+  const c = project.clips[i];
+  if (isGap(c)) return project;
+  if (isEnabled(c) === on) return project;
+
+  const clips = [...project.clips];
+  if (on) {
+    // 🔴 戻すときは項目ごと落とすこと。true を書き込むと書類が太る
+    const { enabled: _drop, ...rest } = c;
+    clips[i] = rest;
+  } else {
+    clips[i] = { ...c, enabled: false };
+  }
+  return { ...project, clips };
 }
 
 /** 作品全体の長さ */
@@ -382,6 +517,37 @@ export function appendToMain(
   };
   return { ...project, clips: [...project.clips, clip] };
 }
+
+/**
+ * 切ってある区間として、メインレーンの末尾に足す。
+ *
+ * 🔴 名前を素材の連番と分けること。
+ *    同じ付け方にすると、切った所が連番を食って
+ *    画面に出るクリップの番号が飛び飛びになる。
+ */
+function appendCut(
+  project: Project,
+  assetId: string,
+  srcStart: number,
+  srcEnd: number,
+): Project {
+  const main = project.lanes.find((l) => l.kind === 'main');
+  if (!main) return project;
+  const n = project.clips.filter((c) => !isEnabled(c)).length + 1;
+  const clip: Clip = {
+    id: newId('clip'),
+    name: `切った所 ${n}`,
+    assetId,
+    laneId: main.id,
+    srcStart: round(srcStart),
+    srcEnd: round(srcEnd),
+    enabled: false,
+  };
+  return { ...project, clips: [...project.clips, clip] };
+}
+
+/** これより短い切れ目は覚えない。印だけが増えて読めなくなる */
+const MIN_CUT = 0.02;
 
 /** 上のレーンに、位置を指定して置く */
 export function placeOnLane(
@@ -592,7 +758,12 @@ export function moveClip(
  */
 export function setMagnetic(project: Project, on: boolean): Project {
   if (project.magnetic === on) return project;
-  const placed = layout(project);
+  /*
+    🔴 切ってあるものも含めて位置を出すこと（layout ではなく walk）。
+       layout は切ってあるものを外すので、置き場所が書かれないまま残り、
+       あとで戻したときに**先頭（0秒）に飛ぶ**。
+  */
+  const placed = walk(project);
   const mainIds = new Set(project.lanes.filter((l) => l.kind === 'main').map((l) => l.id));
 
   if (!on) {
@@ -660,9 +831,29 @@ export function importCutResult(project: Project, result: CutResult): Project {
        本編に並んでいれば、重ねたいものだけ上へ運べばよい。
        逆（最初から上に置く）だと、繋ぎたいだけの人が毎回下ろすことになる。
   */
-  for (const k of result.keeps) {
-    if (k.srcEnd - k.srcStart <= 0) continue;
+  /*
+    🔴 切った所も一緒に並べること（切ってある印を付けて）。
+
+       自動カットは1本で200〜400箇所切る。そのうち何箇所かは必ず切りすぎで、
+       手直しの大半は「言い終わりを少し戻す」になる。
+       切った区間をここで捨てると、戻すには端をドラッグして
+       **どこまで戻すのかを目で探す**しかない。
+       切った所をそのまま置いておけば、押すだけで元の長さに戻る。
+
+       時間は取らないので、並べた見た目は捨てていたときと1フレームも変わらない。
+  */
+  const keeps = [...result.keeps]
+    .filter((k) => k.srcEnd - k.srcStart > 0)
+    .sort((a, b) => a.srcStart - b.srcStart);
+
+  let cursor = 0;
+  for (const k of keeps) {
+    if (k.srcStart - cursor > MIN_CUT) next = appendCut(next, id, cursor, k.srcStart);
     next = appendToMain(next, id, k.srcStart, k.srcEnd);
+    cursor = k.srcEnd;
+  }
+  if (result.asset.duration - cursor > MIN_CUT) {
+    next = appendCut(next, id, cursor, result.asset.duration);
   }
 
   const telops: Telop[] = (result.telops ?? []).map((t) => ({

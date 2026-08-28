@@ -135,6 +135,13 @@ function toClip(v: unknown, assets: Set<string>, lanes: Set<string>): Clip | nul
     srcStart,
     srcEnd,
     ...(at === null ? {} : { at: Math.max(0, at) }),
+    /*
+      🔴 切ってあることを保存に乗せること。
+         乗せないと、開き直した時に切った所が全部戻ってきて、
+         **自動カットが無かったことになる**（尺が元の長さに戻る）。
+      🔴 古い書類にはこの項目が無い。無ければ有効として読むこと。
+    */
+    ...(v.enabled === false ? { enabled: false as const } : {}),
     ...(gainDb === null ? {} : { gainDb }),
     ...(transform === null ? {} : { transform }),
   };

@@ -357,6 +357,33 @@ eq('本編のレーンが無い',
   eq('壊れていても開ける', fromSaved(doc('画角')) !== null, true);
 }
 
+/* ------------------------------------------------ 切ってある所 */
+{
+  const doc = (enabled) => ({
+    kind: 'pac-timeline', version: 1,
+    project: {
+      assets: [{ id: 'a', path: '/m/a.mp4', duration: 60 }],
+      lanes: [{ id: 'main', kind: 'main' }],
+      clips: [{ id: 'c', name: 'c', assetId: 'a', laneId: 'main', srcStart: 0, srcEnd: 5, enabled }],
+      telops: [],
+    },
+  });
+
+  /*
+    🔴 切ってあることを保存に乗せること。
+       乗せないと、開き直した時に切った所が全部戻ってきて、
+       **自動カットが無かったことになる**（尺が元の長さに戻る）。
+  */
+  eq('切ってあることが残る', fromSaved(doc(false)).clips[0].enabled, false);
+
+  // 🔴 既定は有効。true をわざわざ書かない（書類が太る）
+  eq('有効なら持たない', 'enabled' in fromSaved(doc(true)).clips[0], false);
+  // 🔴 古い書類にはこの項目が無い。無ければ有効として読むこと
+  eq('無ければ持たない', 'enabled' in fromSaved(doc(undefined)).clips[0], false);
+  eq('数や文字は有効あつかい', 'enabled' in fromSaved(doc(0)).clips[0], false);
+  eq('壊れていても開ける', fromSaved(doc('切った')) !== null, true);
+}
+
 if (failed > 0) {
   console.error(`\ntest-timeline-persist: NG ${failed} 件`);
   process.exit(1);

@@ -1028,3 +1028,95 @@
   right: 0;
   pointer-events: none;
 }
+
+/*
+  切ってある所の印。
+
+  🔴 押せるようにしないこと。幅が0の場所に出るので、
+     押せる大きさにすると必ずとなりのクリップの端（掴んで伸ばす所）に重なる。
+     ここは「ここで切ってあります」と見せるだけ。戻すのは右のインスペクタ。
+
+  🔴 再生位置の白線と紛らわしくない見た目にすること。
+     細い縦線にすると白線と見分けが付かないので、上下の端に小さな爪を出す。
+*/
+.tl-cut-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  pointer-events: none;
+  z-index: 3;
+  border-left: 1px dashed rgba(255, 214, 128, 0.75);
+}
+
+.tl-cut-mark::before,
+.tl-cut-mark::after {
+  content: '';
+  position: absolute;
+  left: -3px;
+  width: 5px;
+  height: 4px;
+  background: rgba(255, 214, 128, 0.95);
+}
+
+.tl-cut-mark::before {
+  top: 0;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
+.tl-cut-mark::after {
+  bottom: 0;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+/* 切ってある所の一覧（インスペクタ） */
+.tl-cuts {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--s3);
+}
+
+.tl-cuts h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--fg-dim, #9a9aa8);
+}
+
+.tl-cuts ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tl-cuts li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--s3);
+  border-left: 3px solid rgba(255, 214, 128, 0.8);
+  border-radius: 4px;
+  background: var(--s1);
+  font-size: 12px;
+}
+
+.tl-cuts li button {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 2px 10px;
+  border: 1px solid var(--s4);
+  border-radius: 4px;
+  background: var(--s2);
+  color: var(--fg);
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.tl-cuts li button:hover {
+  background: var(--s3);
+}

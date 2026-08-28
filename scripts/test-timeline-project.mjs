@@ -27,6 +27,7 @@ const {
   removeLane, renameLane, clipsOnLane, removeRange,
   setClipTransform, fillScale, NO_TRANSFORM, TRANSFORM_RANGE,
   pruneEmptyLanes,
+  cutMarks, setClipEnabled, isEnabled,
 } = m;
 
 let failed = 0;
@@ -55,6 +56,15 @@ function base() {
 /** メインの位置を [開始, 終了] の並びで取り出す */
 const mainSpans = (p) =>
   layout(p).filter((c) => c.laneId === 'main').map((c) => [c.start, c.end]);
+
+/*
+  画面に出ている n 番目のクリップ。
+
+  🔴 p.clips[n] で数えないこと。
+     自動カットの結果には「切ってある所」も一緒に入っているので、
+     配列の並びと画面の並びは一致しない。
+*/
+const shownId = (p, n) => layout(p)[n].id;
 
 /* ---------------------------------------------------------- 並べる（詰める） */
 
@@ -302,8 +312,32 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   let p = importCutResult(emptyProject(), result);
 
   // 🔴 残す区間1つが、クリップ1つ
-  eq('残す区間の数だけクリップができる', p.clips.length, 3);
+  eq('残す区間の数だけ画面に出る', layout(p).length, 3);
   eq('切った分は詰まっている', mainSpans(p), [[0, 5], [5, 15], [15, 20]]);
+
+  /*
+    🔴 切った所も一緒に残しておくこと（時間は取らない）。
+       捨ててしまうと、切りすぎたときに戻す手掛かりが無くなる。
+       素材は 100 秒なので、切ってあるのは 5-20 / 30-50 / 55-100 の3つ。
+       頭とお尻の切り落としも覚えておくこと（切りすぎるのは端がいちばん多い）。
+  */
+  const cuts = cutMarks(p);
+  eq('切った所が残っている', cuts.map((c) => c.length), [15, 20, 45]);
+  eq('切った所は切れ目の上に出る', cuts.map((c) => c.at), [5, 15, 20]);
+  eq('切った所は画面の長さに入らない', timelineDuration(p), 20);
+
+  // 戻すと、その分だけ長くなる
+  const back = setClipEnabled(p, cuts[0].id, true);
+  eq('戻すと出てくる', mainSpans(back), [[0, 5], [5, 20], [20, 30], [30, 35]]);
+  near('戻した分だけ長くなる', timelineDuration(back), 35);
+  eq('戻したら印も消える', cutMarks(back).length, 2);
+  eq('戻すと項目ごと消える', 'enabled' in back.clips.find((c) => c.id === cuts[0].id), false);
+
+  // 切る側も同じ道でできる
+  const off = setClipEnabled(p, shownId(p, 1), false);
+  eq('切ると詰まる', mainSpans(off), [[0, 5], [5, 10]]);
+  eq('切ったものは残っている', off.clips.length, p.clips.length);
+  eq('空きは切れない', setClipEnabled(off, off.clips.find(isGap)?.id ?? 'ない', false) === off, true);
   near('長さは残した分だけ', timelineDuration(p), 20);
   eq('素材も登録される', p.assets.map((a) => a.id), ['c']);
 
@@ -331,7 +365,7 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
     🔴 「上に置いたものが映る」が成り立たないと、重ねる意味が無い。
   */
   q = addLane(q, { id: 'v9', kind: 'video', name: '重ね' });
-  const moved = q.clips[3].id;
+  const moved = shownId(q, 3);
   q = moveClip(q, moved, 'v9', 6);
 
   eq('本編から抜ける', mainSpans(q), [[0, 5], [5, 15], [15, 20], [20, 23]]);
@@ -343,7 +377,7 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   eq('素材が2本になる', q.assets.length, 2);
 
   // 🔴 クリップを動かしてもテロップが付いてくる
-  const movedP = moveClip(p, p.clips[1].id, 'main', 0);
+  const movedP = moveClip(p, shownId(p, 1), 'main', 0);
   eq('動かしてもテロップが付いてくる',
      placedTelops(movedP).map((t) => [t.text, t.start]),
      [['ここが本題', 2], ['はじめまして', 11]]);
@@ -354,13 +388,13 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
      placedTelops(bladed).map((t) => [t.start, t.end]), [[1, 3], [7, 9]]);
 
   // 🔴 端を縮めたら、外に出た分は消える
-  const trimmed = trimClip(p, p.clips[0].id, 'start', 2);
+  const trimmed = trimClip(p, shownId(p, 0), 'start', 2);
   eq('縮めた外のテロップは切り詰められる',
      placedTelops(trimmed).map((t) => [t.text, t.start, t.end]),
      [['はじめまして', 0, 1], ['ここが本題', 5, 7]]);
 
   // 消したクリップの上のテロップは出ない
-  const dropped = removeClip(p, p.clips[1].id);
+  const dropped = removeClip(p, shownId(p, 1));
   eq('消したクリップのテロップは出ない',
      placedTelops(dropped).map((t) => t.text), ['はじめまして']);
 }
@@ -385,7 +419,7 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
     asset: ASSET_C,
     keeps: [{ srcStart: 5, srcEnd: 5 }, { srcStart: 10, srcEnd: 12 }],
   });
-  eq('長さ0の区間は捨てる', p.clips.length, 1);
+  eq('長さ0の区間は捨てる', layout(p).length, 1);
   eq('テロップを渡さなくても落ちない', p.telops, []);
 }
 
@@ -591,20 +625,20 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
 
   /* -------------------------------------------------------- 複製 */
   let p = base();
-  const second = p.clips[1].id;
+  const second = shownId(p, 1);
   p = duplicateClip(p, second);
 
-  eq('本数が増える', p.clips.length, 4);
+  eq('本数が増える', layout(p).length, 4);
   /*
     🔴 すぐ後ろに入ること。
        末尾に足すと、詰める設定では一番後ろへ飛び、
        複製したものを毎回探して運ぶことになる。
   */
-  eq('元のすぐ後ろに入る', p.clips.map((c) => c.srcStart), [0, 20, 20, 40]);
-  eq('中身は同じ', [p.clips[2].srcStart, p.clips[2].srcEnd], [20, 25]);
-  eq('別のクリップになっている', p.clips[1].id === p.clips[2].id, false);
+  eq('元のすぐ後ろに入る', layout(p).map((c) => c.srcStart), [0, 20, 20, 40]);
+  eq('中身は同じ', [layout(p)[2].srcStart, layout(p)[2].srcEnd], [20, 25]);
+  eq('別のクリップになっている', layout(p)[1].id === layout(p)[2].id, false);
   // 🔴 同じ名前が2つあると、どちらを動かしたのか追えない
-  eq('名前は付け直す', p.clips[1].name === p.clips[2].name, false);
+  eq('名前は付け直す', layout(p)[1].name === layout(p)[2].name, false);
 
   const place = layout(p);
   eq('詰めた並び', place.map((c) => [c.start, c.end]),
@@ -613,9 +647,9 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   // 空きは複製しない（複製しても何も映らないものが増えるだけ）
   {
     const one = base();
-    const g = removeClip(one, one.clips[0].id, 'lift');
-    eq('空きになっている', isGap(g.clips[0]), true);
-    eq('空きは複製しない', duplicateClip(g, g.clips[0].id) === g, true);
+    const g = removeClip(one, shownId(one, 0), 'lift');
+    eq('空きになっている', isGap(layout(g)[0]), true);
+    eq('空きは複製しない', duplicateClip(g, layout(g)[0].id) === g, true);
   }
   eq('知らない id では作り直さない', duplicateClip(p, 'ない') === p, true);
 
@@ -624,17 +658,17 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
   const copied = { assetId: 'a', srcStart: 50, srcEnd: 53 };
   // 再生位置 7 秒 = 2本目（5〜10秒）の上
   q = pasteClip(q, copied, q.lanes[0].id, 7);
-  eq('貼った本数', q.clips.length, 4);
+  eq('貼った本数', layout(q).length, 4);
   /*
     🔴 詰めるレーンでは、再生位置がどのクリップの上かで割り込み先を決める。
        位置は見ないレーンなので、末尾に足すと関係のない場所に出る。
   */
-  eq('再生位置のクリップの前に入る', q.clips.map((c) => c.srcStart), [0, 50, 20, 40]);
+  eq('再生位置のクリップの前に入る', layout(q).map((c) => c.srcStart), [0, 50, 20, 40]);
   eq('長さはそのまま', layout(q)[1].end - layout(q)[1].start, 3);
 
   // 末尾より後ろなら末尾へ
   const tail = pasteClip(base(), copied, base().lanes[0].id, 999);
-  eq('末尾より後ろなら末尾へ', tail.clips.map((c) => c.srcStart), [0, 20, 40, 50]);
+  eq('末尾より後ろなら末尾へ', layout(tail).map((c) => c.srcStart), [0, 20, 40, 50]);
 
   /* ------------------------------------------------ 貼り付け（重ねる） */
   let r = base();
@@ -645,17 +679,17 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
 
   /* ---------------------------------------------------- 通さないもの */
   eq('素材が無ければ貼らない',
-     pasteClip(base(), { assetId: 'ない', srcStart: 0, srcEnd: 1 }, base().lanes[0].id, 0)
-       .clips.length, 3);
+     layout(pasteClip(base(), { assetId: 'ない', srcStart: 0, srcEnd: 1 }, base().lanes[0].id, 0))
+       .length, 3);
   eq('レーンが無ければ貼らない',
-     pasteClip(base(), copied, 'ないレーン', 0).clips.length, 3);
+     layout(pasteClip(base(), copied, 'ないレーン', 0)).length, 3);
   eq('長さ0は貼らない',
-     pasteClip(base(), { assetId: 'a', srcStart: 5, srcEnd: 5 }, base().lanes[0].id, 0)
-       .clips.length, 3);
+     layout(pasteClip(base(), { assetId: 'a', srcStart: 5, srcEnd: 5 }, base().lanes[0].id, 0))
+       .length, 3);
 
   // 音量も一緒に控えられる
   const withGain = pasteClip(base(), { ...copied, gainDb: -6 }, base().lanes[0].id, 0);
-  eq('音量も引き継ぐ', withGain.clips[0].gainDb, -6);
+  eq('音量も引き継ぐ', layout(withGain)[0].gainDb, -6);
 }
 
 /* ================================================ 書き出しの選択 */
@@ -680,12 +714,12 @@ const ASSET_C = { id: 'c', path: '/c.mp4', name: 'C', duration: 100, hasVideo: t
 
   /* ------------------------------------------------------ レーンを消す */
   let p = base();
-  eq('消す前の本数', p.clips.length, 4);
+  eq('消す前の本数', layout(p).length, 4);
   eq('乗っている数が引ける', clipsOnLane(p, 'v1'), 1);
 
   const gone = removeLane(p, 'v1');
   eq('レーンが減る', gone.lanes.length, 1);
-  eq('乗っていたクリップも消える', gone.clips.length, 3);
+  eq('乗っていたクリップも消える', layout(gone).length, 3);
 
   /*
     🔴 本編は消せないこと。土台が無くなると、置き場所の無いクリップだけが残る。

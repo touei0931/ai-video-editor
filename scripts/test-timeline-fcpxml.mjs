@@ -310,6 +310,35 @@ function base() {
         xml.includes('offset="45000/3000s"'), '15秒の位置');
 }
 
+/* ================================================ 切ってある所 */
+{
+  /*
+    🔴 切ってある所を書き出しに混ぜないこと。
+
+       切った区間はプロジェクトの中に残っている。layout を通さずに
+       project.clips をそのまま書き出すと、**切ったはずの言いよどみが
+       全部戻った XML** が出る。ffmpeg も Final Cut も文句を言わないので、
+       出来たものを再生するまで気づけない。
+  */
+  const p = importCutResult(emptyProject(), {
+    asset: { id: 'a', path: '/m/a.mp4', name: 'A', duration: 60, hasVideo: true, hasAudio: true },
+    keeps: [{ srcStart: 0, srcEnd: 5 }, { srcStart: 20, srcEnd: 25 }],
+  });
+
+  const xml = buildFCPXML(p, { fps: 30 });
+  const clips = (xml.match(/<asset-clip /g) || []).length;
+  check('残した分だけが出る', clips === 2, `実際 ${clips} 本`);
+  // 5秒 + 5秒 = 10秒。切った 15秒 と 35秒 は入らない
+  check('尺は残した分だけ', xml.includes('duration="30000/3000s"'),
+        (xml.match(/<sequence[^>]*duration="[^"]*"/) || ['無し'])[0]);
+  check('2本目は5秒の位置', xml.includes('offset="15000/3000s"'));
+
+  // 戻したら、その分だけ増える
+  const back = P.setClipEnabled(p, P.cutMarks(p)[0].id, true);
+  const clips2 = (buildFCPXML(back, { fps: 30 }).match(/<asset-clip /g) || []).length;
+  check('戻すと本数が増える', clips2 === 3, `実際 ${clips2} 本`);
+}
+
 if (failed > 0) {
   console.error(`\ntest-timeline-fcpxml: NG ${failed} 件`);
   process.exit(1);
