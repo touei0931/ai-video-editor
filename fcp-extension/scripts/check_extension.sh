@@ -70,7 +70,10 @@ fi
 echo "--- @rpath で探すもの（相手の Mac に無ければ起動できない） ---"
 otool -L "$APPEX/Contents/MacOS/WorkflowExtension" | tail -n +2 | awk '{print $1}'   | grep '^@rpath/' || echo "(なし)"
 echo "--- どこを探しに行くか（LC_RPATH） ---"
-otool -l "$APPEX/Contents/MacOS/WorkflowExtension" | sed -n 's/^[[:space:]]*path \(.*\) (offset [0-9]*)$//p'
+# 🔴 後方参照（バックスラッシュ+1）を使わないこと。この行を Python の
+#    ヒアドキュメント越しに書くと制御文字に化け、パスの代わりに ^A が並ぶ。
+#    余計なものを削るだけなら、置換2回で足りる（記号を書かずに済む）。
+otool -l "$APPEX/Contents/MacOS/WorkflowExtension" | grep -A2 'LC_RPATH' | grep 'path ' | sed -e 's/ (offset [0-9]*)$//' -e 's/^ *path //'
 
 # 🔴 @rpath で要るものが、実際に見つかる場所を探しに行くか。
 #
