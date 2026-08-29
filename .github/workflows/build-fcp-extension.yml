@@ -88,16 +88,9 @@ jobs:
           # 🔴 tbd は JSON（v5）。項目名は install_names（下線）。
           #    ハイフンで探して空振りし、答えが出ないまま先へ進んだ。
           echo "=== .tbd が名乗る名前（dyld はこの名前で探しに行く） ==="
-          find "$SDK" -name '*.tbd' -print0 | while IFS= read -r -d '' f; do
+          for f in $(find "$SDK" -name '*.tbd'); do
             echo "--- $f ---"
-            python3 - "$f" <<'PYEOF'
-import json, sys
-d = json.load(open(sys.argv[1]))
-lib = d.get("main_library", d)
-for k in ("install_names", "current_versions", "compatibility_versions", "target_info"):
-    if k in lib:
-        print(f"{k}: {json.dumps(lib[k], ensure_ascii=False)}")
-PYEOF
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); L=d.get("main_library",d); print({k:L[k] for k in L if "name" in k or "version" in k or k=="target_info"})' "$f"
           done
           echo
           echo "=== SDK に入っているもの ==="
