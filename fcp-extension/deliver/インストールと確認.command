@@ -80,6 +80,15 @@ echo
 echo "--- 署名の状態 ---"
 codesign -dvvv "/Applications/PAC for Final Cut.app/Contents/PlugIns/WorkflowExtension.appex" 2>&1 | head -20
 echo
+# 🔴 どの版が入っているかを必ず残すこと。
+#    残していなかったので、直した版を渡したあとも
+#    「本当にそれが入ったのか」を記録から確かめられなかった。
+#    ProExtensionHost は Final Cut の中にあり、そこを探しに行く指定が
+#    入っていないと拡張は起動前に落ちる（2026-08-28に踏んだ）。
+echo "--- 探しに行く先（ここに Final Cut が無いと起動しません） ---"
+otool -l "/Applications/PAC for Final Cut.app/Contents/PlugIns/WorkflowExtension.appex/Contents/MacOS/WorkflowExtension" 2>/dev/null | grep -A2 'LC_RPATH' | grep 'path ' | sed -e 's/ (offset [0-9]*)$//' -e 's/^ *path //'
+echo
+
 echo "--- 拒否されていないか (Gatekeeper) ---"
 spctl -a -vvv -t exec "/Applications/PAC for Final Cut.app" 2>&1
 echo
@@ -91,7 +100,8 @@ echo "==================================="
 echo " 終わりました。"
 echo
 echo " 次にやってほしいこと:"
-echo "  1. Final Cut Pro を起動"
+echo "  1. Final Cut Pro を**一度終了してから**起動し直す"
+echo "     （開いたままだと、古い版を掴んだままになります）"
 echo "  2. 上のメニュー「ウィンドウ」→「エクステンション」を開く"
 echo "  3. 「PAC」があるか見る（あれば押して、出てきた画面を撮影）"
 echo "  4. デスクトップの「PAC診断結果.txt」を touei に送る"
