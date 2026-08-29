@@ -77,6 +77,23 @@ jobs:
             grep -hE '^\s*(@interface|@protocol|@property|[-+]\s*\()' "$h" | sed 's/  */ /g' || true
           done
 
+      # 🔴 dyld がどの名前で探しに行くかは .tbd の install-name が決める。
+      #    ここを見ずに「Final Cut の中にあるはず」で探し先を足したため、
+      #    直したつもりで何も変わっていない可能性がある（2026-08-29）。
+      #    推測でなく、SDK が何と言っているかを記録に残す。
+      - name: ProExtensionHost がどう名乗るか
+        run: |
+          set -euo pipefail
+          SDK=/Library/Developer/SDKs/WorkflowExtensionSDK.sdk
+          echo "=== .tbd の中身（install-name / 依存） ==="
+          find "$SDK" -name '*.tbd' -print0 | while IFS= read -r -d '' f; do
+            echo "--- $f ---"
+            grep -E 'install-name|current-version|parent-umbrella|reexport' "$f" || head -20 "$f"
+          done
+          echo
+          echo "=== SDK に入っているもの ==="
+          find "$SDK" -maxdepth 6 \( -name 'ProExtension*' -o -name '*.a' \) | head -20
+
       - name: 鍵を消す
         if: always()
         run: rm -f ~/.ssh/id_ed25519
