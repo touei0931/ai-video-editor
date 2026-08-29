@@ -201,15 +201,24 @@ extension WorkflowExtensionViewController {
             progress: { [weak self] stage, ratio in
                 self?.sendProgress(stage: stage, ratio: ratio)
             },
-            completion: { ok, payload in
-                // エンジンは素材の「パス」を返すが、プレビューの <video> は
-                // file:// でないと読めない。ここで直してから渡す。
+            completion: { [weak self] ok, payload in
+                // エンジンは素材の「パス」を返す。そのままでは画面から読めないので
+                // 配り手（pac-media://）を通す形に直してから渡す。
                 guard ok, var result = payload as? [String: Any] else {
                     completion(ok, payload)
                     return
                 }
+                /*
+                  🔴 file:// で渡さないこと。
+                     パネルの中身（WKWebView）は別プロセスで動いていて、
+                     利用者が選んだファイルの許可はそこまで届かない。
+                     読めるのは拡張の側だけなので、pac-media:// 経由で流す。
+                     以前は file:// を渡しており、**映像だけ真っ黒**になっていた
+                     （音の波形はエンジンが送った数値なので出ていた）。
+                */
                 if let path = result["videoUrl"] as? String, !path.isEmpty {
-                    result["videoUrl"] = URL(fileURLWithPath: path).absoluteString
+                    self?.media.allow(path: path)
+                    result["videoUrl"] = MediaSchemeHandler.url(for: path)
                 }
                 completion(true, result)
             }

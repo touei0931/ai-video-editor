@@ -116,6 +116,10 @@ jobs:
       - name: パネルへ返す値の検査
         run: ./fcp-extension/scripts/check_json.sh
 
+      # 🔴 素材の配り手。範囲の読み方が狂うと「途中へ飛べない」になる
+      - name: 素材の配り手の検査
+        run: ./fcp-extension/scripts/check_media.sh
+
       - name: 解析エンジンと ffmpeg を同梱
         env:
           GH_TOKEN: ${{ github.token }}

@@ -174,9 +174,12 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
             laneLabel="カット"
           />
         </div>
+        {/*
+          🔴 キーの一覧はここに置かないこと（候補の一覧側に移した）。
+             左下は映像から遠く、捌いている間ずっと目に入らない場所だった。
+             実際「ショートカットが欲しい」と言われた（もう在ったのに）。
+        */}
         <div className="hint">
-          スペース = 再生/停止 ・ ↑↓ = 候補を移動 ・ Enter = 切る ・ Delete = 残す ・ Cmd+Z = ひとつ戻す
-          <br />
           再生しておけば、通りかかった候補が自動で選ばれます。そのまま Enter か Delete で捌けます。
         </div>
       </div>

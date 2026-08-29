@@ -17,6 +17,12 @@ import ProExtensionHost
 
     private var webView: WKWebView!
     private let handlerName = "pac"
+    /*
+      素材の配り手。
+      🔴 file:// で動画を渡さないこと。パネルの中身は別プロセスで動いていて、
+         利用者が選んだファイルの許可はそこまで届かない。映像だけ真っ黒になる。
+    */
+    let media = MediaSchemeHandler()
 
     // MARK: - 生成
 
@@ -56,6 +62,8 @@ import ProExtensionHost
         let controller = WKUserContentController()
         controller.add(self, name: handlerName)
         config.userContentController = controller
+        // 🔴 素材は pac-media:// で配る（file:// はパネルの中では読めない）
+        config.setURLSchemeHandler(media, forURLScheme: PACMediaScheme)
         // ローカルの html から fetch 等をしたときに弾かれないようにする
         config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
 
