@@ -85,10 +85,19 @@ jobs:
         run: |
           set -euo pipefail
           SDK=/Library/Developer/SDKs/WorkflowExtensionSDK.sdk
-          echo "=== .tbd の中身（install-name / 依存） ==="
+          # 🔴 tbd は JSON（v5）。項目名は install_names（下線）。
+          #    ハイフンで探して空振りし、答えが出ないまま先へ進んだ。
+          echo "=== .tbd が名乗る名前（dyld はこの名前で探しに行く） ==="
           find "$SDK" -name '*.tbd' -print0 | while IFS= read -r -d '' f; do
             echo "--- $f ---"
-            grep -E 'install-name|current-version|parent-umbrella|reexport' "$f" || head -20 "$f"
+            python3 - "$f" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+lib = d.get("main_library", d)
+for k in ("install_names", "current_versions", "compatibility_versions", "target_info"):
+    if k in lib:
+        print(f"{k}: {json.dumps(lib[k], ensure_ascii=False)}")
+PYEOF
           done
           echo
           echo "=== SDK に入っているもの ==="
