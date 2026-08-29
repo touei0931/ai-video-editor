@@ -76,9 +76,10 @@ do {
 // 🔴 引用符や \ の入った経路を自前で囲むと壊れる。Foundation に任せること
 do {
     let out = JSONSafe.text("彼は\"これ\"と言った\\終")
-    let back = try? JSONSerialization.jsonObject(
-        with: Data("[\(out)]".utf8), options: []) as? [Any]
-    check("引用符や \\ が入っても読み戻せる", (back??.first as? String) == "彼は\"これ\"と言った\\終", out)
+    let parsed = (try? JSONSerialization.jsonObject(
+        with: Data("[\(out)]".utf8), options: [])) as? [Any]
+    check("引用符や \\ が入っても読み戻せる",
+          (parsed?.first as? String) == "彼は\"これ\"と言った\\終", out)
 }
 
 // 🔴 JavaScript に埋め込むので、行が切れる文字は逃がすこと
