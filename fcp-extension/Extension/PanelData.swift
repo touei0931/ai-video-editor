@@ -28,7 +28,15 @@ enum PanelData {
                 let range = timeline.sequenceTimeRange
                 let seconds = CMTimeGetSeconds(range.duration)
                 if seconds.isFinite && seconds > 0 { duration = seconds }
-                info["playheadSec"] = CMTimeGetSeconds(timeline.playheadTime())  // ヘッダ上メソッド
+                /*
+                  🔴 数かどうかを必ず確かめること。
+                     再生位置が未確定のとき CMTimeGetSeconds は NaN を返す。
+                     NaN は JSON に直せず、渡した先で例外になって
+                     **拡張が丸ごと落ちる**（2026-08-30に踏んだ）。
+                     すぐ上の duration では確かめていたのに、ここだけ抜けていた。
+                */
+                let playhead = CMTimeGetSeconds(timeline.playheadTime())
+                if playhead.isFinite { info["playheadSec"] = playhead }
 
                 if let seq = timeline.activeSequence {
                     info["sequenceName"] = seq.name

@@ -158,15 +158,16 @@ extension WorkflowExtensionViewController: WKScriptMessageHandler {
 
     /// JS 側の window.pacResolve に返す
     private func reply(id: Int, ok: Bool, payload: Any) {
-        let json: String
-        if let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
-           let text = String(data: data, encoding: .utf8) {
-            json = text
-        } else if let text = payload as? String {
-            json = "\"\(text)\""
-        } else {
-            json = "null"
-        }
+        /*
+          🔴 JSONSerialization に生の値を渡さないこと（JSONSafe を通す）。
+
+             あれは値が JSON に直せないとき **Objective-C の例外**を投げる。
+             Swift の `try?` では受け止められず、受け止めたつもりのまま
+             **プロセスごと落ちる**。ここは以前 `try?` で書いてあり、
+             再生位置が NaN の日に拡張が死んで、Final Cut は
+             「読み込み中…」のまま止まっていた（2026-08-30に判明）。
+        */
+        let json = JSONSafe.text(payload)
         let js = "window.pacResolve && window.pacResolve(\(id), \(ok), \(json));"
         DispatchQueue.main.async {
             self.webView.evaluateJavaScript(js, completionHandler: nil)
