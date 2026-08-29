@@ -62,6 +62,15 @@ NEWEST=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"*WorkflowExtension*.ips 2>
 if [ -n "$NEWEST" ]; then
   echo
   echo "  ▼ いちばん新しいもの: $(basename "$NEWEST")"
+  # 🔴 落ちた理由を先に出すこと。head で先頭から出すと、
+  #    肝心の行が画面の外へ流れて写真に写らない。
+  echo "  ● 落ち方:"
+  grep -ao '"exception" : {[^}]*}' "$NEWEST" | head -1
+  grep -ao '"termination" : {.*' "$NEWEST" | cut -c1-600 | head -1
+  echo "  ● 落ちた場所（先頭のいくつか）:"
+  grep -ao '"symbol":"[^"]*"' "$NEWEST" | head -12
+  echo
+  echo "  ● 先頭60行:"
   head -60 "$NEWEST"
 fi
 echo
@@ -81,7 +90,10 @@ echo "(何も出なければ、止められてはいません)"
 echo
 
 echo "--- 5. 何に頼っているか（足りないと起動できない） ---"
-otool -L "$BIN" 2>&1
+# 🔴 otool を呼ばないこと。開発ツールが入っていない Mac では
+#    「インストールしますか？」のダイアログが出て、相手を止めてしまう。
+#    必要な情報は実行ファイルの中に文字として入っているので grep で足りる。
+grep -ao '@rpath/[A-Za-z0-9_.\/]*' "$BIN" 2>/dev/null | sort -u | head -10
 echo
 echo "--- この版は直っているか（Final Cut の中を探しに行くか） ---"
 # 🔴 otool を使わないこと。開発ツールが入っていない Mac では動かず、
