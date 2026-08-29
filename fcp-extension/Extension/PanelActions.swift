@@ -75,6 +75,19 @@ extension WorkflowExtensionViewController {
             return
         }
 
+        /*
+          🔴 動画が分からないまま書き出さないこと。
+
+             mediaPath が無いと、映像の入っていない XML（テロップだけ）が
+             できあがる。Final Cut は文句を言わずに読み込むので、
+             開いて再生するまで気づけない。黙って作るより、ここで止める。
+        */
+        guard let media, !media.isEmpty else {
+            completion(false, "動画が分かりません。①に戻って選び直してください")
+            return
+        }
+
+        sendProgress(stage: "保存先を選んでください", ratio: 0.05)
         let panel = NSSavePanel()
         if let type = UTType(filenameExtension: "fcpxml") {
             panel.allowedContentTypes = [type]
@@ -84,10 +97,16 @@ extension WorkflowExtensionViewController {
 
         panel.begin { response in
             guard response == .OK, let url = panel.url else {
+                self.sendProgress(stage: "中止しました", ratio: 0)
                 completion(false, "中止しました")
                 return
             }
             do {
+                /*
+                  🔴 途中経過を出すこと。カットが数百あると組み立てに間があく。
+                     黙っていると「押したのに何も起きない」に見える。
+                */
+                self.sendProgress(stage: "XML を組み立てています", ratio: 0.4)
                 let xml = FCPXMLWriter.build(
                     cuts: cuts,
                     telops: telops,
@@ -96,7 +115,9 @@ extension WorkflowExtensionViewController {
                     fps: fps,
                     template: TitleTemplate.load()
                 )
+                self.sendProgress(stage: "書き出しています", ratio: 0.8)
                 try xml.write(to: url, atomically: true, encoding: .utf8)
+                self.sendProgress(stage: "完了", ratio: 1)
                 completion(
                     true,
                     "書き出しました：\(url.lastPathComponent)（FCP のファイル > 読み込む > XML から開いてください）"

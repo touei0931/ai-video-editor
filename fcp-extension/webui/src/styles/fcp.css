@@ -554,3 +554,33 @@ textarea {
   border-radius: 2px;
   pointer-events: none;
 }
+
+/*
+  キーの割り当ての案内。
+  🔴 実装してあっても画面に書いていなければ、使う人には無いのと同じ。
+     カットは1本で数百件あるので、マウスだけでは現実的な時間で終わらない。
+  🔴 小さく置くこと。主役は候補の一覧と映像で、これは添え物。
+*/
+.keyhints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line, #2f2f38);
+  color: var(--text-dim, #9a9aa8);
+  font-size: 11px;
+}
+
+.keyhints kbd {
+  display: inline-block;
+  min-width: 14px;
+  margin-right: 3px;
+  padding: 1px 5px;
+  border: 1px solid var(--line, #3a3a45);
+  border-radius: 4px;
+  background: var(--s0, #161619);
+  color: var(--text, #ececf2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  text-align: center;
+}

@@ -33,6 +33,12 @@ export function App() {
   const [progress, setProgress] = useState({ stage: '準備しています', ratio: 0 })
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  /*
+    書き出しの進み具合。
+    🔴 黙って待たせないこと。保存先を選ぶ・組み立てる・書き出すで
+       十数秒〜数分かかる。何も出ないと「失敗した」と受け取られる。
+  */
+  const [sendStage, setSendStage] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
   const done = step === 'cut' || step === 'telop'
@@ -57,17 +63,30 @@ export function App() {
     if (!store.state) return
     setSending(true)
     setMessage(null)
+    setSendStage('保存先を選んでください')
     try {
-      const res = await sendToFCP({
-        cuts: store.approvedCuts,
-        telops: store.state.telops,
-        styles: store.state.styles,
-      })
+      const res = await sendToFCP(
+        {
+          cuts: store.approvedCuts,
+          telops: store.state.telops,
+          styles: store.state.styles,
+          /*
+            🔴 動画のパスを必ず渡すこと。
+               渡さないと、書き出した XML に**映像が入らない**（テロップだけ）。
+               Final Cut は文句を言わずに読み込むので、開くまで気づけない。
+          */
+          mediaPath: video?.path ?? null,
+          // host は FCP から読んだ生の値なので、数のときだけ渡す
+          fps: typeof store.state.host?.fps === 'number' ? store.state.host.fps : undefined,
+        },
+        (stage) => setSendStage(stage),
+      )
       setMessage(res.message)
     } catch (e) {
       setMessage(`失敗しました: ${String(e)}`)
     } finally {
       setSending(false)
+      setSendStage(null)
     }
   }
 
@@ -97,7 +116,13 @@ export function App() {
 
         <span className="spacer" />
 
-        {message && <span style={{ color: 'var(--text-dim)' }}>{message}</span>}
+        {/* 🔴 途中経過を出すこと。黙って待たせると「失敗した」と受け取られる */}
+        {sendStage && (
+          <span style={{ color: 'var(--text-dim)' }}>書き出し: {sendStage}</span>
+        )}
+        {!sendStage && message && (
+          <span style={{ color: 'var(--text-dim)' }}>{message}</span>
+        )}
         {!isInFCP && (
           <span className="warn" title="Final Cut Pro の外で動いています">
             開発モード

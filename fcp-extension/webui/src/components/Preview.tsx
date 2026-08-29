@@ -56,6 +56,8 @@ export function Preview({
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const [stageWidth, setStageWidth] = useState(640)
+  /* 動画が読めなかった理由。真っ黒のままにしないための控え */
+  const [loadError, setLoadError] = useState<string | null>(null)
   const drag = useRef<{ id: string; startX: number; startY: number; left: number; bottom: number } | null>(null)
 
   // テロップのサイズは 1920x1080 基準で持っているので、表示幅に合わせて縮める
@@ -113,12 +115,36 @@ export function Preview({
     <div className="preview-wrap">
       <div className="stage" ref={stageRef}>
         {videoUrl ? (
-          <video ref={videoRef} src={videoUrl} playsInline />
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            playsInline
+            /*
+              🔴 読めなかった理由を画面に出すこと。
+                 出さないと真っ黒なままで、「動画が無い」のか
+                 「読めなかった」のかが利用者にも作った側にも分からない。
+                 パネルの中では file:// が許可の関係で読めないことがある。
+            */
+            onError={(e) => {
+              // videoRef は「受け取るだけ」の関数なので、出来事から辿る
+              const err = (e.currentTarget as HTMLVideoElement).error
+              setLoadError(
+                err ? `動画を読めませんでした（${err.code}: ${err.message || '理由不明'}）` : '動画を読めませんでした',
+              )
+            }}
+            onLoadedMetadata={() => setLoadError(null)}
+          />
         ) : (
+          <div className="stage-placeholder">動画が読み込まれていません</div>
+        )}
+
+        {loadError && (
           <div className="stage-placeholder">
-            動画が読み込まれていません
+            {loadError}
             <br />
-            （開発モード：テロップの見た目とタイミングだけ確認できます）
+            <span style={{ opacity: 0.7, fontSize: '0.85em', wordBreak: 'break-all' }}>
+              {videoUrl}
+            </span>
           </div>
         )}
 

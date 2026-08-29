@@ -193,6 +193,19 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
           </button>
         </div>
 
+        {/*
+          🔴 キーの割り当ては画面に出すこと。
+             実装してあっても書いていなければ、使う人には無いのと同じ。
+             カットは1本で数百件あるので、マウスだけで捌くと現実的な時間で終わらない。
+        */}
+        <div className="keyhints">
+          <span><kbd>Space</kbd> 再生 / 停止</span>
+          <span><kbd>↑</kbd><kbd>↓</kbd> 候補を移動</span>
+          <span><kbd>Enter</kbd> 切る</span>
+          <span><kbd>Delete</kbd> 残す</span>
+          <span><kbd>⌘Z</kbd> ひとつ戻す</span>
+        </div>
+
         <div className="list" ref={listRef}>
           {state.cuts.map((c) => (
             <div

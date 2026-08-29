@@ -163,16 +163,36 @@ export async function clearTitleTemplate(): Promise<void> {
   await callSwift('clearTitleTemplate')
 }
 
-/** 承認したカットとテロップを FCPXML にして書き出す */
-export async function sendToFCP(payload: {
-  cuts: CutCandidate[]
-  telops: Telop[]
-  styles?: unknown
-}): Promise<{ ok: boolean; message: string }> {
+/**
+ * 承認したカットとテロップを FCPXML にして書き出す。
+ *
+ * 🔴 mediaPath を必ず渡すこと。
+ *    渡さないと、書き出した XML に**映像が入らない**（テロップだけになる）。
+ *    Final Cut は文句を言わずに読み込むので、開くまで気づけない。
+ */
+export async function sendToFCP(
+  payload: {
+    cuts: CutCandidate[]
+    telops: Telop[]
+    styles?: unknown
+    mediaPath: string | null
+    fps?: number
+  },
+  onProgress?: (stage: string, ratio: number) => void,
+): Promise<{ ok: boolean; message: string }> {
   if (!isInFCP) {
     // 開発中は送らずに中身だけ確認できるようにする
     console.info('[dev] FCP へ送る内容', payload)
     return { ok: true, message: `開発モード: カット${payload.cuts.length}件 / テロップ${payload.telops.length}件` }
   }
-  return callSwift('sendToFCP', payload)
+  /*
+    🔴 時間で切らないこと。保存先を選ぶダイアログは人が操作する。
+       30秒で切ると、保存先を探しているだけで「失敗しました」になる。
+  */
+  if (onProgress) window.pacProgress = onProgress
+  try {
+    return await callSwift('sendToFCP', payload, 0)
+  } finally {
+    if (onProgress) window.pacProgress = undefined
+  }
 }
