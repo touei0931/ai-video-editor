@@ -58,9 +58,20 @@ do {
   🔴 文字列や数を単体で渡してくる呼び口がある（フォルダの場所など）。
      JSONSerialization は単体の値を受け付けず、ここでも例外を投げる。
 */
+/*
+  🔴 出てきた文字をそのまま比べないこと。
+     Foundation は `/` を `\/` と書く（JSON として正しく、読み戻せば同じ）。
+     見た目で比べると、正しいものを不合格にする。**読み戻して**比べる。
+*/
+func roundTrip(_ json: String) -> Any? {
+    let parsed = (try? JSONSerialization.jsonObject(
+        with: Data("[\(json)]".utf8), options: [])) as? [Any]
+    return parsed?.first
+}
+
 do {
     let out = JSONSafe.text("/Users/me/動画")
-    check("単体の文字列を返せる", out == "\"/Users/me/動画\"", out)
+    check("単体の文字列を返せる", (roundTrip(out) as? String) == "/Users/me/動画", out)
 }
 
 do {
