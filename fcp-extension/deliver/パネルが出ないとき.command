@@ -26,6 +26,21 @@ echo "     まだなら、いま押してから Enter を押してください�
 read -p "  準備できたら Enter: " _
 echo
 
+echo "--- 0. 拡張を直に動かしてみる（ここに答えが出ます） ---"
+# 🔴 これが一番はっきりする。
+#    足りないものがあれば dyld がその名前をそのまま言う。
+#    パネル越しだと FCP が飲み込んでしまい、「読み込み中…」としか見えない。
+"$BIN" 2>&1 | head -20
+echo "(終了コード: $?)"
+echo
+
+echo "--- 0b. ProExtensionHost はどこにあるか ---"
+# 🔴 「Final Cut の中にあるはず」で直したが、実在を確かめていなかった。
+#    無ければ、探し先を足しても何も変わらない。
+find /Applications/Final\ Cut\ Pro.app /Library/Frameworks /System/Library      /Library/Application\ Support -maxdepth 6 -name 'ProExtensionHost.framework' 2>/dev/null | head -5
+echo "(1つも出なければ、この Mac のどこにも無いということです)"
+echo
+
 echo "--- 1. 拡張のプロセスは起きているか（ここが本命） ---"
 pgrep -fl "WorkflowExtension" || echo "(起きていません ← 起動に失敗しています)"
 echo
@@ -56,6 +71,9 @@ echo
 
 echo "--- 5. 何に頼っているか（足りないと起動できない） ---"
 otool -L "$BIN" 2>&1
+echo
+echo "  探しに行く先:"
+otool -l "$BIN" 2>/dev/null | grep -A2 'LC_RPATH' | grep 'path ' | sed -e 's/ (offset [0-9]*)$//' -e 's/^ *path //'
 echo
 
 echo "--- 6. 中身が揃っているか ---"
