@@ -45,13 +45,22 @@ function callSwift<T>(method: string, params: unknown = {}, timeoutMs = 30_000):
     const id = ++seq
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
     window.webkit!.messageHandlers!.pac!.postMessage({ id, method, params })
-    // Swift 側が落ちたときに永遠に待たないようにする。
-    // 解析だけは数分〜数十分かかるので時間制限を外す（timeoutMs = 0）。
+    /*
+      Swift 側が落ちたときに永遠に待たないようにする。
+
+      🔴 人が操作している間は時間で切らないこと（timeoutMs = 0）。
+         ファイルを選ぶダイアログは、探している間に30秒を軽く超える。
+         切ってしまうと、あとから届いた「選んだファイル」を捨てることになり、
+         選んだのに何も起きない、という見え方になる。
+         解析も数分〜数十分かかるので同じ。
+    */
     if (timeoutMs > 0) {
       setTimeout(() => {
         if (pending.has(id)) {
           pending.delete(id)
-          reject(new Error(`${method} が応答しませんでした`))
+          reject(new Error(
+            `${method} が応答しませんでした。パネルを閉じて開き直してください`,
+          ))
         }
       }, timeoutMs)
     }
@@ -91,7 +100,7 @@ export async function listFonts(): Promise<string[]> {
  */
 export async function grantMediaFolder(): Promise<string | null> {
   if (!isInFCP) return null
-  return callSwift<string | null>('grantMediaFolder')
+  return callSwift<string | null>('grantMediaFolder', {}, 0)
 }
 
 /** 解析する動画を選ぶ。サンドボックスの許可もここで取れる */
@@ -100,7 +109,7 @@ export async function pickVideo(): Promise<{ path: string; name: string } | null
     // 開発中は選べないので、置いてある実データを使う
     return { path: '(開発モード)', name: 'dev-sample.mp4' }
   }
-  return callSwift<{ path: string; name: string } | null>('pickVideo')
+  return callSwift<{ path: string; name: string } | null>('pickVideo', {}, 0)
 }
 
 /**
@@ -146,7 +155,7 @@ export async function loadTitleTemplate(): Promise<TitleTemplateSummary> {
     // 開発中は見本を選べないので、それらしいものを返す
     return { effectName: '基本01_10', font: 'Hiragino Sans', fontFace: 'W8', fontSize: 146, bold: true, paramCount: 3 }
   }
-  return callSwift<TitleTemplateSummary>('loadTitleTemplate')
+  return callSwift<TitleTemplateSummary>('loadTitleTemplate', {}, 0)
 }
 
 export async function clearTitleTemplate(): Promise<void> {
