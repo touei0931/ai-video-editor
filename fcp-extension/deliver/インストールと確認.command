@@ -80,15 +80,18 @@ echo
 echo "--- 署名の状態 ---"
 codesign -dvvv "/Applications/PAC for Final Cut.app/Contents/PlugIns/WorkflowExtension.appex" 2>&1 | head -20
 echo
-# 🔴 どの版が入っているかを必ず残すこと。
-#    残していなかったので、直した版を渡したあとも
-#    「本当にそれが入ったのか」を記録から確かめられなかった。
-#    ProExtensionHost は Final Cut の中にあり、そこを探しに行く指定が
-#    入っていないと拡張は起動前に落ちる（2026-08-28に踏んだ）。
-echo "--- 探しに行く先（ここに Final Cut が無いと起動しません） ---"
-otool -l "/Applications/PAC for Final Cut.app/Contents/PlugIns/WorkflowExtension.appex/Contents/MacOS/WorkflowExtension" 2>/dev/null | grep -A2 'LC_RPATH' | grep 'path ' | sed -e 's/ (offset [0-9]*)$//' -e 's/^ *path //'
+BIN="/Applications/PAC for Final Cut.app/Contents/PlugIns/WorkflowExtension.appex/Contents/MacOS/WorkflowExtension"
+echo "--- この版は直っているか（Final Cut の中を探しに行くか） ---"
+# 🔴 otool を使わないこと。開発ツールが入っていない Mac では動かず、
+#    「探しに行く先」が空欄になって**版の見分けが付かなかった**。
+#    探し先は実行ファイルの中に文字としてそのまま入っているので、grep で読める。
+if grep -qa "Final Cut Pro.app/Contents/Frameworks" "$BIN" 2>/dev/null; then
+  echo "  OK: 直った版が入っています"
+else
+  echo "  NG: 古い版です。新しい zip を入れ直してください"
+  echo "      （この版では拡張が起動できず、パネルは「読み込み中…」のまま止まります）"
+fi
 echo
-
 echo "--- 拒否されていないか (Gatekeeper) ---"
 spctl -a -vvv -t exec "/Applications/PAC for Final Cut.app" 2>&1
 echo

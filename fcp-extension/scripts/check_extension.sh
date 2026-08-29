@@ -94,6 +94,14 @@ FCP_RPATH="/Applications/Final Cut Pro.app/Contents/Frameworks"
 if otool -L "$APPEX/Contents/MacOS/WorkflowExtension" | grep -q 'ProExtensionHost'; then
   if otool -l "$APPEX/Contents/MacOS/WorkflowExtension" | grep -qF "path $FCP_RPATH "; then
     ok "ProExtensionHost を Final Cut の中に探しに行く"
+    # 🔴 配った先で版を見分けられるようにしておくこと。
+    #    相手の Mac には開発ツールが無く otool が使えない。
+    #    実行ファイルを grep すれば道具なしで確かめられる。
+    if grep -qa "Final Cut Pro.app/Contents/Frameworks" "$APPEX/Contents/MacOS/WorkflowExtension"; then
+      ok "配った先でも版を見分けられる（grep で読める）"
+    else
+      ng "実行ファイルに探し先の文字が見当たらない（配布先で版を確かめられません）"
+    fi
   else
     ng "ProExtensionHost を要求しているのに、Final Cut の中を探しに行かない（起動できません）"
   fi

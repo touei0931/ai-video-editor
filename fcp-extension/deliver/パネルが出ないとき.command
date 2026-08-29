@@ -34,6 +34,17 @@ echo "--- 0. 拡張を直に動かしてみる（ここに答えが出ます） 
 echo "(終了コード: $?)"
 echo
 
+echo "--- この版は直っているか（Final Cut の中を探しに行くか） ---"
+# 🔴 otool を使わないこと。開発ツールが入っていない Mac では動かず、
+#    「探しに行く先」が空欄になって**版の見分けが付かなかった**。
+#    探し先は実行ファイルの中に文字としてそのまま入っているので、grep で読める。
+if grep -qa "Final Cut Pro.app/Contents/Frameworks" "$BIN" 2>/dev/null; then
+  echo "  OK: 直った版が入っています"
+else
+  echo "  NG: 古い版です。新しい zip を入れ直してください"
+  echo "      （この版では拡張が起動できず、パネルは「読み込み中…」のまま止まります）"
+fi
+echo
 echo "--- 0b. ProExtensionHost はどこにあるか ---"
 # 🔴 「Final Cut の中にあるはず」で直したが、実在を確かめていなかった。
 #    無ければ、探し先を足しても何も変わらない。
@@ -72,8 +83,16 @@ echo
 echo "--- 5. 何に頼っているか（足りないと起動できない） ---"
 otool -L "$BIN" 2>&1
 echo
-echo "  探しに行く先:"
-otool -l "$BIN" 2>/dev/null | grep -A2 'LC_RPATH' | grep 'path ' | sed -e 's/ (offset [0-9]*)$//' -e 's/^ *path //'
+echo "--- この版は直っているか（Final Cut の中を探しに行くか） ---"
+# 🔴 otool を使わないこと。開発ツールが入っていない Mac では動かず、
+#    「探しに行く先」が空欄になって**版の見分けが付かなかった**。
+#    探し先は実行ファイルの中に文字としてそのまま入っているので、grep で読める。
+if grep -qa "Final Cut Pro.app/Contents/Frameworks" "$BIN" 2>/dev/null; then
+  echo "  OK: 直った版が入っています"
+else
+  echo "  NG: 古い版です。新しい zip を入れ直してください"
+  echo "      （この版では拡張が起動できず、パネルは「読み込み中…」のまま止まります）"
+fi
 echo
 
 echo "--- 6. 中身が揃っているか ---"
