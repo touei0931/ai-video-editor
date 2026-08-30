@@ -94,6 +94,14 @@ export function App() {
     <div className="app">
       <div className="toolbar">
         <span className="brand">PAC</span>
+        {/*
+          🔴 版を必ず出すこと。
+             出していないと、直したものを渡しても「本当にそれが動いているのか」が
+             キャプチャから分からない。実際に古い版のまま何度も試してもらった。
+        */}
+        <span className="build" title="この画面の版（不具合を伝えるときは一緒に教えてください）">
+          {__PAC_BUILD__}
+        </span>
 
         <div className="steps">
           {STEPS.map((s) => {

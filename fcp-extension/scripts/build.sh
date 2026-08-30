@@ -16,6 +16,11 @@ echo "✅ SDK: $SDK_PATH"
 
 echo "--- webui をビルド ---"
 if [ -d webui ]; then
+  # 🔴 版を埋め込むこと。画面に出しておかないと、直したものを渡しても
+  #    「本当にそれが動いているのか」がキャプチャから分からない。
+  PAC_BUILD="${PAC_BUILD:-$(date -u '+%Y-%m-%d %H:%M')}"
+  export PAC_BUILD
+  echo "版: $PAC_BUILD"
   ( cd webui && npm ci --no-audit --no-fund && npm run build )
   rm -rf Extension/webui
   cp -R webui/dist Extension/webui

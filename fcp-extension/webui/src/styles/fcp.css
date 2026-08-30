@@ -584,3 +584,15 @@ textarea {
   font-size: 10px;
   text-align: center;
 }
+
+/* 版の表示。添え物なので小さく、でも必ず見える所に */
+.build {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--line, #3a3a45);
+  border-radius: 4px;
+  color: var(--text-dim, #9a9aa8);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
