@@ -152,6 +152,35 @@ func assetSeconds(_ xml: String) -> Double {
 func near(_ a: Double, _ b: Double, _ tol: Double = 0.05) -> Bool { abs(a - b) <= tol }
 
 
+
+/* ================================================ 素材の大きさは決め打ちしない
+
+  🔴 asset に format を書かないこと。
+
+     あそこは「素材そのものの大きさ」を指す所で、プロジェクトの大きさを
+     書くと、FCP は「この素材はプロジェクトと同じ大きさだ」と信じ込み、
+     拡大せずそのまま置く。実際の素材がそれより小さいと
+     **真ん中に小さく出る**（2026-08-30に踏んだ）。
+     書かなければ FCP が素材そのものを見て、枠に合わせて収めてくれる。
+*/
+do {
+    let xml = FCPXMLWriter.build(
+        cuts: [["decision": "approved", "start": 5.0, "end": 6.0]], telops: [], styles: [:],
+        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20,
+        mediaWidth: 2160, mediaHeight: 3840)
+
+    let assetTag = xml.range(of: "<asset [^>]*>", options: .regularExpression)
+        .map { String(xml[$0]) } ?? ""
+    check("asset に format を決め打ちしない", !assetTag.contains("format="), assetTag)
+
+    let clipTag = xml.range(of: "<asset-clip [^>]*>", options: .regularExpression)
+        .map { String(xml[$0]) } ?? ""
+    check("asset-clip にも決め打ちしない", !clipTag.contains("format="), clipTag)
+
+    // 🔴 プロジェクト側（sequence）は逆に必ず指定すること。無いと大きさが決まらない
+    check("sequence には format を指定する", xml.contains("<sequence format=\"r1\""))
+}
+
 /* ================================================ 素材と同じ大きさ
 
   🔴 プロジェクトの大きさを決め打ちにしないこと。

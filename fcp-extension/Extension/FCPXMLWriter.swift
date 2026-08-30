@@ -145,11 +145,24 @@ enum FCPXMLWriter {
 
         """
 
-        // 素材がある場合だけ asset を作る（無い場合はテロップだけの XML になる）
+        /*
+          素材がある場合だけ asset を作る（無い場合はテロップだけの XML になる）。
+
+          🔴 asset に format を書かないこと。
+
+             ここは「**素材そのものの**大きさ」を指す所で、プロジェクトの
+             大きさ（r1）を書くと、FCP は「この素材はプロジェクトと同じ大きさだ」と
+             信じ込み、拡大せずそのまま置く。実際の素材がそれより小さいと
+             **真ん中に小さく出る**（2026-08-30に踏んだ）。
+
+             書かなければ FCP が素材そのものを見て判断し、
+             プロジェクトの枠に合わせて自動で収める。
+             こちらの見立てが外れていても正しく収まる。
+        */
         if let mediaPath, !mediaPath.isEmpty {
             let url = URL(fileURLWithPath: mediaPath)
             xml += """
-                <asset id="r3" name="\(escape(url.deletingPathExtension().lastPathComponent))" start="0s" duration="\(time(total, fps: fps))" hasVideo="1" videoSources="1" hasAudio="1" audioSources="1" audioChannels="2" format="r1">
+                <asset id="r3" name="\(escape(url.deletingPathExtension().lastPathComponent))" start="0s" duration="\(time(total, fps: fps))" hasVideo="1" videoSources="1" hasAudio="1" audioSources="1" audioChannels="2">
                   <media-rep kind="original-media" src="\(escape(url.absoluteString))"/>
                 </asset>
 
@@ -176,7 +189,7 @@ enum FCPXMLWriter {
             for (i, seg) in keeps.enumerated() {
                 let dur = seg.end - seg.start
                 xml += """
-                        <asset-clip ref="r3" name="clip\(i + 1)" offset="\(time(offset, fps: fps))" start="\(time(seg.start, fps: fps))" duration="\(time(dur, fps: fps))" format="r1" tcFormat="NDF">
+                        <asset-clip ref="r3" name="clip\(i + 1)" offset="\(time(offset, fps: fps))" start="\(time(seg.start, fps: fps))" duration="\(time(dur, fps: fps))" tcFormat="NDF">
 
                 """
                 // この区間に入るテロップを、この clip にぶら下げる
