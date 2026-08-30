@@ -177,6 +177,12 @@ export async function sendToFCP(
     styles?: unknown
     mediaPath: string | null
     fps?: number
+    /**
+     * 素材の本当の長さ（秒）。
+     * 🔴 必ず渡すこと。無いと書き出し側が見積もることになり、
+     *    Final Cut が「対応するメディアがない」と言って読み込みを拒む。
+     */
+    durationSec: number
   },
   onProgress?: (stage: string, ratio: number) => void,
 ): Promise<{ ok: boolean; message: string }> {

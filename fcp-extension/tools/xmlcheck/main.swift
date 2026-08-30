@@ -125,6 +125,60 @@ check("title の start がテンプレ由来", xml.contains("start=\"3600s\""))
 check("記号がエスケープされている", xml.contains("&lt;&gt;&amp;"))
 check("承認したカットだけ反映（clip が2本）", xml.components(separatedBy: "<asset-clip").count - 1 == 2)
 
+
+/* ================================================ 素材の長さ
+
+  🔴 クリップが素材の外を指してはいけない。
+
+     以前は素材の長さを「最後のカット／テロップの終わり + 1秒」で
+     見積もっていた。最後のカットが素材の終わり近くにあると、
+     見積もりが実際の素材より長くなり、最後のクリップが
+     存在しない部分を指す。Final Cut は読み込み時に
+     「対応するメディアがない不正な編集です」と言って弾く（2026-08-30）。
+     書き出し自体は成功するので、読み込ませるまで気づけない。
+*/
+do {
+    // 素材は 20 秒ちょうど。最後のカットは 19.5 秒で終わる
+    let cuts: [[String: Any]] = [
+        ["decision": "approved", "start": 5.0, "end": 6.0],
+        ["decision": "approved", "start": 19.0, "end": 19.5],
+    ]
+    let xml = FCPXMLWriter.build(
+        cuts: cuts, telops: [], styles: [:],
+        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20)
+
+    // asset の長さ
+    let assetDur = xml.range(of: "<asset [^>]*duration=\"([^\"]+)\"", options: .regularExpression)
+        .map { String(xml[$0]) } ?? ""
+    check("素材の長さは渡した値になる", assetDur.contains("60000/3000s"), assetDur)
+
+    // いちばん後ろのクリップが素材の外へ出ていないか
+    var worst = 0.0
+    if let re = try? NSRegularExpression(
+        pattern: "<asset-clip[^>]*offset=\"([0-9]+)/([0-9]+)s\"[^>]*start=\"([0-9]+)/([0-9]+)s\"[^>]*duration=\"([0-9]+)/([0-9]+)s\"")
+    {
+        let ns = xml as NSString
+        for m in re.matches(in: xml, range: NSRange(location: 0, length: ns.length)) {
+            let start = Double(ns.substring(with: m.range(at: 3)))! / Double(ns.substring(with: m.range(at: 4)))!
+            let dur = Double(ns.substring(with: m.range(at: 5)))! / Double(ns.substring(with: m.range(at: 6)))!
+            worst = max(worst, start + dur)
+        }
+    }
+    check("クリップが素材の外へ出ない", worst <= 20.0001, "いちばん後ろ \(worst) 秒 / 素材 20 秒")
+}
+
+// 長さが分からないときは、最後の出来事までにする（余分を足さない）
+do {
+    let cuts: [[String: Any]] = [["decision": "approved", "start": 5.0, "end": 6.0]]
+    let telops: [[String: Any]] = [["start": 1.0, "end": 9.0, "text": "あ", "style": "normal"]]
+    let xml = FCPXMLWriter.build(
+        cuts: cuts, telops: telops, styles: [:],
+        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 0)
+    let assetDur = xml.range(of: "<asset [^>]*duration=\"([^\"]+)\"", options: .regularExpression)
+        .map { String(xml[$0]) } ?? ""
+    check("長さ不明でも余分を足さない", assetDur.contains("27000/3000s"), assetDur)
+}
+
 // 時刻がフレーム境界に乗っているか（30fps なら分母 3000・分子は 100 の倍数）
 var offGrid = 0
 if let re = try? NSRegularExpression(pattern: "(?:offset|duration|start)=\"([0-9]+)/([0-9]+)s\"") {

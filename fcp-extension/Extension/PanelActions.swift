@@ -69,6 +69,9 @@ extension WorkflowExtensionViewController {
         let styles = (params["styles"] as? [String: Any]) ?? PanelData.defaultStyles()
         let media = params["mediaPath"] as? String
         let fps = (params["fps"] as? Double) ?? 30
+        // 🔴 素材の本当の長さ。無いと書き出し側が見積もることになり、
+        //    Final Cut が「対応するメディアがない」と言って読み込みを拒む
+        let mediaDuration = (params["durationSec"] as? Double) ?? 0
 
         if cuts.isEmpty && telops.isEmpty {
             completion(false, "書き出すものがありません")
@@ -113,6 +116,7 @@ extension WorkflowExtensionViewController {
                     styles: styles,
                     mediaPath: media,
                     fps: fps,
+                    mediaDuration: mediaDuration,
                     template: TitleTemplate.load()
                 )
                 self.sendProgress(stage: "書き出しています", ratio: 0.8)

@@ -68,6 +68,15 @@ enum FCPXMLWriter {
         styles: [String: Any],
         mediaPath: String?,
         fps: Double,
+        /// 素材の本当の長さ（秒）。0 なら分からない
+        ///
+        /// 🔴 見積もりで代用しないこと。
+        ///    以前は「最後のカット／テロップの終わり + 1秒」を素材の長さとしていた。
+        ///    最後のカットが素材の終わり近くにあると、この見積もりが
+        ///    **実際の素材より長く**なり、最後のクリップが存在しない部分を指す。
+        ///    Final Cut は読み込み時に
+        ///    「対応するメディアがない不正な編集です」と言って弾く（2026-08-30に踏んだ）。
+        mediaDuration: Double = 0,
         template: TitleTemplate? = nil
     ) -> String {
         let (fdNum, fdDen) = frameDuration(fps: fps)
@@ -84,7 +93,15 @@ enum FCPXMLWriter {
 
         let telopEnd = telops.compactMap { $0["end"] as? Double }.max() ?? 0
         let cutEnd = cuts.compactMap { $0["end"] as? Double }.max() ?? 0
-        let total = max(telopEnd, cutEnd) + 1
+        /*
+          素材の長さ。
+          🔴 分かっているならそれを使い、**それより長くしない**こと。
+             超えた分は「素材の無い所」なので、Final Cut が読み込みを拒む。
+          🔴 分からないときだけ見積もる。その場合も、
+             最後の出来事ちょうどまでにして余分を足さない。
+        */
+        let guessed = max(telopEnd, cutEnd)
+        let total = mediaDuration > 0 ? mediaDuration : guessed
 
         var xml = """
         <?xml version="1.0" encoding="UTF-8"?>

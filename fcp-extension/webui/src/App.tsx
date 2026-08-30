@@ -76,6 +76,9 @@ export function App() {
                Final Cut は文句を言わずに読み込むので、開くまで気づけない。
           */
           mediaPath: video?.path ?? null,
+          // 🔴 素材の本当の長さ。無いと書き出し側が見積もることになり、
+          //    Final Cut が読み込みを拒む
+          durationSec: store.state.durationSec,
           // host は FCP から読んだ生の値なので、数のときだけ渡す
           fps: typeof store.state.host?.fps === 'number' ? store.state.host.fps : undefined,
         },
