@@ -126,6 +126,31 @@ check("記号がエスケープされている", xml.contains("&lt;&gt;&amp;"))
 check("承認したカットだけ反映（clip が2本）", xml.components(separatedBy: "<asset-clip").count - 1 == 2)
 
 
+/*
+  ὓ4 出てきた文字をそのまま比べないこと。
+     "20s" と "60000/3000s" は同じ長さだが、文字では一致しない。
+     割り切れるときは整数の形で書かれる。**数に直して**比べる。
+*/
+func seconds(_ text: String) -> Double {
+    let body = text.hasSuffix("s") ? String(text.dropLast()) : text
+    let parts = body.split(separator: "/")
+    if parts.count == 2, let n = Double(parts[0]), let d = Double(parts[1]), d != 0 {
+        return n / d
+    }
+    return Double(body) ?? -1
+}
+
+func assetSeconds(_ xml: String) -> Double {
+    guard
+        let r = xml.range(of: "<asset [^>]*duration=\"[^\"]+\"", options: .regularExpression),
+        let q = xml[r].range(of: "duration=\"[^\"]+\"", options: .regularExpression)
+    else { return -1 }
+    let raw = xml[r][q].replacingOccurrences(of: "duration=\"", with: "").replacingOccurrences(of: "\"", with: "")
+    return seconds(raw)
+}
+
+func near(_ a: Double, _ b: Double, _ tol: Double = 0.05) -> Bool { abs(a - b) <= tol }
+
 /* ================================================ 素材の長さ
 
   🔴 クリップが素材の外を指してはいけない。
@@ -147,10 +172,7 @@ do {
         cuts: cuts, telops: [], styles: [:],
         mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20)
 
-    // asset の長さ
-    let assetDur = xml.range(of: "<asset [^>]*duration=\"([^\"]+)\"", options: .regularExpression)
-        .map { String(xml[$0]) } ?? ""
-    check("素材の長さは渡した値になる", assetDur.contains("60000/3000s"), assetDur)
+    check("素材の長さは渡した値になる", near(assetSeconds(xml), 20), "\(assetSeconds(xml)) 秒")
 
     // いちばん後ろのクリップが素材の外へ出ていないか
     var worst = 0.0
@@ -174,9 +196,7 @@ do {
     let xml = FCPXMLWriter.build(
         cuts: cuts, telops: telops, styles: [:],
         mediaPath: "/m/a.mov", fps: 30, mediaDuration: 0)
-    let assetDur = xml.range(of: "<asset [^>]*duration=\"([^\"]+)\"", options: .regularExpression)
-        .map { String(xml[$0]) } ?? ""
-    check("長さ不明でも余分を足さない", assetDur.contains("27000/3000s"), assetDur)
+    check("長さ不明でも余分を足さない", near(assetSeconds(xml), 9), "\(assetSeconds(xml)) 秒")
 }
 
 // 時刻がフレーム境界に乗っているか（30fps なら分母 3000・分子は 100 の倍数）
