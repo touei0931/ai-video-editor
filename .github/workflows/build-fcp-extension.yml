@@ -121,11 +121,11 @@ jobs:
 
       # 🔴 パネルへ返す値の検査。ここが抜けると拡張が丸ごと落ちる
       # 🔴 テロップの割り直し。抜けると 40文字・25秒のテロップになる
-      - name: テロップの割り直しの検査
+      - name: パネルの検査（テロップの割り直し・コマの刻み）
         run: |
           cd fcp-extension/webui
           npm ci --no-audit --no-fund
-          npm run test:split
+          npm test
 
       - name: パネルへ返す値の検査
         run: ./fcp-extension/scripts/check_json.sh

@@ -9,7 +9,8 @@
 // 作り方は「隠した video を目的の時刻へ飛ばして canvas に写す」。
 // ffmpeg を呼ばずに済むので、パネル側に余計な仕組みが要らない。
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { stepFor } from '../lib/filmstripStep'
 
 interface Props {
   videoUrl: string | null
@@ -20,17 +21,31 @@ interface Props {
   to: number
   height: number
   duration: number
+  /**
+   * 素材の縦横比（幅 ÷ 高さ）。
+   *
+   * 🔴 16:9 で決め打ちにしないこと。
+   *    縦の素材（2160x3840 など）を横長の枠に押し込むことになり、
+   *    **コマが横に伸びて**何が写っているか分からなくなる（実機で指摘された）。
+   */
+  aspect?: number
+  /** 素材のコマ数。これより細かい刻みには意味が無い（同じ絵が並ぶだけ） */
+  fps?: number
 }
 
-/** その拡大率で何秒ごとにコマを置くか。半端な刻みだと拡大のたびに作り直しになる */
-function stepFor(scale: number, thumbWidth: number): number {
-  const sec = thumbWidth / scale
-  const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300]
-  return steps.find((s) => s >= sec) ?? steps[steps.length - 1]
-}
-
-export function Filmstrip({ videoUrl, scale, from, to, height, duration }: Props) {
+export function Filmstrip({
+  videoUrl,
+  scale,
+  from,
+  to,
+  height,
+  duration,
+  aspect = 16 / 9,
+  fps = 30,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  /* 動画が知っている形。分かった時点で描き直す */
+  const [natural, setNatural] = useState(0)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cache = useRef<Map<number, HTMLCanvasElement>>(new Map())
   const running = useRef(false)
@@ -46,6 +61,13 @@ export function Filmstrip({ videoUrl, scale, from, to, height, duration }: Props
     v.muted = true
     v.preload = 'auto'
     v.crossOrigin = 'anonymous'
+    v.addEventListener(
+      'loadedmetadata',
+      () => {
+        if (v.videoWidth > 0 && v.videoHeight > 0) setNatural(v.videoWidth / v.videoHeight)
+      },
+      { once: true },
+    )
     videoRef.current = v
     cache.current.clear()
     return () => {
@@ -58,8 +80,18 @@ export function Filmstrip({ videoUrl, scale, from, to, height, duration }: Props
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const thumbW = Math.round((height * 16) / 9)
-    const step = stepFor(scale, thumbW)
+    /*
+      🔴 素材の形で作ること。16:9 に押し込むと縦の素材が横に伸びる。
+      🔴 動画自身が知っているならそちらを使うこと。
+         渡ってくる値は解析が返さないと空になるが、動画は必ず自分の形を知っている
+         （回転の情報も適用済み）。「届かなければ決め打ち」を残さない。
+    */
+    const v = videoRef.current
+    const natural =
+      v && v.videoWidth > 0 && v.videoHeight > 0 ? v.videoWidth / v.videoHeight : 0
+    const useAspect = natural || aspect
+    const thumbW = Math.max(4, Math.round(height * useAspect))
+    const step = stepFor(scale, thumbW, fps)
     const dpr = window.devicePixelRatio || 1
     const widthPx = Math.max(1, (to - from) * scale)
 
@@ -191,7 +223,7 @@ export function Filmstrip({ videoUrl, scale, from, to, height, duration }: Props
       cancelled = true
       running.current = false
     }
-  }, [videoUrl, scale, from, to, height, duration])
+  }, [videoUrl, scale, from, to, height, duration, aspect, fps, natural])
 
   return (
     <canvas

@@ -31,6 +31,8 @@ interface Props {
   onSeek: (t: number) => void
   waveform: number[]
   videoUrl: string | null
+  /** 素材の縦横比（幅 ÷ 高さ）。コマを正しい形で出すのに要る */
+  aspect?: number
   clips: Clip[]
   selectedId: string | null
   onSelect: (id: string) => void
@@ -80,6 +82,7 @@ export function Timeline({
   onSeek,
   waveform,
   videoUrl,
+  aspect = 16 / 9,
   clips,
   selectedId,
   onSelect,
@@ -342,6 +345,11 @@ export function Timeline({
                 to={view.to}
                 height={40}
                 duration={duration}
+                /* 🔴 素材の形とコマ数を渡すこと。
+                      渡さないと 16:9・30fps の決め打ちになり、
+                      縦の素材でコマが横に伸びる */
+                aspect={aspect}
+                fps={fps}
               />
             </div>
           </div>

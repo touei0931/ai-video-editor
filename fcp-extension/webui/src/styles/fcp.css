@@ -596,3 +596,19 @@ textarea {
   font-size: 10px;
   white-space: nowrap;
 }
+
+/*
+  音量。
+  🔴 再生位置のつまみより短くすること。同じ長さだと、
+     掴むときにどちらが時間でどちらが音量か分からなくなる。
+*/
+.transport .volume {
+  flex: 0 0 84px;
+  width: 84px;
+}
+
+.transport .mute {
+  flex: 0 0 auto;
+  min-width: 28px;
+  padding: 2px 6px;
+}

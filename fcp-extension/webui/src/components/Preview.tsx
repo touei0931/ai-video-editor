@@ -10,6 +10,10 @@ import { useEffect, useRef, useState } from 'react'
 import type { Telop, TelopSpan, TelopStyle } from '../lib/types'
 import { fmtTimecode } from '../lib/format'
 
+/** 音量の覚え先。画面を移っても戻らないようにする */
+const VOLUME_KEY = 'pac.preview.volume'
+const MUTED_KEY = 'pac.preview.muted'
+
 interface Props {
   videoUrl: string | null
   durationSec: number
@@ -58,6 +62,40 @@ export function Preview({
   const [stageWidth, setStageWidth] = useState(640)
   /* 動画が読めなかった理由。真っ黒のままにしないための控え */
   const [loadError, setLoadError] = useState<string | null>(null)
+  /*
+    音量。
+    🔴 覚えておくこと。画面を移るたびに戻ると、そのたびに下げ直すことになる。
+       カットとテロップを行き来しながら何十回も再生する画面なので、
+       ここが戻ると作業のたびに耳を驚かせる。
+  */
+  const [volume, setVolume] = useState(() => {
+    /*
+      🔴 覚えていないとき（null）を 0 にしないこと。
+         Number(null) は 0 なので、そのまま通すと**初回が無音**になる。
+         「音が出ない」の問い合わせは原因が分かりにくい。
+    */
+    const raw = localStorage.getItem(VOLUME_KEY)
+    if (raw === null) return 1
+    const saved = Number(raw)
+    return Number.isFinite(saved) && saved >= 0 && saved <= 1 ? saved : 1
+  })
+  const [muted, setMuted] = useState(() => localStorage.getItem(MUTED_KEY) === '1')
+  /* 音量を当てるために、こちらでも <video> を控えておく */
+  const selfRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => {
+    const el = selfRef.current
+    if (el) {
+      el.volume = volume
+      el.muted = muted
+    }
+    try {
+      localStorage.setItem(VOLUME_KEY, String(volume))
+      localStorage.setItem(MUTED_KEY, muted ? '1' : '0')
+    } catch {
+      /* 覚えられなくても再生は続く */
+    }
+  }, [volume, muted])
   const drag = useRef<{ id: string; startX: number; startY: number; left: number; bottom: number } | null>(null)
 
   // テロップのサイズは 1920x1080 基準で持っているので、表示幅に合わせて縮める
@@ -116,7 +154,15 @@ export function Preview({
       <div className="stage" ref={stageRef}>
         {videoUrl ? (
           <video
-            ref={videoRef}
+            ref={(el) => {
+              // 🔴 受け取り側にも必ず渡すこと。渡さないと再生そのものが動かない
+              videoRef(el)
+              selfRef.current = el
+              if (el) {
+                el.volume = volume
+                el.muted = muted
+              }
+            }}
             src={videoUrl}
             playsInline
             /*
@@ -222,6 +268,37 @@ export function Preview({
           onChange={(e) => onSeek(Number(e.target.value))}
         />
         <span className="tc">{fmtTimecode(durationSec)}</span>
+
+        {/*
+          音量。
+          🔴 消音の入り切りを別に置くこと。
+             つまみを0にして戻す操作では、元の大きさに戻すのに勘が要る。
+             押して切って、押して戻せるようにする。
+        */}
+        <button
+          className="mute"
+          onClick={() => setMuted((m) => !m)}
+          title={muted ? '音を出す' : '消音にする'}
+          aria-pressed={muted}
+        >
+          {muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔈' : '🔊'}
+        </button>
+        <input
+          className="volume"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={muted ? 0 : volume}
+          onChange={(e) => {
+            const v = Number(e.target.value)
+            setVolume(v)
+            // つまみを動かしたら消音は解く（動かしたのに鳴らないと壊れて見える）
+            if (v > 0) setMuted(false)
+          }}
+          title={`音量 ${Math.round((muted ? 0 : volume) * 100)}%`}
+          aria-label="音量"
+        />
       </div>
     </div>
   )

@@ -202,7 +202,13 @@ export function TelopScreen({ store }: { store: Store }) {
         <div style={{ padding: '0 8px 8px' }}>
           <Timeline
             duration={duration}
-            fps={30}
+            /*
+              🔴 素材のコマ数を使うこと。30 決め打ちだと、
+                 60fps の素材で切れ目が半コマずれ、コマ割りも粗いままになる。
+            */
+            fps={state.fps ?? 30}
+            /* 🔴 素材の形。渡さないと縦の素材でコマが横に伸びる */
+            aspect={state.width && state.height ? state.width / state.height : undefined}
             time={time}
             onSeek={seek}
             waveform={state.waveform}
