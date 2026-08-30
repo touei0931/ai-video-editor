@@ -153,6 +153,48 @@ func near(_ a: Double, _ b: Double, _ tol: Double = 0.05) -> Bool { abs(a - b) <
 
 
 
+
+/* ================================================ 枠に合わせる／名前
+
+  🔴 「枠に合わせる」を必ず書くこと。
+     書かないと Final Cut の判断任せになり、素材が枠より小さいと
+     真ん中に小さく置かれる。実機で2度そうなった（2026-08-30/31）。
+
+  🔴 中身の並び順を守ること。adjust-conform は title より前。
+     逆にすると DTD で弾かれ、読み込みごと失敗する。
+*/
+do {
+    let telops: [[String: Any]] = [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal"]]
+    let xml = FCPXMLWriter.build(
+        cuts: [["decision": "approved", "start": 8.0, "end": 9.0]], telops: telops, styles: [:],
+        mediaPath: "/m/朝の撮影.mov", fps: 30, mediaDuration: 20,
+        mediaWidth: 2160, mediaHeight: 3840)
+
+    check("枠に合わせる指定がある", xml.contains("<adjust-conform type=\"fit\"/>"))
+    if let conform = xml.range(of: "<adjust-conform"), let title = xml.range(of: "<title ") {
+        check("並び順は adjust-conform が先", conform.lowerBound < title.lowerBound)
+    } else {
+        check("並び順は adjust-conform が先", false, "どちらかが出ていない")
+    }
+    check("クリップの数だけ入る",
+          xml.components(separatedBy: "<adjust-conform").count - 1
+            == xml.components(separatedBy: "<asset-clip").count - 1)
+
+    // 名前は「【PAC】元の動画の名前_日付時刻」
+    check("名前に素材の名前が入る", xml.contains("【PAC】朝の撮影_"),
+          xml.range(of: "<project name=\"[^\"]*\"", options: .regularExpression).map { String(xml[$0]) } ?? "?")
+}
+
+do {
+    let name = FCPXMLWriter.projectName(
+        mediaPath: "/m/テスト 動画.MOV",
+        now: Date(timeIntervalSince1970: 0))
+    check("日付時刻が14桁で付く",
+          name.hasPrefix("【PAC】テスト 動画_") && name.count == "【PAC】テスト 動画_".count + 14, name)
+    check("素材が無くても名前になる",
+          !FCPXMLWriter.projectName(mediaPath: nil).isEmpty)
+}
+
 /* ================================================ 素材の大きさは決め打ちしない
 
   🔴 asset に format を書かないこと。

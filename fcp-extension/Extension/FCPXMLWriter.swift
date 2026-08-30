@@ -60,6 +60,21 @@ enum FCPXMLWriter {
         }
     }
 
+    /// 書き出すプロジェクトの名前。「【PAC】元の動画の名前_日付時刻」。
+    ///
+    /// 🔴 固定の名前にしないこと。
+    ///    何本も下ごしらえすると、Final Cut の中に同じ名前が並び、
+    ///    どれがどの素材のものか分からなくなる。
+    static func projectName(mediaPath: String?, now: Date = Date()) -> String {
+        let stamp = DateFormatter()
+        stamp.locale = Locale(identifier: "en_US_POSIX")
+        stamp.dateFormat = "yyyyMMddHHmmss"
+        let base = mediaPath.map {
+            URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
+        } ?? "素材なし"
+        return "【PAC】\(base)_\(stamp.string(from: now))"
+    }
+
     // MARK: - カット
 
     /// カット区間を除いた「残す区間」を求める
@@ -173,7 +188,7 @@ enum FCPXMLWriter {
         xml += """
           <library>
             <event name="PAC">
-              <project name="PAC 下ごしらえ">
+              <project name="\(escape(projectName(mediaPath: mediaPath)))">
                 <sequence format="r1" duration="\(time(total, fps: fps))" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
                   <spine>
 
@@ -190,6 +205,7 @@ enum FCPXMLWriter {
                 let dur = seg.end - seg.start
                 xml += """
                         <asset-clip ref="r3" name="clip\(i + 1)" offset="\(time(offset, fps: fps))" start="\(time(seg.start, fps: fps))" duration="\(time(dur, fps: fps))" tcFormat="NDF">
+                          <adjust-conform type="fit"/>
 
                 """
                 // この区間に入るテロップを、この clip にぶら下げる
