@@ -27,7 +27,14 @@ const parser = loadDefaultJapaneseParser()
  * 🔴 2行ぶんの目安にすること。テロップは読みながら見るものなので、
  *    1枚が長いと読み終わる前に次へ行く。
  */
-export const DEFAULT_MAX_CHARS = 26
+export const DEFAULT_TELOP_MAX_CHARS = 26
+
+/**
+ * 文字数の下限・上限。
+ * 🔴 縛りは「割る側」に置くこと。画面側だけで縛ると、
+ *    打ちかけの値のまま解析を始められて素通りする。
+ */
+export const TELOP_MAX_CHARS_RANGE = { min: 8, max: 60 }
 
 /** これより短い切れ端は前の1枚にくっつける（1枚に1〜2文字だけ出るのを防ぐ） */
 const MIN_TAIL_CHARS = 4
@@ -120,11 +127,20 @@ function timeLookup(words: TelopWord[], fallback: { start: number; end: number }
  *
  * 語ごとの時刻が無いものは、そのまま返す（作り物の見立てで時刻をでっち上げない）。
  */
-export function splitTelops(telops: Telop[], maxChars = DEFAULT_MAX_CHARS): Telop[] {
+export function splitTelops(telops: Telop[], maxChars = DEFAULT_TELOP_MAX_CHARS): Telop[] {
+  /*
+    🔴 ここでも範囲で縛ること。
+       画面側でも縛っているが、打ちかけの値（3 など）のまま解析を始められる。
+       1文字ずつのテロップが数百枚できると、直すのも消すのも手に負えない。
+  */
+  const limit = Number.isFinite(maxChars)
+    ? Math.min(TELOP_MAX_CHARS_RANGE.max, Math.max(TELOP_MAX_CHARS_RANGE.min, Math.round(maxChars)))
+    : DEFAULT_TELOP_MAX_CHARS
+
   const out: Telop[] = []
 
   for (const t of telops) {
-    const chunks = chunkByPhrase(t.text, maxChars)
+    const chunks = chunkByPhrase(t.text, limit)
     if (chunks.length <= 1) {
       out.push(t)
       continue

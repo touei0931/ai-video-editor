@@ -136,7 +136,18 @@ export type ModelName = 'large-v3-turbo' | 'medium' | 'small' | 'base'
 export interface AnalyzeSettings {
   language: string
   model: ModelName
+  /**
+   * テロップ1枚に入れる文字数の上限（全角換算。半角は 0.5 と数える）。
+   *
+   * 🔴 ここで割るのは「1画面に出す量」。
+   *    大きくすると1枚が長くなり、読み終わる前に次へ行く。
+   *    小さくすると枚数が増え、目がついていかない。
+   *    実際の見え方はテンプレートの文字サイズ次第なので、
+   *    決め打ちにせず触れるようにしておく。
+   */
+  telopMaxChars: number
 }
+
 
 export const LANGUAGES: { code: string; label: string }[] = [
   { code: 'ja', label: '日本語' },

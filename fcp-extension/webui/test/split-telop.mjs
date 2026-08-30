@@ -9,7 +9,7 @@
  *    上限に当たらないので何も検めていないのと同じになる。
  */
 
-import { chunkByPhrase, splitTelops, DEFAULT_MAX_CHARS } from '../src/lib/splitTelop.ts'
+import { chunkByPhrase, splitTelops, DEFAULT_TELOP_MAX_CHARS } from '../src/lib/splitTelop.ts'
 
 let failed = 0
 const check = (label, ok, detail = '') => {
@@ -27,11 +27,11 @@ const check = (label, ok, detail = '') => {
 const 実例 = 'もちろんかゆめの原因はいろいろあるけど毛量を減らすことで群れやケアのしづらさを減らすこともあります'
 
 {
-  const chunks = chunkByPhrase(実例, DEFAULT_MAX_CHARS)
+  const chunks = chunkByPhrase(実例, DEFAULT_TELOP_MAX_CHARS)
   check('長い文が複数枚に割れる', chunks.length >= 2, `${chunks.length} 枚`)
   check(
     '1枚が長くなりすぎない',
-    chunks.every((c) => c.length <= DEFAULT_MAX_CHARS + 2),
+    chunks.every((c) => c.length <= DEFAULT_TELOP_MAX_CHARS + 2),
     chunks.map((c) => `${c}(${c.length})`).join(' / '),
   )
   // 🔴 これが本題。文節の途中で切れていないこと
@@ -93,7 +93,7 @@ const words = [...実例].map((ch, i) => ({
 
 {
   check('空でも落ちない', splitTelops([]).length === 0)
-  check('空文字でも落ちない', chunkByPhrase('', DEFAULT_MAX_CHARS).length >= 0)
+  check('空文字でも落ちない', chunkByPhrase('', DEFAULT_TELOP_MAX_CHARS).length >= 0)
 }
 
 /* ------------------------------------------------ 半角 */
@@ -101,9 +101,36 @@ const words = [...実例].map((ch, i) => ({
 {
   // 半角は 0.5 文字ぶん。英数字ばかりの文で早々に割れないこと
   const 英数 = 'VIO' .repeat(20)
-  const chunks = chunkByPhrase(英数, DEFAULT_MAX_CHARS)
-  check('半角は半分に数える', chunks.some((c) => c.length > DEFAULT_MAX_CHARS),
+  const chunks = chunkByPhrase(英数, DEFAULT_TELOP_MAX_CHARS)
+  check('半角は半分に数える', chunks.some((c) => c.length > DEFAULT_TELOP_MAX_CHARS),
         chunks.map((c) => c.length).join(','))
+}
+
+/* ------------------------------------------------ 文字数の設定 */
+
+{
+  // 設定した文字数で枚数が変わること
+  const 少なめ = splitTelops([{ id: 't1', start: 0, end: 9.8, text: 実例, style: 'normal', words }], 12)
+  const 多め = splitTelops([{ id: 't1', start: 0, end: 9.8, text: 実例, style: 'normal', words }], 40)
+  check('少なくすると枚数が増える', 少なめ.length > 多め.length,
+        `${少なめ.length} 枚 / ${多め.length} 枚`)
+  check('どちらでも本文はつながる',
+        少なめ.map((t) => t.text).join('') === 実例 && 多め.map((t) => t.text).join('') === 実例)
+}
+
+{
+  /*
+    🔴 極端な値でも壊れないこと。
+       画面側で縛っていても、打ちかけの値のまま解析を始められる。
+       1文字ずつのテロップが数百枚できると手に負えない。
+  */
+  const 極小 = splitTelops([{ id: 't1', start: 0, end: 9.8, text: 実例, style: 'normal', words }], 1)
+  check('小さすぎる値は下限で止まる', 極小.length <= 実例.length / 6,
+        `${極小.length} 枚（本文 ${実例.length} 文字）`)
+  const 極大 = splitTelops([{ id: 't1', start: 0, end: 9.8, text: 実例, style: 'normal', words }], 9999)
+  check('大きすぎる値でも本文は保つ', 極大.map((t) => t.text).join('') === 実例)
+  const 変な値 = splitTelops([{ id: 't1', start: 0, end: 9.8, text: 実例, style: 'normal', words }], NaN)
+  check('数でない値でも落ちない', 変な値.length >= 1)
 }
 
 if (failed > 0) {

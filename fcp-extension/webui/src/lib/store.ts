@@ -26,7 +26,7 @@ export interface Store {
   pickTemplate: () => Promise<string | null>
   dropTemplate: () => Promise<void>
   /** 解析の結果で中身を入れ替える（スタイル・フォント・見本は保つ） */
-  applyAnalysis: (result: Partial<ProjectState>) => void
+  applyAnalysis: (result: Partial<ProjectState>, telopMaxChars?: number) => void
   /** ひとつ前に戻す（Cmd+Z） */
   undo: () => void
   canUndo: boolean
@@ -149,7 +149,7 @@ export function useStore(): Store {
     setState((s) => (s ? { ...s, template: null } : s))
   }, [])
 
-  const applyAnalysis = useCallback((result: Partial<ProjectState>) => {
+  const applyAnalysis = useCallback((result: Partial<ProjectState>, telopMaxChars?: number) => {
     setState((s) => {
       // 解析が返すのは素材そのものの情報だけ。
       // 見た目の設定と見本は利用者が決めたものなので上書きしない。
@@ -159,7 +159,7 @@ export function useStore(): Store {
            そのまま並べると 40文字・25秒のテロップになり、文節の途中でも切れる。
            ここで1画面ぶんに割り直す（splitTelop.ts）。
       */
-      const telops = splitTelops(result.telops ?? [])
+      const telops = splitTelops(result.telops ?? [], telopMaxChars)
       if (!base) return { ...(result as ProjectState), telops }
       return {
         ...base,

@@ -5,6 +5,7 @@
 
 import type { AnalyzeSettings, ModelName, TitleTemplateSummary } from '../lib/types'
 import { LANGUAGES, MODELS } from '../lib/types'
+import { DEFAULT_TELOP_MAX_CHARS, TELOP_MAX_CHARS_RANGE } from '../lib/splitTelop'
 
 interface Props {
   video: { path: string; name: string } | null
@@ -82,6 +83,49 @@ export function SettingsScreen({
                   </span>
                 </p>
               )}
+            </section>
+
+            {/* テロップ1枚の長さ */}
+            <section className="settings-card">
+              <h3>テロップ1枚の文字数</h3>
+              <div className="inline">
+                <input
+                  type="number"
+                  min={TELOP_MAX_CHARS_RANGE.min}
+                  max={TELOP_MAX_CHARS_RANGE.max}
+                  step={1}
+                  value={settings.telopMaxChars}
+                  onChange={(e) => {
+                    /*
+                      🔴 範囲で縛ること。0 や 500 を入れられると、
+                         1文字ずつのテロップや、画面から溢れるテロップになる。
+                      🔴 打ちかけの空欄で弾かないこと。
+                         「1」を消して「20」に打ち直す途中で戻されると入力できない。
+                    */
+                    const n = Number(e.target.value)
+                    if (!Number.isFinite(n)) return
+                    onChange({ telopMaxChars: n })
+                  }}
+                  onBlur={(e) => {
+                    const n = Number(e.target.value)
+                    const fixed = Number.isFinite(n)
+                      ? Math.min(TELOP_MAX_CHARS_RANGE.max, Math.max(TELOP_MAX_CHARS_RANGE.min, Math.round(n)))
+                      : DEFAULT_TELOP_MAX_CHARS
+                    if (fixed !== settings.telopMaxChars) onChange({ telopMaxChars: fixed })
+                  }}
+                  style={{ width: 90 }}
+                />
+                <span className="settings-sub">文字（全角換算）</span>
+              </div>
+              <p className="settings-note">
+                これを超えるところで、文節の切れ目を選んで次の1枚に送ります。
+                長くすると1枚が読み切れなくなり、短くすると枚数が増えて目が追えません。
+                迷ったら {DEFAULT_TELOP_MAX_CHARS} のままで大丈夫です。
+                <br />
+                <span className="settings-sub">
+                  ※ 変えた分は次の「解析」から効きます
+                </span>
+              </p>
             </section>
 
             {/* テロップの見本 */}

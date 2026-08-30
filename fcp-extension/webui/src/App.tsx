@@ -12,6 +12,7 @@ import { SettingsScreen } from './screens/SettingsScreen'
 import { AnalyzingScreen } from './screens/AnalyzingScreen'
 import { useStore } from './lib/store'
 import { isInFCP, runAnalysis, sendToFCP } from './lib/bridge'
+import { DEFAULT_TELOP_MAX_CHARS } from './lib/splitTelop'
 import type { AnalyzeSettings, Step } from './lib/types'
 
 const STEPS: { key: Step; label: string }[] = [
@@ -29,6 +30,7 @@ export function App() {
   const [settings, setSettings] = useState<AnalyzeSettings>({
     language: 'ja',
     model: 'large-v3-turbo',
+    telopMaxChars: DEFAULT_TELOP_MAX_CHARS,
   })
   const [progress, setProgress] = useState({ stage: '準備しています', ratio: 0 })
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
@@ -52,7 +54,8 @@ export function App() {
       const result = await runAnalysis({ videoPath: video.path, ...settings }, (stage, ratio) =>
         setProgress({ stage, ratio }),
       )
-      store.applyAnalysis(result)
+      // 🔴 1枚に入れる文字数は設定から。決め打ちにしない
+      store.applyAnalysis(result, settings.telopMaxChars)
       setStep('cut')
     } catch (e) {
       setAnalyzeError(String(e))
