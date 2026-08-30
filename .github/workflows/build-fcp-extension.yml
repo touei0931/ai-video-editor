@@ -19,6 +19,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 🔴 履歴を全部持ってくること。版はコミット数から作るので、
+          #    既定の「1つだけ」では毎回 v1.0.1 になり、版が変わらなくなる。
+          fetch-depth: 0
 
       - name: SDK を private リポジトリから取得
         env:
