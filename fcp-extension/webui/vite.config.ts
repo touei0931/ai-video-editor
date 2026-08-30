@@ -10,6 +10,10 @@ import react from '@vitejs/plugin-react'
      古い版のまま何度も試してもらうことになった（2026-08-30）。
      ビルドした時刻を埋めておけば、画面1枚で分かる。
 */
+// 🔴 @types/node は入れないこと（この画面のためだけに依存を増やさない）。
+//    手元では他の物のついでに型が入っていて通り、CI の素の環境で落ちた。
+declare const process: { env: Record<string, string | undefined> }
+
 const BUILD = process.env.PAC_BUILD || new Date().toISOString().slice(0, 16).replace('T', ' ')
 
 export default defineConfig({
