@@ -59,6 +59,10 @@ a = Analysis(
         "pac_fcp_engine.waveform",
         "sidecar",
         "sidecar.cut",
+        # 🔴 動的に import するものは、ここに書かないと固めたバイナリに入らない。
+        #    書き忘れても import に失敗するだけなので、
+        #    受け側が黙って既定値に倒れると**誰も気づけない**（実際に起きた）。
+        "sidecar.media",
         "sidecar.clean",
         "sidecar.telop",
         "sidecar.asr",

@@ -105,7 +105,10 @@ jobs:
         run: rm -f ~/.ssh/id_ed25519
 
       - name: 解析エンジンの検査（モデル不要）
-        run: python3 fcp-extension/engine/tests/test_engine.py
+        run: |
+          python3 fcp-extension/engine/tests/test_engine.py
+          # 🔴 同梱漏れの検査。抜けると「動くのに一部だけ効かない」形で現れる
+          python3 fcp-extension/engine/tests/test_packaging.py
 
       - name: xcodegen
         run: brew install xcodegen

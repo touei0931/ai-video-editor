@@ -80,12 +80,18 @@ def analyze(
         # 🔴 回転情報まで見た「表示上の」大きさを取ること。
         #    iPhone の縦動画はストリームが 1920x1080 のままで、
         #    「回して表示せよ」の情報が付いている。数値をそのまま信じると横向きになる。
+        # 🔴 失敗を握りつぶさないこと。
+        #    ここを黙って {} にしていたため、固めたバイナリに sidecar.media が
+        #    入っていないことに誰も気づけず、書き出しが 1920x1080 に
+        #    倒れ続けていた（2026-08-31に判明）。理由は必ず持ち帰る。
+        video_info: dict[str, Any] = {}
+        video_info_error = ""
         try:
             from sidecar.media import probe_video_info
 
             video_info = probe_video_info(video_path)
-        except Exception:
-            video_info = {}
+        except Exception as e:  # noqa: BLE001
+            video_info_error = f"{type(e).__name__}: {e}"
 
         progress("テロップを作っています", 0.95)
         units = pac_telop.build_units(transcript, wav_path=wav, options=options.get("telop"))
@@ -103,6 +109,9 @@ def analyze(
         )
         # 何が落ちたかは残しておく（テロップが少ないときの原因が分かるように）
         state["report"] = {
+            # 🔴 大きさが取れなかった理由を残す。書き出しが 1920x1080 に
+            #    倒れたときに、原因をここから辿れるようにする
+            "videoInfoError": video_info_error,
             "droppedSegments": cleaned.get("dropped", 0),
             "speechRatio": cleaned.get("speech_ratio", 0),
             "wordCount": analysis.get("word_count", 0),
