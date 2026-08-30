@@ -14,7 +14,7 @@ import react from '@vitejs/plugin-react'
 //    手元では他の物のついでに型が入っていて通り、CI の素の環境で落ちた。
 declare const process: { env: Record<string, string | undefined> }
 
-const BUILD = process.env.PAC_BUILD || new Date().toISOString().slice(0, 16).replace('T', ' ')
+const BUILD = process.env.PAC_BUILD || 'v0.0.0-dev'
 
 export default defineConfig({
   define: { __PAC_BUILD__: JSON.stringify(BUILD) },

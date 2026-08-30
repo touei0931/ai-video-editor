@@ -86,7 +86,7 @@ echo "--- 入っている版（画面の右上にも同じものが出ます） 
 #    残していなかったので、直したものを渡しても
 #    「本当にそれが入ったのか」を確かめられなかった。
 WEBUI="/Applications/PAC for Final Cut.app/Contents/PlugIns/WorkflowExtension.appex/Contents/Resources/webui"
-grep -hao '20[0-9][0-9]-[0-1][0-9]-[0-3][0-9] [0-2][0-9]:[0-5][0-9]' "$WEBUI"/assets/*.js 2>/dev/null | head -1 || echo "(版が読めません。古い版です)"
+grep -hao 'v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*' "$WEBUI"/assets/*.js 2>/dev/null | head -1 || echo "(版が読めません。古い版です)"
 echo
 
 echo "--- この版は直っているか（Final Cut の中を探しに行くか） ---"
