@@ -3,6 +3,7 @@
 // Swift とのやり取り（bridge.ts）に直接触らせない。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { splitTelops } from './splitTelop'
 import { clearTitleTemplate, loadProject, loadTitleTemplate } from './bridge'
 import type { CutCandidate, Decision, ProjectState, StyleName, Telop, TelopStyle } from './types'
 
@@ -153,7 +154,13 @@ export function useStore(): Store {
       // 解析が返すのは素材そのものの情報だけ。
       // 見た目の設定と見本は利用者が決めたものなので上書きしない。
       const base = s ?? null
-      if (!base) return result as ProjectState
+      /*
+        🔴 エンジンが返すのは「文のまとまり」で、1画面に出す量ではない。
+           そのまま並べると 40文字・25秒のテロップになり、文節の途中でも切れる。
+           ここで1画面ぶんに割り直す（splitTelop.ts）。
+      */
+      const telops = splitTelops(result.telops ?? [])
+      if (!base) return { ...(result as ProjectState), telops }
       return {
         ...base,
         videoUrl: result.videoUrl ?? base.videoUrl,
@@ -164,7 +171,7 @@ export function useStore(): Store {
         durationSec: result.durationSec ?? base.durationSec,
         waveform: result.waveform ?? base.waveform,
         cuts: result.cuts ?? [],
-        telops: result.telops ?? [],
+        telops,
       }
     })
   }, [])

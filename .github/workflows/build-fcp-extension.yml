@@ -120,6 +120,13 @@ jobs:
         run: ./fcp-extension/scripts/check_fcpxml.sh
 
       # 🔴 パネルへ返す値の検査。ここが抜けると拡張が丸ごと落ちる
+      # 🔴 テロップの割り直し。抜けると 40文字・25秒のテロップになる
+      - name: テロップの割り直しの検査
+        run: |
+          cd fcp-extension/webui
+          npm ci --no-audit --no-fund
+          npm run test:split
+
       - name: パネルへ返す値の検査
         run: ./fcp-extension/scripts/check_json.sh
 

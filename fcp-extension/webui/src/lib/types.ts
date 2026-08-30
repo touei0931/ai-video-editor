@@ -58,6 +58,13 @@ export interface TelopSpan {
 /** 通常 / 強調 の2種類を既定で持つ */
 export type StyleName = 'normal' | 'emphasis'
 
+/** 語ひとつぶんの時刻。1画面ぶんに割り直すときに使う */
+export interface TelopWord {
+  text: string
+  srcStart: number
+  srcEnd: number
+}
+
 export interface Telop {
   id: string
   start: number
@@ -68,6 +75,12 @@ export interface Telop {
   overrides?: Partial<TelopStyle>
   /** 一部の文字だけ見た目を変えたいとき */
   spans?: TelopSpan[]
+  /**
+   * 語ごとの時刻。
+   * 🔴 1画面ぶんに割り直すときに、割った先の時刻を出すのに要る。
+   *    無いと割れない（出どころの無い時刻をでっち上げないため）。
+   */
+  words?: TelopWord[]
 }
 
 /** 友達のテロップ見本（FCPXML から取り込んだもの）の要約 */

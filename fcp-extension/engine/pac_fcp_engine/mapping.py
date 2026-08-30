@@ -84,6 +84,20 @@ def map_telops(
             "end": float(t["src_end"]),
             "text": text,
             "style": _STYLE_MAP.get(style, "normal"),
+            # 🔴 語ごとの時刻も渡すこと。
+            #    build_units が返すのは「文のまとまり」で、1画面ぶんではない
+            #    （sidecar/telop.py の注意書き）。画面側で割り直すときに、
+            #    割った先の時刻を出すのに要る。無いと**40文字の保険上限が
+            #    そのまま出て、文節の途中で切れる**（実機でそうなった）。
+            "words": [
+                {
+                    "text": w.get("text", ""),
+                    "srcStart": float(w.get("src_start", 0)),
+                    "srcEnd": float(w.get("src_end", 0)),
+                }
+                for w in (t.get("words") or [])
+                if (w.get("text") or "").strip()
+            ],
         })
     out.sort(key=lambda t: t["start"])
     return out
