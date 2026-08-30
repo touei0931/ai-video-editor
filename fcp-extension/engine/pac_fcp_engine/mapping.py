@@ -121,12 +121,26 @@ def project_state(
     cuts: list[dict[str, Any]],
     telops: list[dict[str, Any]],
     media_path: str | None = None,
+    video_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """パネルにそのまま渡せる形。styles と fonts は Swift 側が足す。"""
-    return {
+    """パネルにそのまま渡せる形。styles と fonts は Swift 側が足す。
+
+    🔴 素材の解像度とコマ数も渡すこと。
+       渡さないと書き出し側が 1920x1080 決め打ちになり、
+       **縦動画が横向きのプロジェクトに小さく収まる**。
+       回転情報を見た**表示上の**大きさを渡すこと（probe_video_info が済ませている）。
+    """
+    info = video_info or {}
+    state: dict[str, Any] = {
         "videoUrl": media_path,
         "durationSec": round(float(duration), 3),
         "waveform": [round(float(v), 4) for v in waveform],
         "cuts": cuts,
         "telops": telops,
     }
+    if int(info.get("width") or 0) > 0 and int(info.get("height") or 0) > 0:
+        state["width"] = int(info["width"])
+        state["height"] = int(info["height"])
+    if float(info.get("fps") or 0) > 0:
+        state["fps"] = round(float(info["fps"]), 3)
+    return state

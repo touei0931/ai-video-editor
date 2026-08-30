@@ -77,6 +77,16 @@ def analyze(
         analysis = pac_cut.detect_candidates(transcript, options.get("cut"))
         candidates = cut_text_from_transcript(list(analysis.get("candidates", [])), transcript)
 
+        # 🔴 回転情報まで見た「表示上の」大きさを取ること。
+        #    iPhone の縦動画はストリームが 1920x1080 のままで、
+        #    「回して表示せよ」の情報が付いている。数値をそのまま信じると横向きになる。
+        try:
+            from sidecar.media import probe_video_info
+
+            video_info = probe_video_info(video_path)
+        except Exception:
+            video_info = {}
+
         progress("テロップを作っています", 0.95)
         units = pac_telop.build_units(transcript, wav_path=wav, options=options.get("telop"))
 
@@ -87,6 +97,9 @@ def analyze(
             cuts=map_cuts(candidates, unknown),
             telops=map_telops(units.get("telops", []), unknown),
             media_path=video_path,
+            # 🔴 素材の解像度とコマ数も渡す。渡さないと書き出しが
+            #    1920x1080 決め打ちになり、縦動画が横向きに収まる
+            video_info=video_info,
         )
         # 何が落ちたかは残しておく（テロップが少ないときの原因が分かるように）
         state["report"] = {

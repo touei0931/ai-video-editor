@@ -151,6 +151,48 @@ func assetSeconds(_ xml: String) -> Double {
 
 func near(_ a: Double, _ b: Double, _ tol: Double = 0.05) -> Bool { abs(a - b) <= tol }
 
+
+/* ================================================ 素材と同じ大きさ
+
+  🔴 プロジェクトの大きさを決め打ちにしないこと。
+     1920x1080 固定にしていたため、縦の素材（2160x3840 など）が
+     横向きのプロジェクトに小さく収まっていた。
+     下ごしらえとして渡す以上、素材と同じ大きさで組むのが正しい。
+*/
+do {
+    let cuts: [[String: Any]] = [["decision": "approved", "start": 5.0, "end": 6.0]]
+    let xml = FCPXMLWriter.build(
+        cuts: cuts, telops: [], styles: [:],
+        mediaPath: "/m/a.mov", fps: 60, mediaDuration: 20,
+        mediaWidth: 2160, mediaHeight: 3840)
+    check("縦の素材は縦のまま", xml.contains("width=\"2160\"") && xml.contains("height=\"3840\""),
+          xml.range(of: "<format[^>]*>", options: .regularExpression).map { String(xml[$0]) } ?? "?")
+    check("コマ数も素材に合わせる", xml.contains("frameDuration=\"100/6000s\""))
+}
+
+// 大きさが分からないときは、今までどおり 1920x1080 に倒す
+do {
+    let xml = FCPXMLWriter.build(
+        cuts: [["decision": "approved", "start": 1.0, "end": 2.0]], telops: [], styles: [:],
+        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10)
+    check("分からなければ 1920x1080", xml.contains("width=\"1920\"") && xml.contains("height=\"1080\""))
+}
+
+// 🔴 奇数の大きさは書き出しで弾かれる。偶数へ丸める
+do {
+    let xml = FCPXMLWriter.build(
+        cuts: [["decision": "approved", "start": 1.0, "end": 2.0]], telops: [], styles: [:],
+        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10,
+        mediaWidth: 1081, mediaHeight: 1921)
+    check("奇数は偶数へ丸める", xml.contains("width=\"1080\"") && xml.contains("height=\"1920\""))
+}
+
+// 形式の名前は空にしない（空だと FCP が形式を判別できず警告になる）
+check("見慣れない大きさでも名前が付く",
+      !FCPXMLWriter.formatName(width: 1234, height: 5678, fps: 30).isEmpty)
+check("縦4Kは 4K と呼ぶ",
+      FCPXMLWriter.formatName(width: 2160, height: 3840, fps: 60) == "FFVideoFormat4K60")
+
 /* ================================================ 素材の長さ
 
   🔴 クリップが素材の外を指してはいけない。

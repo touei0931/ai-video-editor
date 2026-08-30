@@ -44,6 +44,22 @@ enum FCPXMLWriter {
         }
     }
 
+    /// FCP に見せる形式の名前。決まった形に当てはまるものは、その名前を使う。
+    ///
+    /// 🔴 当てはまらないときも何か名前を付けること。
+    ///    空にすると Final Cut が形式を判別できず、読み込みで警告が出る。
+    static func formatName(width: Int, height: Int, fps: Double) -> String {
+        let r = Int(fps.rounded())
+        // 縦横どちらでも、短い方の辺で「1080p」などと呼ぶのが FCP の流儀
+        let shortSide = min(width, height)
+        switch shortSide {
+        case 1080: return "FFVideoFormat1080p\(r)"
+        case 720: return "FFVideoFormat720p\(r)"
+        case 2160: return "FFVideoFormat4K\(r)"
+        default: return "FFVideoFormat\(width)x\(height)p\(r)"
+        }
+    }
+
     // MARK: - カット
 
     /// カット区間を除いた「残す区間」を求める
@@ -77,10 +93,26 @@ enum FCPXMLWriter {
         ///    Final Cut は読み込み時に
         ///    「対応するメディアがない不正な編集です」と言って弾く（2026-08-30に踏んだ）。
         mediaDuration: Double = 0,
+        /// 素材の大きさ。0 なら分からない
+        ///
+        /// 🔴 決め打ちにしないこと。
+        ///    1920x1080 固定にしていたため、縦の素材（2160x3840 など）が
+        ///    横向きのプロジェクトに小さく収まっていた。
+        ///    素材と同じ大きさで組むのが、下ごしらえとして正しい。
+        mediaWidth: Int = 0,
+        mediaHeight: Int = 0,
         template: TitleTemplate? = nil
     ) -> String {
         let (fdNum, fdDen) = frameDuration(fps: fps)
         let frameDur = "\(fdNum)/\(fdDen)s"
+        /*
+          プロジェクトの大きさ。
+          🔴 素材と同じにすること。決め打ちにすると、
+             縦の素材が横向きのプロジェクトに小さく収まる。
+          🔴 偶数にすること。奇数の幅・高さは書き出しで弾かれる。
+        */
+        let w = mediaWidth > 0 ? (mediaWidth / 2) * 2 : 1920
+        let h = mediaHeight > 0 ? (mediaHeight / 2) * 2 : 1080
 
         let approvedCuts: [(start: Double, end: Double)] = cuts.compactMap { c in
             guard
@@ -108,7 +140,7 @@ enum FCPXMLWriter {
         <!DOCTYPE fcpxml>
         <fcpxml version="\(version)">
           <resources>
-            <format id="r1" name="FFVideoFormat1080p\(Int(fps.rounded()))" frameDuration="\(frameDur)" width="1920" height="1080" colorSpace="1-1-1 (Rec. 709)"/>
+            <format id="r1" name="\(formatName(width: w, height: h, fps: fps))" frameDuration="\(frameDur)" width="\(w)" height="\(h)" colorSpace="1-1-1 (Rec. 709)"/>
             <effect id="r2" name="\(escape(template?.effectName ?? "Basic Title"))" uid="\(escape(template?.effectUID ?? ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"))"/>
 
         """

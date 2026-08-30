@@ -79,8 +79,18 @@ export function App() {
           // 🔴 素材の本当の長さ。無いと書き出し側が見積もることになり、
           //    Final Cut が読み込みを拒む
           durationSec: store.state.durationSec,
+          // 🔴 素材と同じ大きさで組む。無いと縦動画が横向きに収まる
+          width: store.state.width,
+          height: store.state.height,
           // host は FCP から読んだ生の値なので、数のときだけ渡す
-          fps: typeof store.state.host?.fps === 'number' ? store.state.host.fps : undefined,
+          /*
+            🔴 コマ数は素材のものを先に使うこと。
+               FCP のプロジェクト側の値を優先すると、素材と違うコマ数で組まれ、
+               カットの切れ目が半コマずれる。
+          */
+          fps:
+            store.state.fps ??
+            (typeof store.state.host?.fps === 'number' ? store.state.host.fps : undefined),
         },
         (stage) => setSendStage(stage),
       )

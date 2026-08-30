@@ -183,6 +183,9 @@ export async function sendToFCP(
      *    Final Cut が「対応するメディアがない」と言って読み込みを拒む。
      */
     durationSec: number
+    /** 素材の大きさ。無いと書き出しが 1920x1080 決め打ちになる */
+    width?: number
+    height?: number
   },
   onProgress?: (stage: string, ratio: number) => void,
 ): Promise<{ ok: boolean; message: string }> {

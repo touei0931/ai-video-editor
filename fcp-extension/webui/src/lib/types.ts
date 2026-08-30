@@ -84,6 +84,14 @@ export interface ProjectState {
   /** プレビューする動画。dev ではローカルの mp4、パネル内では FCP から渡されたパス */
   videoUrl: string | null
   durationSec: number
+  /**
+   * 素材の大きさとコマ数（回転を見た「表示上の」値）。
+   * 🔴 書き出しはこれで組む。無いと 1920x1080 決め打ちになり、
+   *    縦の素材が横向きのプロジェクトに小さく収まる。
+   */
+  width?: number
+  height?: number
+  fps?: number
   /** 0..1 の振幅列。波形描画用 */
   waveform: number[]
   cuts: CutCandidate[]

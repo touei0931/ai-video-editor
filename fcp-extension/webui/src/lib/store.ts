@@ -157,6 +157,10 @@ export function useStore(): Store {
       return {
         ...base,
         videoUrl: result.videoUrl ?? base.videoUrl,
+        // 🔴 素材の大きさとコマ数を落とさないこと。落とすと書き出しが決め打ちに戻る
+        width: result.width ?? base.width,
+        height: result.height ?? base.height,
+        fps: result.fps ?? base.fps,
         durationSec: result.durationSec ?? base.durationSec,
         waveform: result.waveform ?? base.waveform,
         cuts: result.cuts ?? [],
