@@ -170,7 +170,9 @@ do {
         mediaPath: "/m/朝の撮影.mov", fps: 30, mediaDuration: 20,
         mediaWidth: 2160, mediaHeight: 3840)
 
-    check("枠に合わせる指定がある", xml.contains("<adjust-conform type=\"fit\"/>"))
+    // 素材とプロジェクトが同じ大きさなので、合わせる余地が無い＝ none
+    check("同じ大きさなら合わせない", xml.contains("<adjust-conform type=\"none\"/>"),
+          xml.range(of: "<adjust-conform[^>]*>", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
     if let conform = xml.range(of: "<adjust-conform"), let title = xml.range(of: "<title ") {
         check("並び順は adjust-conform が先", conform.lowerBound < title.lowerBound)
     } else {
@@ -256,6 +258,15 @@ do {
     let assetTag = xml.range(of: "<asset [^>]*>", options: .regularExpression)
         .map { String(xml[$0]) } ?? ""
     check("分からなければ形式を書かない", !assetTag.contains("format="), assetTag)
+}
+
+// 大きさが分からないときだけ、Final Cut に収めてもらう（fit）
+do {
+    let xml = FCPXMLWriter.build(
+        cuts: [], telops: [], styles: [:],
+        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20)
+    check("分からなければ枠に合わせてもらう", xml.contains("<adjust-conform type=\"fit\"/>"),
+          xml.range(of: "<adjust-conform[^>]*>", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
 }
 
 /* ================================================ テロップの時刻
@@ -357,11 +368,36 @@ do {
     check("奇数は偶数へ丸める", xml.contains("width=\"1080\"") && xml.contains("height=\"1920\""))
 }
 
-// 形式の名前は空にしない（空だと FCP が形式を判別できず警告になる）
-check("見慣れない大きさでも名前が付く",
+/* ================================================ 形式の名前
+
+  🔴 決まった名前は「その大きさそのもの」のときだけ使うこと。
+
+     FFVideoFormat1080p / 720p / 4K は Apple が **横向き** の
+     1920x1080 / 1280x720 / 3840x2160 に付けている名前。
+     短い方の辺だけを見て 2160x3840（縦）にも「FFVideoFormat4K30」と
+     付けていたため、Final Cut は名前の方（16:9）を信じ、素材を一度
+     16:9 に収めてから縦の枠に収め直した。9/16 を2回かけた
+     **0.316倍**で真ん中に小さく出た（2026-08-31）。
+*/
+check("形式の名前は空にしない",
       !FCPXMLWriter.formatName(width: 1234, height: 5678, fps: 30).isEmpty)
-check("縦4Kは 4K と呼ぶ",
-      FCPXMLWriter.formatName(width: 2160, height: 3840, fps: 60) == "FFVideoFormat4K60")
+check("横1080pはそのまま 1080p",
+      FCPXMLWriter.formatName(width: 1920, height: 1080, fps: 30) == "FFVideoFormat1080p30")
+check("横4Kはそのまま 4K",
+      FCPXMLWriter.formatName(width: 3840, height: 2160, fps: 30) == "FFVideoFormat4K30")
+// 🔴 ここが本題。縦に横の名札を貼らない
+check("縦4Kを 4K と呼ばない",
+      !FCPXMLWriter.formatName(width: 2160, height: 3840, fps: 60).contains("4K"),
+      FCPXMLWriter.formatName(width: 2160, height: 3840, fps: 60))
+check("縦1080を 1080p と呼ばない",
+      !FCPXMLWriter.formatName(width: 1080, height: 1920, fps: 30).contains("1080p"),
+      FCPXMLWriter.formatName(width: 1080, height: 1920, fps: 30))
+// 🔴 「ありそうな名前」を作るのも駄目。同じ罠を踏む
+for (fw, fh) in [(2160, 3840), (1080, 1920), (1234, 5678)] {
+    let n = FCPXMLWriter.formatName(width: fw, height: fh, fps: 30)
+    check("決まった形でなければ寸法入りの名前を作らない（\(fw)x\(fh)）",
+          !n.contains("\(fw)") && !n.contains("\(fh)"), n)
+}
 
 /* ================================================ 素材の長さ
 

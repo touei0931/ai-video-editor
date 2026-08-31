@@ -44,19 +44,29 @@ enum FCPXMLWriter {
         }
     }
 
-    /// FCP に見せる形式の名前。決まった形に当てはまるものは、その名前を使う。
+    /// FCP に見せる形式の名前。
     ///
-    /// 🔴 当てはまらないときも何か名前を付けること。
-    ///    空にすると Final Cut が形式を判別できず、読み込みで警告が出る。
+    /// 🔴 決まった名前は「その大きさそのもの」のときだけ使うこと。
+    ///
+    ///    FFVideoFormat1080p / 720p / 4K は、Apple が **横向き** の
+    ///    1920x1080 / 1280x720 / 3840x2160 に付けている名前。
+    ///    以前は短い方の辺だけを見て、2160x3840（縦）にも
+    ///    「FFVideoFormat4K30」と付けていた。**縦の枠に横の名札**を
+    ///    貼ることになり、Final Cut は名前の方（16:9）を信じて
+    ///    素材を一度 16:9 に収め、それをまた縦の枠に収める。
+    ///    9/16 を2回かけた **0.316倍** で真ん中に小さく出た（2026-08-31）。
+    ///
+    /// 🔴 当てはまらないときは、それらしい名前を作らないこと。
+    ///    FFVideoFormat〇〇x〇〇p30 のような「ありそうな名前」も同じ罠を踏む。
+    ///    Apple が「決まった形ではない」の意味で使う名前に倒し、
+    ///    大きさは width/height だけで決めさせる。
     static func formatName(width: Int, height: Int, fps: Double) -> String {
         let r = Int(fps.rounded())
-        // 縦横どちらでも、短い方の辺で「1080p」などと呼ぶのが FCP の流儀
-        let shortSide = min(width, height)
-        switch shortSide {
-        case 1080: return "FFVideoFormat1080p\(r)"
-        case 720: return "FFVideoFormat720p\(r)"
-        case 2160: return "FFVideoFormat4K\(r)"
-        default: return "FFVideoFormat\(width)x\(height)p\(r)"
+        switch (width, height) {
+        case (1920, 1080): return "FFVideoFormat1080p\(r)"
+        case (1280, 720): return "FFVideoFormat720p\(r)"
+        case (3840, 2160): return "FFVideoFormat4K\(r)"
+        default: return "FFVideoFormatRateUndefined"
         }
     }
 
@@ -128,6 +138,22 @@ enum FCPXMLWriter {
         */
         let w = mediaWidth > 0 ? (mediaWidth / 2) * 2 : 1920
         let h = mediaHeight > 0 ? (mediaHeight / 2) * 2 : 1080
+        let mw = (mediaWidth / 2) * 2
+        let mh = (mediaHeight / 2) * 2
+        /*
+          枠への合わせ方。
+
+          🔴 素材とプロジェクトが同じ大きさなら "none"（合わせない）にすること。
+             合わせる余地が無いので、拡大縮小そのものをさせない。
+             "fit" は Final Cut に倍率を計算させる指定で、
+             あちらが素材の形を取り違えていると、その取り違えが
+             そのまま倍率になって出る。実際 0.316 倍で出た（2026-08-31）。
+             同じ大きさだと分かっているなら、計算させないのが確実。
+
+          🔴 大きさが分からない・食い違うときは "fit"。
+             このときは Final Cut に収めてもらうしかない。
+        */
+        let conformType = (mw > 0 && mw == w && mh == h) ? "none" : "fit"
 
         let approvedCuts: [(start: Double, end: Double)] = cuts.compactMap { c in
             guard
@@ -184,8 +210,6 @@ enum FCPXMLWriter {
         */
         if let mediaPath, !mediaPath.isEmpty {
             let url = URL(fileURLWithPath: mediaPath)
-            let mw = (mediaWidth / 2) * 2
-            let mh = (mediaHeight / 2) * 2
             var assetFormat = ""
             if mw > 0, mh > 0 {
                 if mw == w && mh == h {
@@ -229,7 +253,7 @@ enum FCPXMLWriter {
                 let dur = seg.end - seg.start
                 xml += """
                         <asset-clip ref="r3" name="clip\(i + 1)" offset="\(time(offset, fps: fps))" start="\(time(seg.start, fps: fps))" duration="\(time(dur, fps: fps))" tcFormat="NDF">
-                          <adjust-conform type="fit"/>
+                          <adjust-conform type="\(conformType)"/>
 
                 """
                 /*
