@@ -3,8 +3,8 @@
 // モデルの選択は「初回だけ大きなダウンロードが走る」ことを必ず見せる。
 // 何分も無反応に見えると、壊れたと思って強制終了されるため。
 
-import type { AnalyzeSettings, ModelName, TitleTemplateSummary } from '../lib/types'
-import { LANGUAGES, MODELS } from '../lib/types'
+import type { AnalyzeSettings, CutPreset, ModelName, TitleTemplateSummary } from '../lib/types'
+import { CUT_PRESETS, LANGUAGES, MODELS } from '../lib/types'
 import { DEFAULT_TELOP_MAX_CHARS, TELOP_MAX_CHARS_RANGE } from '../lib/splitTelop'
 
 interface Props {
@@ -29,6 +29,7 @@ export function SettingsScreen({
   onStart,
 }: Props) {
   const model = MODELS.find((m) => m.name === settings.model)
+  const pace = CUT_PRESETS.find((p) => p.name === settings.cutPreset)
 
   return (
     <div className="body">
@@ -83,6 +84,28 @@ export function SettingsScreen({
                   </span>
                 </p>
               )}
+            </section>
+
+            {/* カットの詰め具合 */}
+            <section className="settings-card">
+              <h3>カットの詰め具合</h3>
+              <select
+                value={settings.cutPreset}
+                onChange={(e) => onChange({ cutPreset: e.target.value as CutPreset })}
+              >
+                {CUT_PRESETS.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              {pace && <p className="settings-note">{pace.description}</p>}
+              <p className="settings-note">
+                ここで決まるのは「どこを候補に挙げるか」だけです。切るかどうかは
+                「④ カット」で1件ずつ選べます。
+                <br />
+                <span className="settings-sub">※ 変えた分は次の「解析」から効きます</span>
+              </p>
             </section>
 
             {/* テロップ1枚の長さ */}

@@ -30,6 +30,8 @@ export function App() {
   const [settings, setSettings] = useState<AnalyzeSettings>({
     language: 'ja',
     model: 'large-v3-turbo',
+    // 既定は「ふつう」。詰めた設定を長尺に当てると、意図して置いた間まで消える
+    cutPreset: 'talk',
     telopMaxChars: DEFAULT_TELOP_MAX_CHARS,
   })
   const [progress, setProgress] = useState({ stage: '準備しています', ratio: 0 })

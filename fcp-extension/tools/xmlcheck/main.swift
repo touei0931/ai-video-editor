@@ -195,32 +195,131 @@ do {
           !FCPXMLWriter.projectName(mediaPath: nil).isEmpty)
 }
 
-/* ================================================ 素材の大きさは決め打ちしない
+/* ================================================ 素材そのものの形式
 
-  🔴 asset に format を書かないこと。
+  🔴 asset の format は「素材の実寸」を指すこと。
 
-     あそこは「素材そのものの大きさ」を指す所で、プロジェクトの大きさを
-     書くと、FCP は「この素材はプロジェクトと同じ大きさだ」と信じ込み、
-     拡大せずそのまま置く。実際の素材がそれより小さいと
-     **真ん中に小さく出る**（2026-08-30に踏んだ）。
-     書かなければ FCP が素材そのものを見て、枠に合わせて収めてくれる。
+     省くと Final Cut は素材を 1920x1080 と見なし、実寸（2160x3840）を
+     その枠に収めてから、さらにプロジェクトの枠に収める。
+     **二重に縮んで**、映像が枠の3割ほどの大きさで真ん中に出る（2026-08-31）。
+
+     実寸と違う形式を指すのも同じく駄目。1920x1080 のプロジェクトで
+     その形式を流用していたときは、「素材はプロジェクトと同じ大きさ」と
+     信じ込ませることになった（2026-08-30）。
+
+     どの id を書いたかではなく、**その id が指す大きさ**を見ること。
 */
+/// asset が指している format の大きさを引く。
+/// 🔴 「どの id を書いたか」ではなく「その id が何を指しているか」を見ること。
+///    id を比べるだけの検査は、指し先が間違っていても通ってしまう。
+func assetFrameSize(_ xml: String) -> (w: Int, h: Int)? {
+    guard
+        let a = xml.range(of: "<asset [^>]*>", options: .regularExpression),
+        let f = xml[a].range(of: "format=\"[^\"]+\"", options: .regularExpression)
+    else { return nil }
+    let id = String(xml[a][f]).replacingOccurrences(of: "format=\"", with: "")
+        .replacingOccurrences(of: "\"", with: "")
+    guard let d = xml.range(of: "<format id=\"" + id + "\"[^>]*>", options: .regularExpression)
+    else { return nil }
+    let tag = String(xml[d])
+    func num(_ key: String) -> Int {
+        guard let r = tag.range(of: key + "=\"[0-9]+\"", options: .regularExpression) else { return 0 }
+        return Int(String(tag[r]).replacingOccurrences(of: key + "=\"", with: "")
+            .replacingOccurrences(of: "\"", with: "")) ?? 0
+    }
+    return (num("width"), num("height"))
+}
+
 do {
     let xml = FCPXMLWriter.build(
         cuts: [["decision": "approved", "start": 5.0, "end": 6.0]], telops: [], styles: [:],
         mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20,
         mediaWidth: 2160, mediaHeight: 3840)
 
-    let assetTag = xml.range(of: "<asset [^>]*>", options: .regularExpression)
-        .map { String(xml[$0]) } ?? ""
-    check("asset に format を決め打ちしない", !assetTag.contains("format="), assetTag)
+    let size = assetFrameSize(xml)
+    check("asset の形式が素材の実寸を指している", size?.w == 2160 && size?.h == 3840,
+          size.map { "\($0.w)x\($0.h)" } ?? "形式が付いていない")
 
     let clipTag = xml.range(of: "<asset-clip [^>]*>", options: .regularExpression)
         .map { String(xml[$0]) } ?? ""
-    check("asset-clip にも決め打ちしない", !clipTag.contains("format="), clipTag)
+    check("asset-clip には形式を書かない", !clipTag.contains("format="), clipTag)
 
-    // 🔴 プロジェクト側（sequence）は逆に必ず指定すること。無いと大きさが決まらない
+    // 🔴 プロジェクト側（sequence）は必ず指定すること。無いと大きさが決まらない
     check("sequence には format を指定する", xml.contains("<sequence format=\"r1\""))
+}
+
+// 大きさが分からないときは書かない（当てずっぽうを書くと FCP が素材を見て直せなくなる）
+do {
+    let xml = FCPXMLWriter.build(
+        cuts: [], telops: [], styles: [:],
+        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20)
+    let assetTag = xml.range(of: "<asset [^>]*>", options: .regularExpression)
+        .map { String(xml[$0]) } ?? ""
+    check("分からなければ形式を書かない", !assetTag.contains("format="), assetTag)
+}
+
+/* ================================================ テロップの時刻
+
+  🔴 clip にぶら下げた title の offset は「その clip の中の時刻」。
+     原点はシーケンスの 0 秒ではなく、clip の start（＝素材の時刻）。
+
+     シーケンス上の時刻を書いていたため、頭を切った素材で
+     テロップが切った分だけまるごとずれ、**喋っている所と違う所に出た**
+     （2026-08-31、実機の書き出しで発覚）。
+*/
+do {
+    // 0〜10秒を切る。残るのは素材の 10〜30秒で、テロップは素材の 12秒と 25秒
+    let cuts: [[String: Any]] = [["decision": "approved", "start": 0.0, "end": 10.0]]
+    let telops: [[String: Any]] = [
+        ["id": "t1", "start": 12.0, "end": 14.0, "text": "はじめ", "style": "normal"],
+        ["id": "t2", "start": 25.0, "end": 27.0, "text": "あと", "style": "normal"],
+    ]
+    let xml = FCPXMLWriter.build(
+        cuts: cuts, telops: telops, styles: [:],
+        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 30)
+
+    func attr(_ name: String, of tag: String) -> Double {
+        guard let r = tag.range(of: name + "=\"[^\"]+\"", options: .regularExpression) else { return -1 }
+        return seconds(String(tag[r]).replacingOccurrences(of: name + "=\"", with: "")
+            .replacingOccurrences(of: "\"", with: ""))
+    }
+
+    let clipTag = xml.range(of: "<asset-clip [^>]*>", options: .regularExpression)
+        .map { String(xml[$0]) } ?? ""
+    let clipStart = attr("start", of: clipTag)
+    check("clip は素材の 10 秒から始まる", near(clipStart, 10), "\(clipStart) 秒")
+
+    var offsets: [Double] = []
+    if let re = try? NSRegularExpression(pattern: "<title [^>]*offset=\"([0-9/]+)s\"") {
+        let ns = xml as NSString
+        for m in re.matches(in: xml, range: NSRange(location: 0, length: ns.length)) {
+            offsets.append(seconds(ns.substring(with: m.range(at: 1))))
+        }
+    }
+    check("テロップは2枚とも出ている", offsets.count == 2, "\(offsets.count) 枚")
+    check("テロップの時刻は素材の時刻のまま",
+          offsets.count == 2 && near(offsets[0], 12) && near(offsets[1], 25), "\(offsets)")
+    // 🔴 clip の中に収まっていること。範囲外に置くと FCP が頭へ寄せる
+    check("テロップが clip の外に出ない",
+          offsets.allSatisfy { $0 >= clipStart - 0.001 && $0 < clipStart + 20.001 }, "\(offsets)")
+}
+
+// カットをまたぐテロップは、その clip の終わりで切る（次の clip のものと重ならないように）
+do {
+    let cuts: [[String: Any]] = [["decision": "approved", "start": 10.0, "end": 12.0]]
+    let telops: [[String: Any]] = [["id": "t1", "start": 9.0, "end": 15.0, "text": "またぐ", "style": "normal"]]
+    let xml = FCPXMLWriter.build(
+        cuts: cuts, telops: telops, styles: [:],
+        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 30)
+    var dur = -1.0
+    if let r = xml.range(of: "<title [^>]*duration=\"[^\"]+\"", options: .regularExpression) {
+        let tag = String(xml[r])
+        if let d = tag.range(of: "duration=\"[^\"]+\"", options: .regularExpression) {
+            dur = seconds(String(tag[d]).replacingOccurrences(of: "duration=\"", with: "")
+                .replacingOccurrences(of: "\"", with: ""))
+        }
+    }
+    check("またぐテロップは clip の終わりで切る", near(dur, 1), "\(dur) 秒")
 }
 
 /* ================================================ 素材と同じ大きさ

@@ -6,6 +6,7 @@ PAC 本体の検出ロジック（sidecar/cut.py, sidecar/telop.py）は純粋�
 
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from array import array
@@ -23,8 +24,13 @@ from pac_fcp_engine.mapping import (  # noqa: E402
 )
 from pac_fcp_engine.waveform import peaks_from_samples  # noqa: E402
 
+from pac_fcp_engine.__main__ import CUT_PRESETS  # noqa: E402
+
 from sidecar import cut as pac_cut  # noqa: E402
 from sidecar import telop as pac_telop  # noqa: E402
+
+# fcp-extension/engine/tests -> fcp-extension
+EXT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def word(text: str, start: float, end: float, prob: float = 0.9) -> dict:
@@ -174,6 +180,62 @@ class Test知らないものが来たとき(unittest.TestCase):
             unknown,
         )
         self.assertEqual(unknown, [])
+
+
+class Test間の詰め具合(unittest.TestCase):
+    """「カットが2つしかない」を防ぐ。
+
+    🔴 詰め具合をエンジンまで届けること。
+       画面 → 拡張 → アプリ → エンジン と4つ跨ぐので、どこか1つ落ちると
+       黙って「ふつう」で候補を出す。ショート動画では**候補が数件**しか
+       出ず、素材を渡した側からは「カットが効いていない」としか見えない
+       （2026-08-31に言われた）。
+
+    🔴 名前は3か所（PAC 本体・エンジン・パネルの画面）で揃えること。
+       ずれた名前を送ると PRESETS の引きが空振りし、
+       「ふつう」ですらない中途半端な設定になる。
+    """
+
+    def test_エンジンとPAC本体で名前が揃っている(self) -> None:
+        self.assertEqual(CUT_PRESETS, pac_cut.PRESET_ORDER)
+
+    def test_画面の選択肢とも名前が揃っている(self) -> None:
+        text = (EXT_ROOT / "webui" / "src" / "lib" / "types.ts").read_text(encoding="utf-8")
+        # 型注釈の "}[]" に引っかからないよう、値の "= [" から先を見る
+        block = text.split("export const CUT_PRESETS")[1].split("= [", 1)[1]
+        block = block.split(chr(10) + "]")[0]
+        names = re.findall(r"name: '([a-z]+)'", block)
+        self.assertEqual(names, CUT_PRESETS)
+
+    def test_詰めるほど候補が増える(self) -> None:
+        """間の長さをいろいろ混ぜた素材で、詰めるほど候補が増えること。
+
+        🔴 make_transcript() のような「大きな間しかない」素材では確かめられない。
+           どの設定でも同じ数になり、通ってしまう。
+        """
+        words = []
+        at = 0.0
+        for gap in (0.25, 0.4, 0.6, 0.9, 1.5):
+            at += gap
+            words.append(word("話", at, at + 0.4))
+            at += 0.4
+        transcript = {
+            "duration": at,
+            "segments": [{"id": 0, "text": "話" * len(words), "words": words}],
+        }
+        counts = {
+            name: len(pac_cut.detect_candidates(transcript, {"preset": name})["candidates"])
+            for name in CUT_PRESETS
+        }
+        self.assertGreater(counts["tight"], counts["loose"], counts)
+
+    def test_知らない名前は受け取らない(self) -> None:
+        """🔴 黙って既定に戻さないこと。効いていないことに気づけなくなる"""
+        from pac_fcp_engine.__main__ import main
+
+        with self.assertRaises(SystemExit):
+            main(["--video", "a.mp4", "--out", "b.json", "--cut-preset", "ばりばり"])
+
 
 
 if __name__ == "__main__":

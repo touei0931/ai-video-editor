@@ -13,6 +13,13 @@ import sys
 
 from .analyze import analyze
 
+#: 間の詰め具合。
+#: 🔴 sidecar/cut.py の PRESET_ORDER と揃えること
+#:    （engine/tests/test_engine.py が突き合わせる）。
+#:    知らない名前を黙って受けると、PRESETS の上書きが空になり、
+#:    「ふつう」ですらない中途半端な設定で候補を出すことになる。
+CUT_PRESETS = ["loose", "talk", "short", "tight"]
+
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pac_fcp_engine", description="動画を解析してパネル用 JSON を作る")
@@ -20,6 +27,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", required=True, help="書き出す JSON")
     p.add_argument("--model", default="large-v3-turbo")
     p.add_argument("--language", default="ja")
+    p.add_argument("--cut-preset", default="talk", choices=CUT_PRESETS,
+                   help="間の詰め具合（左ほど間を残す）")
     p.add_argument("--ffmpeg", default="ffmpeg")
     p.add_argument("--waveform-points", type=int, default=800)
     args = p.parse_args(argv)
@@ -36,6 +45,7 @@ def main(argv: list[str] | None = None) -> int:
             language=args.language,
             ffmpeg=args.ffmpeg,
             waveform_points=args.waveform_points,
+            options={"cut": {"preset": args.cut_preset}},
             progress=progress,
         )
     except Exception as e:  # noqa: BLE001

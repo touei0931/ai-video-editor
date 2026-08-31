@@ -207,6 +207,7 @@ extension WorkflowExtensionViewController {
             videoPath: videoPath,
             language: (params["language"] as? String) ?? "ja",
             model: (params["model"] as? String) ?? "large-v3-turbo",
+            cutPreset: (params["cutPreset"] as? String) ?? "talk",
             progress: { [weak self] stage, ratio in
                 self?.sendProgress(stage: stage, ratio: ratio)
             },

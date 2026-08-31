@@ -52,6 +52,8 @@ final class EngineClient {
         videoPath: String,
         language: String,
         model: String,
+        /// 間の詰め具合（sidecar/cut.py の PRESETS の名前）
+        cutPreset: String,
         /// 繋がらなかったときにアプリを起こしてやり直すか。やり直しの回では false
         wake: Bool = true,
         progress: @escaping (String, Double) -> Void,
@@ -63,6 +65,7 @@ final class EngineClient {
             "videoPath": videoPath,
             "language": language,
             "model": model,
+            "cutPreset": cutPreset,
         ]
 
         post(path: "/analyze", body: body) { [weak self] result in
@@ -112,6 +115,9 @@ final class EngineClient {
                             videoPath: videoPath,
                             language: language,
                             model: model,
+                            // 🔴 やり直しでも同じ設定で頼むこと。
+                            //    ここを落とすと、繋がらなかった1回目だけ設定が効く
+                            cutPreset: cutPreset,
                             wake: false,
                             progress: progress,
                             completion: completion

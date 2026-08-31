@@ -191,6 +191,8 @@ final class EngineServer {
             "--out", out.path,
             "--model", (params["model"] as? String) ?? "large-v3-turbo",
             "--language", (params["language"] as? String) ?? "ja",
+            // 間の詰め具合。渡さないとどんな素材でも「ふつう」で候補を出す
+            "--cut-preset", (params["cutPreset"] as? String) ?? "talk",
             "--ffmpeg", EnginePaths.ffmpeg.path,
         ]
 

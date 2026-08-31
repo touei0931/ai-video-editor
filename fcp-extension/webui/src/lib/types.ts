@@ -133,9 +133,48 @@ export const STYLE_LABEL: Record<StyleName, string> = {
 
 export type ModelName = 'large-v3-turbo' | 'medium' | 'small' | 'base'
 
+/**
+ * 間の詰め具合。左ほど間を残し、右ほど詰まる。
+ *
+ * 🔴 sidecar/cut.py の PRESETS と名前を合わせること。
+ *    ここに無い名前を送ると、エンジン側は黙って既定に戻る。
+ */
+export type CutPreset = 'loose' | 'talk' | 'short' | 'tight'
+
+export const CUT_PRESETS: { name: CutPreset; label: string; description: string }[] = [
+  {
+    name: 'loose',
+    label: 'ゆったり',
+    description: '間をしっかり残します。落ち着いた解説向けです。',
+  },
+  {
+    name: 'talk',
+    label: 'ふつう（おすすめ）',
+    description: '10〜20分の解説や実況向け。意図して置いた間は残ります。',
+  },
+  {
+    name: 'short',
+    label: 'テンポよく',
+    description: 'ショート動画向け。短い間もどんどん候補に挙げます。',
+  },
+  {
+    name: 'tight',
+    label: 'とにかく詰める',
+    description: '息継ぎくらいの間まで候補に挙げます。切る所は増えますが、判断も増えます。',
+  },
+]
+
 export interface AnalyzeSettings {
   language: string
   model: ModelName
+  /**
+   * 間の詰め具合。
+   *
+   * 🔴 これを送らないと、どんな素材でも「ふつう」で候補を出す。
+   *    ショート動画では**候補が数件しか出ず**、
+   *    「カットが2つしかない」と言われた（2026-08-31）。
+   */
+  cutPreset: CutPreset
   /**
    * テロップ1枚に入れる文字数の上限（全角換算。半角は 0.5 と数える）。
    *
