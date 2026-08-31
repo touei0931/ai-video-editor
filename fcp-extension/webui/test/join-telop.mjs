@@ -159,6 +159,35 @@ const telop = (id, text, start, end, style = 'normal') => ({
   console.log('   →', texts.join(' / '))
 }
 
+/* ------------------------------------------------ 実機の設定で通す
+
+  🔴 既定の 26文字だけで確かめないこと。
+     友達は「1枚 13文字」で使っていた。つなぎ上限を 1枚ぶんの倍数に
+     していたため、13文字だと上限 32文字となり、エンジンが 40文字で
+     切った組が**ちょうど弾かれて**つなぎ直しが働かなかった
+     （2026-08-31、PAC (2).fcpxml でそのまま残っていた）。
+*/
+
+{
+  // エンジンが 40文字ちょうどで切った、そのままの組
+  const A = 'もちろんかゆめの原因はいろいろあるけど毛量を減らすことで群れやケアのしづらさを減'
+  const B = 'らすこともあります'
+  const src = [telop('t1', A, 23.63, 30.37), telop('t2', B, 30.4, 31.37)]
+
+  for (const maxChars of [13, 20, 26]) {
+    const out = splitTelops(src, maxChars)
+    const texts = out.map((t) => t.text)
+    check(`1枚 ${maxChars}文字でも「減」で切れない`,
+          !texts.some((t) => t.endsWith('を減')) && !texts.some((t) => t.startsWith('らす')),
+          texts.join(' / '))
+    check(`1枚 ${maxChars}文字でも本文が残る`, texts.join('') === A + B)
+    check(`1枚 ${maxChars}文字で1枚が長くなりすぎない`,
+          texts.every((t) => t.length <= maxChars + 2),
+          texts.map((t) => `${t}(${t.length})`).join(' / '))
+  }
+  console.log('   1枚13文字 →', splitTelops(src, 13).map((t) => t.text).join(' / '))
+}
+
 if (failed > 0) {
   console.error(`\n🚫 join-telop: ${failed} 件`)
   process.exit(1)

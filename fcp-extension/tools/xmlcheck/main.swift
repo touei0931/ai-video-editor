@@ -170,8 +170,8 @@ do {
         mediaPath: "/m/朝の撮影.mov", fps: 30, mediaDuration: 20,
         mediaWidth: 2160, mediaHeight: 3840)
 
-    // 素材とプロジェクトが同じ大きさなので、合わせる余地が無い＝ none
-    check("同じ大きさなら合わせない", xml.contains("<adjust-conform type=\"none\"/>"),
+    // 🔴 必ず「枠に合わせる」。こちらの読みが FCP と食い違っても枠いっぱいに出る
+    check("必ず枠に合わせる", xml.contains("<adjust-conform type=\"fit\"/>"),
           xml.range(of: "<adjust-conform[^>]*>", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
     if let conform = xml.range(of: "<adjust-conform"), let title = xml.range(of: "<title ") {
         check("並び順は adjust-conform が先", conform.lowerBound < title.lowerBound)
@@ -197,76 +197,62 @@ do {
           !FCPXMLWriter.projectName(mediaPath: nil).isEmpty)
 }
 
-/* ================================================ 素材そのものの形式
+/* ================================================ 素材の形式は書かない
 
-  🔴 asset の format は「素材の実寸」を指すこと。
+  🔴 asset に format を書かないこと。大きさが分かっていても書かない。
 
-     省くと Final Cut は素材を 1920x1080 と見なし、実寸（2160x3840）を
-     その枠に収めてから、さらにプロジェクトの枠に収める。
-     **二重に縮んで**、映像が枠の3割ほどの大きさで真ん中に出る（2026-08-31）。
+     ここは「素材の実寸」を書く所だが、こちらの読みと Final Cut の読みが
+     食い違うことがある。実機で PAC は 1080x1920 と読み、Final Cut は
+     2160x3840 と表示していた（2026-08-31）。食い違ったまま宣言すると、
+     Final Cut は2つの数字をすり合わせようとして、映像が枠の半分で出た。
 
-     実寸と違う形式を指すのも同じく駄目。1920x1080 のプロジェクトで
-     その形式を流用していたときは、「素材はプロジェクトと同じ大きさ」と
-     信じ込ませることになった（2026-08-30）。
+     書かなければ、Final Cut は自分が読んだ素材をこちらの枠に収めるだけになる。
+     どちらの読みが正しくても、縦横の比が合っていれば枠いっぱいに出る。
 
-     どの id を書いたかではなく、**その id が指す大きさ**を見ること。
+  🔴 以前ここに「省くと 1920x1080 と見なされて二重に縮む」と書いていたが、
+     あれは読み違い。0.316 倍の正体はプロジェクト側が 16:9 だったことで、
+     素材側の宣言とは関係がなかった。
 */
-/// asset が指している format の大きさを引く。
-/// 🔴 「どの id を書いたか」ではなく「その id が何を指しているか」を見ること。
-///    id を比べるだけの検査は、指し先が間違っていても通ってしまう。
-func assetFrameSize(_ xml: String) -> (w: Int, h: Int)? {
-    guard
-        let a = xml.range(of: "<asset [^>]*>", options: .regularExpression),
-        let f = xml[a].range(of: "format=\"[^\"]+\"", options: .regularExpression)
-    else { return nil }
-    let id = String(xml[a][f]).replacingOccurrences(of: "format=\"", with: "")
-        .replacingOccurrences(of: "\"", with: "")
-    guard let d = xml.range(of: "<format id=\"" + id + "\"[^>]*>", options: .regularExpression)
-    else { return nil }
-    let tag = String(xml[d])
-    func num(_ key: String) -> Int {
-        guard let r = tag.range(of: key + "=\"[0-9]+\"", options: .regularExpression) else { return 0 }
-        return Int(String(tag[r]).replacingOccurrences(of: key + "=\"", with: "")
-            .replacingOccurrences(of: "\"", with: "")) ?? 0
+do {
+    for (mw, mh) in [(1080, 1920), (2160, 3840), (0, 0)] {
+        let xml = FCPXMLWriter.build(
+            cuts: [["decision": "approved", "start": 5.0, "end": 6.0]], telops: [], styles: [:],
+            mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20,
+            mediaWidth: mw, mediaHeight: mh)
+
+        let assetTag = xml.range(of: "<asset [^>]*>", options: .regularExpression)
+            .map { String(xml[$0]) } ?? ""
+        check("asset に形式を書かない（\(mw)x\(mh)）", !assetTag.contains("format="), assetTag)
+
+        let clipTag = xml.range(of: "<asset-clip [^>]*>", options: .regularExpression)
+            .map { String(xml[$0]) } ?? ""
+        check("asset-clip にも書かない（\(mw)x\(mh)）", !clipTag.contains("format="), clipTag)
+
+        check("枠に合わせる（\(mw)x\(mh)）", xml.contains("<adjust-conform type=\"fit\"/>"))
+
+        // 🔴 プロジェクト側（sequence）は必ず指定する。無いと大きさが決まらない
+        check("sequence には format を指定する（\(mw)x\(mh)）", xml.contains("<sequence format=\"r1\""))
     }
-    return (num("width"), num("height"))
 }
 
+/* ================================================ 縦横の比
+
+  🔴 映る大きさに効くのは**比**。画素数の読み違いは解像度にしか効かない。
+     プロジェクトの比が素材と違うと、枠に収めた時点で小さくなる。
+     1920x1080 のプロジェクトに 9:16 の素材を収めると 0.316 倍
+     ＝ (9/16)^2 になる。実機で見ていた数字はこれだった。
+*/
 do {
     let xml = FCPXMLWriter.build(
-        cuts: [["decision": "approved", "start": 5.0, "end": 6.0]], telops: [], styles: [:],
+        cuts: [], telops: [], styles: [:],
         mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20,
-        mediaWidth: 2160, mediaHeight: 3840)
-
-    let size = assetFrameSize(xml)
-    check("asset の形式が素材の実寸を指している", size?.w == 2160 && size?.h == 3840,
-          size.map { "\($0.w)x\($0.h)" } ?? "形式が付いていない")
-
-    let clipTag = xml.range(of: "<asset-clip [^>]*>", options: .regularExpression)
-        .map { String(xml[$0]) } ?? ""
-    check("asset-clip には形式を書かない", !clipTag.contains("format="), clipTag)
-
-    // 🔴 プロジェクト側（sequence）は必ず指定すること。無いと大きさが決まらない
-    check("sequence には format を指定する", xml.contains("<sequence format=\"r1\""))
-}
-
-// 大きさが分からないときは書かない（当てずっぽうを書くと FCP が素材を見て直せなくなる）
-do {
-    let xml = FCPXMLWriter.build(
-        cuts: [], telops: [], styles: [:],
-        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20)
-    let assetTag = xml.range(of: "<asset [^>]*>", options: .regularExpression)
-        .map { String(xml[$0]) } ?? ""
-    check("分からなければ形式を書かない", !assetTag.contains("format="), assetTag)
-}
-
-// 大きさが分からないときだけ、Final Cut に収めてもらう（fit）
-do {
-    let xml = FCPXMLWriter.build(
-        cuts: [], telops: [], styles: [:],
-        mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20)
-    check("分からなければ枠に合わせてもらう", xml.contains("<adjust-conform type=\"fit\"/>"),
-          xml.range(of: "<adjust-conform[^>]*>", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
+        mediaWidth: 1080, mediaHeight: 1920)
+    guard let f = xml.range(of: "<format id=\"r1\"[^>]*>", options: .regularExpression) else {
+        check("プロジェクトの形式がある", false); exit(1)
+    }
+    let tag = String(xml[f])
+    check("縦の素材なら縦のプロジェクト",
+          tag.contains("width=\"1080\"") && tag.contains("height=\"1920\""), tag)
 }
 
 /* ================================================ 書き出しに残す1行

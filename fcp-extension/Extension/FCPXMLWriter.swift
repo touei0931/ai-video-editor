@@ -170,22 +170,22 @@ enum FCPXMLWriter {
         */
         let w = mediaWidth > 0 ? (mediaWidth / 2) * 2 : 1920
         let h = mediaHeight > 0 ? (mediaHeight / 2) * 2 : 1080
-        let mw = (mediaWidth / 2) * 2
-        let mh = (mediaHeight / 2) * 2
         /*
-          枠への合わせ方。
+          枠への合わせ方。**必ず "fit"（枠に合わせる）にすること。**
 
-          🔴 素材とプロジェクトが同じ大きさなら "none"（合わせない）にすること。
-             合わせる余地が無いので、拡大縮小そのものをさせない。
-             "fit" は Final Cut に倍率を計算させる指定で、
-             あちらが素材の形を取り違えていると、その取り違えが
-             そのまま倍率になって出る。実際 0.316 倍で出た（2026-08-31）。
-             同じ大きさだと分かっているなら、計算させないのが確実。
+          🔴 "none"（合わせない）にしてはいけない。
+             合わせないというのは「こちらが宣言した大きさを信じて、
+             そのまま置け」という意味で、こちらの読みが Final Cut の
+             読みと食い違っていると、そのぶんがそのまま狂う。
+             実機で PAC は 1080x1920、Final Cut は 2160x3840 と読んでいて、
+             映像が枠の半分の大きさで出た（2026-08-31）。
 
-          🔴 大きさが分からない・食い違うときは "fit"。
-             このときは Final Cut に収めてもらうしかない。
+          🔴 "fit" なら、Final Cut は**自分が読んだ素材**をこちらの枠に
+             収める。どちらの読みが正しくても、縦横の比が合っていれば
+             枠いっぱいに出る。画素数の食い違いは出来上がりの解像度に
+             影響するだけで、映る大きさには効かない。
         */
-        let conformType = (mw > 0 && mw == w && mh == h) ? "none" : "fit"
+        let conformType = "fit"
 
         let approvedCuts: [(start: Double, end: Double)] = cuts.compactMap { c in
             guard
@@ -222,43 +222,29 @@ enum FCPXMLWriter {
         /*
           素材がある場合だけ asset を作る（無い場合はテロップだけの XML になる）。
 
-          🔴 asset の format は「**素材の実寸**」を指すこと。
-             プロジェクトの大きさではなく、素材そのものの大きさ。
-             いまはプロジェクトを素材と同じ大きさで組んでいるので
-             r1 がそのまま実寸を表すが、食い違う日が来たら別に書くこと。
+          🔴 asset に format を書かないこと。**大きさが分かっていても書かない。**
 
-             省くと Final Cut は素材を 1920x1080 と見なす。実際の素材
-             （2160x3840）をその枠に収め、さらにその枠を 2160x3840 の
-             プロジェクトに収める**二重の縮小**が起き、映像が枠の3割ほどの
-             大きさで真ん中に出た（2026-08-31）。
-             1080/3840 の縮小 → 2160/1920 の拡大 で、ちょうど 0.316 倍。
+             ここは「素材の実寸」を書く所だが、こちらの読みと Final Cut の
+             読みが食い違うことがある。実機で PAC は 1080x1920 と読み、
+             Final Cut は 2160x3840 と表示していた（2026-08-31）。
+             食い違ったまま宣言すると、Final Cut は2つの数字を
+             すり合わせようとして、映像が枠の半分の大きさで出た。
 
-             逆に、実寸と違う形式を書くのも駄目。1920x1080 のプロジェクトに
-             r1 を書いていたときは「素材はプロジェクトと同じ大きさだ」と
-             信じ込ませることになった（2026-08-30に踏んだ）。
-             どちらも「実寸を書く」で防げる。
+             書かなければ、Final Cut は**自分が読んだ素材**を
+             こちらの枠に収めるだけになる。どちらの読みが正しくても、
+             **縦横の比が合っていれば枠いっぱいに出る**。
+             framing に効くのは比であって、画素数ではない。
 
-          🔴 大きさが分からないときは書かないこと。
-             当てずっぽうの数字を書くと、Final Cut が素材を見て直すこともできなくなる。
+          🔴 以前ここに「省くと 1920x1080 と見なされて二重に縮む」と
+             書いていたが、あれは読み違い。0.316 倍の正体は
+             **プロジェクト側が 16:9 だったこと**で、素材側の宣言とは
+             関係がなかった。プロジェクトを素材と同じ比で組むようにした
+             いまは、省くのが最も安全。
         */
         if let mediaPath, !mediaPath.isEmpty {
             let url = URL(fileURLWithPath: mediaPath)
-            var assetFormat = ""
-            if mw > 0, mh > 0 {
-                if mw == w && mh == h {
-                    // プロジェクトを素材と同じ大きさで組んでいるので、r1 が素材の実寸そのもの
-                    assetFormat = " format=\"r1\""
-                } else {
-                    // 食い違うときは素材の側を別に書く（r1 を流用すると実寸を偽ることになる）
-                    xml += """
-                        <format id="r4" name="\(formatName(width: mw, height: mh, fps: fps))" frameDuration="\(frameDur)" width="\(mw)" height="\(mh)" colorSpace="1-1-1 (Rec. 709)"/>
-
-                    """
-                    assetFormat = " format=\"r4\""
-                }
-            }
             xml += """
-                <asset id="r3" name="\(escape(url.deletingPathExtension().lastPathComponent))" start="0s" duration="\(time(total, fps: fps))"\(assetFormat) hasVideo="1" videoSources="1" hasAudio="1" audioSources="1" audioChannels="2">
+                <asset id="r3" name="\(escape(url.deletingPathExtension().lastPathComponent))" start="0s" duration="\(time(total, fps: fps))" hasVideo="1" videoSources="1" hasAudio="1" audioSources="1" audioChannels="2">
                   <media-rep kind="original-media" src="\(escape(url.absoluteString))"/>
                 </asset>
 

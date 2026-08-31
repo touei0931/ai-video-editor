@@ -118,8 +118,23 @@ function isPhraseBoundary(a: string, b: string): boolean {
  */
 const JOIN_GAP = 0.15
 
-/** つないでよい長さの上限（1枚ぶんの何倍まで許すか）。つなぎ過ぎを防ぐ */
-const JOIN_MAX_RATIO = 2.5
+/**
+ * エンジン側の保険上限（sidecar/telop.py の hard_max_chars）。
+ * ここで機械的に切られたものを、こちらでつなぎ直す。
+ */
+const ENGINE_HARD_MAX = 40
+
+/**
+ * つないでよい長さの上限。
+ *
+ * 🔴 「1枚に入れる文字数」に比例させてはいけない。
+ *    直したいのはエンジンの 40文字の切れ目であって、画面の設定とは
+ *    関係がない。1枚 13文字にしていると上限が 32文字になり、
+ *    **40文字で切られた組がちょうど弾かれて**、つなぎ直しが働かなかった
+ *    （2026-08-31、1枚13文字の実機で判明）。
+ *    つないだ後に必ず割り直すので、長くなること自体は困らない。
+ */
+const JOIN_MAX_CHARS = ENGINE_HARD_MAX * 2
 
 /**
  * 語の途中で切れている隣どうしをつなぎ直す。
@@ -146,10 +161,11 @@ export function joinBrokenTelops(telops: Telop[], maxChars: number): Telop[] {
       prev.style === t.style &&
       t.start - prev.end <= JOIN_GAP &&
       !isPhraseBoundary(prev.text, t.text) &&
-      displayLength(joined) <= maxChars * JOIN_MAX_RATIO &&
       // 🔴 語の時刻が無いものをつなぐのは、割り直せるときだけ。
       //    つないだ結果が上限を超えても割れず、長すぎるテロップが残る。
-      (hasWords || displayLength(joined) <= maxChars)
+      (hasWords
+        ? displayLength(joined) <= JOIN_MAX_CHARS
+        : displayLength(joined) <= maxChars)
     ) {
       out[out.length - 1] = {
         ...prev,
