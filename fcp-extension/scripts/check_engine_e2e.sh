@@ -33,8 +33,12 @@ say -v Kyoko -o "$WORK/voice.aiff" "これはテストです。えー、自動�
 echo "--- 検証用の縦動画を作る（1080x1920 / 30fps） ---"
 "$FFMPEG" -y -loglevel error -f lavfi -i "testsrc=size=1080x1920:rate=30:duration=6" -i "$WORK/voice.aiff" -c:v mpeg4 -q:v 5 -pix_fmt yuv420p -c:a aac -shortest "$WORK/sample.mp4"
 
-echo "--- 解析を通す（アプリの中のエンジンで） ---"
-"$ENGINE" --video "$WORK/sample.mp4" --out "$WORK/state.json" --model base --ffmpeg "$FFMPEG"
+# 🔴 PATH を裸にして走らせること。
+#    CI の Mac には Homebrew が入っているので、PAC 本体が同梱の ffmpeg を
+#    見つけられなくても、PATH の ffmpeg に助けられて通ってしまう。
+#    友達の Mac には ffmpeg は入っていない。そちらに合わせて確かめる。
+echo "--- 解析を通す（アプリの中のエンジンで／PATH は裸） ---"
+env PATH=/usr/bin:/bin "$ENGINE" --video "$WORK/sample.mp4" --out "$WORK/state.json" --model base --ffmpeg "$FFMPEG"
 
 echo "--- 結果の検査 ---"
 python3 - "$WORK/state.json" <<'PYEOF'
