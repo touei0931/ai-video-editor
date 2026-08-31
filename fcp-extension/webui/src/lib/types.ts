@@ -124,6 +124,14 @@ export interface ProjectState {
    */
   report?: {
     videoInfoError?: string
+    /**
+     * エンジンが実際に使った設定。
+     * 🔴 画面で選んだものと突き合わせて出すこと。
+     *    途中で落ちても候補が少ないとしか見えず、気づけない。
+     */
+    cutPreset?: string
+    detectAside?: boolean
+    cutCandidates?: number
     droppedSegments?: number
     speechRatio?: number
     wordCount?: number

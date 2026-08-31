@@ -55,7 +55,7 @@ fi
 echo "--- 解析を頼む ---"
 JOB=$(curl -s --max-time 10 -X POST "http://127.0.0.1:$PORT/analyze" \
   -H 'Content-Type: application/json' \
-  -d "{\"videoPath\":\"$WORK/voice.aiff\",\"model\":\"base\",\"language\":\"ja\"}" \
+  -d "{\"videoPath\":\"$WORK/voice.aiff\",\"model\":\"base\",\"language\":\"ja\",\"cutPreset\":\"tight\",\"detectAside\":false}" \
   | python3 -c "import json,sys; print(json.load(sys.stdin).get('jobId',''))")
 
 if [ -z "$JOB" ]; then
@@ -100,6 +100,23 @@ if p.get("error"):
 r = p.get("result") or {}
 assert r.get("telops"), "テロップが空（アプリ経由で推論が動いていない）"
 print("✅ サーバー経由で解析できた")
+
+# 🔴 設定がエンジンまで届いているか。
+#    画面 → 拡張 → アプリ → エンジン と4つ跨ぐので、どこか1つ落ちると
+#    黙って既定で解析される。エラーにならないので「候補が少ない」としか
+#    見えない。実際に落ちていた（2026-08-31）。
+report = r.get("report") or {}
+used = report.get("cutPreset")
+if used != "tight":
+    print("❌ 詰め具合が届いていない（頼んだ: tight / 使われた: " + str(used) + "）")
+    print("   アプリ（EngineServer）が --cut-preset を渡していない可能性があります")
+    sys.exit(1)
+print("✅ 詰め具合が届いた: tight")
+
+if report.get("detectAside") is not False:
+    print("❌ 独り言の入切が届いていない（使われた: " + str(report.get("detectAside")) + "）")
+    sys.exit(1)
+print("✅ 独り言の入切が届いた: 切")
 for t in r["telops"]:
     print(f"   {t['start']:5.2f}s  {t['text']}")
 PY

@@ -13,6 +13,7 @@ import { AnalyzingScreen } from './screens/AnalyzingScreen'
 import { useStore } from './lib/store'
 import { isInFCP, runAnalysis, sendToFCP } from './lib/bridge'
 import { DEFAULT_TELOP_MAX_CHARS } from './lib/splitTelop'
+import { CUT_PRESETS } from './lib/types'
 import type { AnalyzeSettings, ProjectState, Step } from './lib/types'
 
 const STEPS: { key: Step; label: string }[] = [
@@ -44,6 +45,43 @@ function MediaBadge({ state }: { state: ProjectState }) {
     <span className="build" title="この大きさ・コマ数でプロジェクトを組みます">
       {state.width}×{state.height}
       {state.fps ? ` / ${Math.round(state.fps * 100) / 100}fps` : ''}
+    </span>
+  )
+}
+
+/** エンジンが実際に使ったカットの設定。選んだものと食い違っていたら警告する */
+function CutSettingBadge({ state, asked }: { state: ProjectState; asked: AnalyzeSettings }) {
+  const used = state.report?.cutPreset
+  if (!used) return null
+  const label = (name: string) => CUT_PRESETS.find((p) => p.name === name)?.label ?? name
+  const usedAside = state.report?.detectAside !== false
+  const n = state.report?.cutCandidates
+
+  // 選んだものと違うものが使われていたら、それが原因になりうる
+  const mismatch = used !== asked.cutPreset || usedAside !== asked.detectAside
+  if (mismatch) {
+    return (
+      <span
+        className="build warn"
+        title={
+          `選んだ設定が解析に届いていません。
+` +
+          `選んだ: ${label(asked.cutPreset)} / 独り言 ${asked.detectAside ? '入' : '切'}
+` +
+          `使われた: ${label(used)} / 独り言 ${usedAside ? '入' : '切'}
+` +
+          `「インストールと確認」をもう一度実行してください（古い本体が動いている可能性があります）`
+        }
+      >
+        設定が届いていません（{label(used)} で解析）
+      </span>
+    )
+  }
+  return (
+    <span className="build" title="この設定で候補を出しました">
+      {label(used)}
+      {usedAside ? ' / 独り言 入' : ' / 独り言 切'}
+      {typeof n === 'number' ? ` / 候補 ${n}` : ''}
     </span>
   )
 }
@@ -154,6 +192,12 @@ export function App() {
              出していなかったため、3回の配布で誰も気づけなかった（2026-08-31）。
         */}
         {store.state && <MediaBadge state={store.state} />}
+        {/*
+          🔴 エンジンが実際に使った設定を出すこと。
+             選んだものが途中で落ちても、候補が少ないとしか見えない。
+             選んだ側と使った側を突き合わせて、食い違いをその場で見せる。
+        */}
+        {store.state && <CutSettingBadge state={store.state} asked={settings} />}
 
         <div className="steps">
           {STEPS.map((s) => {

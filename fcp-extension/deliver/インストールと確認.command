@@ -31,6 +31,21 @@ xattr -dr com.apple.quarantine "PAC for Final Cut.app" 2>/dev/null
 xattr -cr "PAC for Final Cut.app" 2>/dev/null
 
 # 3) /Applications へ設置（PluginKit は /Applications の中を見る）
+#
+# 🔴 先に、動いている古い本体を止めること。
+#
+#    macOS では、動いているアプリのフォルダを消してもプロセスは死なない。
+#    そのまま新しいものを置いても、次の `open` は「もう起動している」と
+#    見なして**新しい方を起動しない**。結果、直したはずの版を入れても
+#    古い中身が動き続ける。
+#
+#    実際これで2回はまった。素材の大きさの修正も、カットの詰め具合の
+#    受け渡しも、入れ直したのに効いていなかった（2026-08-31）。
+#    どちらも「本体（裏方のアプリ）が古いまま」で説明がつく。
+echo "▶ 動いている PAC を止める..."
+pkill -f "PAC for Final Cut.app/Contents/MacOS/PAC for Final Cut" 2>/dev/null && echo "  古い PAC を止めました" || echo "  動いていませんでした"
+sleep 1
+
 echo "▶ アプリケーションフォルダへ設置..."
 rm -rf "/Applications/PAC for Final Cut.app" 2>/dev/null
 cp -R "PAC for Final Cut.app" "/Applications/" || {

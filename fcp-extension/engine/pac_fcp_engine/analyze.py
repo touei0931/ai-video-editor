@@ -135,7 +135,17 @@ def analyze(
             video_info=video_info,
         )
         # 何が落ちたかは残しておく（テロップが少ないときの原因が分かるように）
+        cut_opts = options.get("cut") or {}
         state["report"] = {
+            # 🔴 エンジンが**実際に使った**設定を持ち帰ること。
+            #    画面で「とにかく詰める」を選んでも、途中のどこかで
+            #    落ちれば既定の「ふつう」で解析される。落ちても
+            #    エラーにはならないので、候補が少ないとしか見えない。
+            #    実際に落ちていた（2026-08-31）。asked と used を
+            #    並べて出せるように、使った側をここに残す。
+            "cutPreset": str(cut_opts.get("preset") or "talk"),
+            "detectAside": bool(cut_opts.get("detect_aside", True)),
+            "cutCandidates": len(candidates),
             # 🔴 大きさが取れなかった理由を残す。書き出しが 1920x1080 に
             #    倒れたときに、原因をここから辿れるようにする
             "videoInfoError": video_info_error,
