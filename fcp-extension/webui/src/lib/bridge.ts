@@ -186,6 +186,14 @@ export async function sendToFCP(
     /** 素材の大きさ。無いと書き出しが 1920x1080 決め打ちになる */
     width?: number
     height?: number
+    /**
+     * 何で作ったか（版・設定・件数）。XML のコメントとして残る。
+     *
+     * 🔴 書き出したものだけで追えるようにすること。
+     *    版も設定も分からないと、直しが届いたかどうかを毎回
+     *    キャプチャで聞き直すことになる。実際それで何往復もした。
+     */
+    meta?: Record<string, unknown>
   },
   onProgress?: (stage: string, ratio: number) => void,
 ): Promise<{ ok: boolean; message: string }> {

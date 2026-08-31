@@ -85,6 +85,31 @@ enum FCPXMLWriter {
         return "【PAC】\(base)_\(stamp.string(from: now))"
     }
 
+    /// 書き出しに残す1行。**Final Cut は読み飛ばす**ので中身は自由。
+    ///
+    /// 🔴 人が読める1行にすること。困ったときに送ってもらうのは XML なので、
+    ///    ここに要るものが揃っていれば、それ以上聞かなくて済む。
+    static func stamp(
+        meta: [String: Any], width: Int, height: Int, fps: Double,
+        cuts: [[String: Any]], telops: [[String: Any]], approved: Int
+    ) -> String {
+        var parts: [String] = ["PAC"]
+        if let build = meta["build"] as? String, !build.isEmpty { parts.append(build) }
+        parts.append("素材 \(width)x\(height) \(String(format: "%g", fps))fps")
+        if let preset = meta["cutPreset"] as? String, !preset.isEmpty {
+            parts.append("詰め具合 \(preset)")
+        }
+        if let aside = meta["detectAside"] as? Bool {
+            parts.append("独り言 \(aside ? "入" : "切")")
+        }
+        parts.append("カット候補 \(cuts.count)（切る \(approved)）")
+        parts.append("テロップ \(telops.count)")
+        if let chars = meta["telopMaxChars"] as? Int, chars > 0 {
+            parts.append("1枚 \(chars)文字")
+        }
+        return parts.joined(separator: " / ")
+    }
+
     // MARK: - カット
 
     /// カット区間を除いた「残す区間」を求める
@@ -126,6 +151,13 @@ enum FCPXMLWriter {
         ///    素材と同じ大きさで組むのが、下ごしらえとして正しい。
         mediaWidth: Int = 0,
         mediaHeight: Int = 0,
+        /// 何で作ったか（版・設定・件数）。XML のコメントとして残す
+        ///
+        /// 🔴 書き出したものだけで、どの版のどの設定で作られたかが
+        ///    分かるようにすること。分からないと、直したものが届いたのか、
+        ///    設定が効いたのかを毎回キャプチャで聞き直すことになる。
+        ///    実際それで何往復もした（2026-08-31）。
+        meta: [String: Any] = [:],
         template: TitleTemplate? = nil
     ) -> String {
         let (fdNum, fdDen) = frameDuration(fps: fps)
@@ -180,6 +212,7 @@ enum FCPXMLWriter {
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE fcpxml>
         <fcpxml version="\(version)">
+          <!-- \(escape(stamp(meta: meta, width: w, height: h, fps: fps, cuts: cuts, telops: telops, approved: approvedCuts.count))) -->
           <resources>
             <format id="r1" name="\(formatName(width: w, height: h, fps: fps))" frameDuration="\(frameDur)" width="\(w)" height="\(h)" colorSpace="1-1-1 (Rec. 709)"/>
             <effect id="r2" name="\(escape(template?.effectName ?? "Basic Title"))" uid="\(escape(template?.effectUID ?? ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"))"/>

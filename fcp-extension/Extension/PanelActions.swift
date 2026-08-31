@@ -75,6 +75,8 @@ extension WorkflowExtensionViewController {
         // 🔴 素材と同じ大きさで組む。決め打ちにすると縦動画が横向きに収まる
         let mediaWidth = (params["width"] as? Int) ?? 0
         let mediaHeight = (params["height"] as? Int) ?? 0
+        // 何で作ったか。XML に1行残して、後から追えるようにする
+        let meta = (params["meta"] as? [String: Any]) ?? [:]
 
         if cuts.isEmpty && telops.isEmpty {
             completion(false, "書き出すものがありません")
@@ -122,6 +124,7 @@ extension WorkflowExtensionViewController {
                     mediaDuration: mediaDuration,
                     mediaWidth: mediaWidth,
                     mediaHeight: mediaHeight,
+                    meta: meta,
                     template: TitleTemplate.load()
                 )
                 self.sendProgress(stage: "書き出しています", ratio: 0.8)

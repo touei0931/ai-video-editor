@@ -269,6 +269,45 @@ do {
           xml.range(of: "<adjust-conform[^>]*>", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
 }
 
+/* ================================================ 書き出しに残す1行
+
+  🔴 書き出したものだけで「どの版のどの設定で作ったか」が分かること。
+
+     分からないと、直したものが届いたのか・設定が効いたのかを
+     毎回キャプチャで聞き直すことになる。実際それで何往復もした
+     （2026-08-31）。困ったときに送ってもらうのは XML なので、
+     そこに書いておくのが一番確実。
+
+  🔴 Final Cut が読み飛ばす形（コメント）で書くこと。
+     独自の属性や要素を足すと DTD で弾かれ、読み込みごと失敗する。
+*/
+do {
+    let xml = FCPXMLWriter.build(
+        cuts: [["decision": "approved", "start": 5.0, "end": 6.0, "kind": "silence"]],
+        telops: [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal"]],
+        styles: [:], mediaPath: "/m/a.mov", fps: 30, mediaDuration: 20,
+        mediaWidth: 1080, mediaHeight: 1920,
+        meta: ["build": "v1.0.219", "cutPreset": "tight",
+               "detectAside": true, "telopMaxChars": 26])
+
+    check("版が残る", xml.contains("v1.0.219"))
+    check("素材の大きさが残る", xml.contains("1080x1920"))
+    check("詰め具合が残る", xml.contains("詰め具合 tight"))
+    check("独り言の入切が残る", xml.contains("独り言 入"))
+    check("件数が残る", xml.contains("カット候補 1") && xml.contains("テロップ 1"))
+
+    // 🔴 コメントであること。要素や属性にすると FCP が読み込みを断る
+    check("コメントとして書いている", xml.contains("<!-- PAC"))
+    check("XML として妥当なまま", (try? XMLDocument(xmlString: xml, options: [])) != nil)
+
+    // 渡されなくても壊れないこと
+    let bare = FCPXMLWriter.build(
+        cuts: [], telops: [["start": 1.0, "end": 2.0, "text": "あ", "style": "normal"]],
+        styles: [:], mediaPath: nil, fps: 30)
+    check("何も渡されなくても壊れない",
+          (try? XMLDocument(xmlString: bare, options: [])) != nil && bare.contains("<!-- PAC"))
+}
+
 /* ================================================ テロップの時刻
 
   🔴 clip にぶら下げた title の offset は「その clip の中の時刻」。

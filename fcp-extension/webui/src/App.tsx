@@ -161,6 +161,18 @@ export function App() {
           fps:
             store.state.fps ??
             (typeof store.state.host?.fps === 'number' ? store.state.host.fps : undefined),
+          /*
+            🔴 何で作ったかを一緒に渡すこと。
+               書き出した XML に1行残るので、後からそれだけで
+               版・設定・件数が追える。困ったときに送ってもらうのは
+               XML なので、そこに書いておくのが一番確実。
+          */
+          meta: {
+            build: __PAC_BUILD__,
+            cutPreset: store.state.report?.cutPreset ?? settings.cutPreset,
+            detectAside: store.state.report?.detectAside ?? settings.detectAside,
+            telopMaxChars: settings.telopMaxChars,
+          },
         },
         (stage) => setSendStage(stage),
       )
