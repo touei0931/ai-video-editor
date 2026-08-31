@@ -116,6 +116,19 @@ export interface ProjectState {
   template?: TitleTemplateSummary | null
   /** FCP から読めた情報（アプリ名・バージョン・シーケンス名など） */
   host?: Record<string, unknown>
+  /**
+   * 解析中に何が起きたか。
+   * 🔴 素材の大きさが読めなかった理由（videoInfoError）は必ず画面に出すこと。
+   *    黙って 1920x1080 に倒れると、縦の素材が枠の 0.316 倍で真ん中に出る、
+   *    という形でしか現れず、3回の配布で誰も気づけなかった（2026-08-31）。
+   */
+  report?: {
+    videoInfoError?: string
+    droppedSegments?: number
+    speechRatio?: number
+    wordCount?: number
+    unknown?: string[]
+  }
 }
 
 export const CUT_LABEL: Record<CutKind, string> = {

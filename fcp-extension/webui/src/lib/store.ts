@@ -172,6 +172,8 @@ export function useStore(): Store {
         waveform: result.waveform ?? base.waveform,
         cuts: result.cuts ?? [],
         telops,
+        // 🔴 落とさないこと。素材の大きさが読めなかった理由がここにしかない
+        report: result.report ?? base.report,
       }
     })
   }, [])

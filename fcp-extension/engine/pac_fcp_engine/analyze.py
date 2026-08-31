@@ -14,6 +14,7 @@ PAC 側で実測して詰めたものなので、ここで作り直すと必ず�
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from typing import Any, Callable
@@ -47,6 +48,32 @@ def analyze(
 
     options = options or {}
     video_path = str(Path(video).resolve())
+
+    """
+    🔴 同梱の ffmpeg の場所を、PAC 本体側にも伝えること。
+
+       こちらは --ffmpeg で正解を受け取っているが、PAC 本体の
+       probe_video_info() は引数を取らず、自分で find_ffmpeg() を呼ぶ。
+       その探し先はデスクトップ版 PAC.app の並び
+
+           PAC.app/Contents/Resources/ffmpeg/ffmpeg
+           PAC.app/Contents/Resources/sidecar/sidecar   ← 実行ファイル
+
+       に合わせてあり、こちらの並び
+
+           PAC for Final Cut.app/Contents/Resources/ffmpeg/ffmpeg
+           PAC for Final Cut.app/Contents/Resources/engine/pac-engine/pac-engine
+
+       とは1階層ずれる。友達の Mac には ffmpeg が入っていないので
+       PATH からも見つからず、**毎回**失敗していた。
+       結果、素材の大きさが取れず、書き出しが 1920x1080 に倒れ、
+       縦の素材が枠の 0.316 倍で真ん中に出ていた（2026-08-31に判明）。
+
+       PAC 本体には手を入れられないので、あちらが最初に見る
+       PAC_FFMPEG に正解を置く。
+    """
+    if ffmpeg and os.path.isabs(ffmpeg) and os.path.exists(ffmpeg):
+        os.environ["PAC_FFMPEG"] = ffmpeg
 
     with tempfile.TemporaryDirectory(prefix="pac-fcp-") as tmp:
         wav = str(Path(tmp) / "audio.wav")

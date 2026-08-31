@@ -13,7 +13,7 @@ import { AnalyzingScreen } from './screens/AnalyzingScreen'
 import { useStore } from './lib/store'
 import { isInFCP, runAnalysis, sendToFCP } from './lib/bridge'
 import { DEFAULT_TELOP_MAX_CHARS } from './lib/splitTelop'
-import type { AnalyzeSettings, Step } from './lib/types'
+import type { AnalyzeSettings, ProjectState, Step } from './lib/types'
 
 const STEPS: { key: Step; label: string }[] = [
   { key: 'select', label: '① 動画' },
@@ -22,6 +22,31 @@ const STEPS: { key: Step; label: string }[] = [
   { key: 'cut', label: '④ カット' },
   { key: 'telop', label: '⑤ テロップ' },
 ]
+
+/** 素材の大きさとコマ数。読めていなければ、その理由ごと警告として出す */
+function MediaBadge({ state }: { state: ProjectState }) {
+  const reason = state.report?.videoInfoError
+  if (!state.width || !state.height) {
+    return (
+      <span
+        className="build warn"
+        title={
+          reason
+            ? `理由: ${reason}`
+            : '素材の大きさが読めませんでした'
+        }
+      >
+        素材の大きさが読めません（1920x1080 で書き出します）
+      </span>
+    )
+  }
+  return (
+    <span className="build" title="この大きさ・コマ数でプロジェクトを組みます">
+      {state.width}×{state.height}
+      {state.fps ? ` / ${Math.round(state.fps * 100) / 100}fps` : ''}
+    </span>
+  )
+}
 
 export function App() {
   const store = useStore()
@@ -120,6 +145,13 @@ export function App() {
         <span className="build" title="この画面の版（不具合を伝えるときは一緒に教えてください）">
           {__PAC_BUILD__}
         </span>
+        {/*
+          🔴 素材の大きさとコマ数を必ず出すこと。
+             書き出すプロジェクトはこの値で組む。読めないと 1920x1080 に倒れ、
+             縦の素材が枠の 0.316 倍で真ん中に小さく出る。
+             出していなかったため、3回の配布で誰も気づけなかった（2026-08-31）。
+        */}
+        {store.state && <MediaBadge state={store.state} />}
 
         <div className="steps">
           {STEPS.map((s) => {
