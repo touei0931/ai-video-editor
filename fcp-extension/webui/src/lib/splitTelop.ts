@@ -94,6 +94,76 @@ export function chunkByPhrase(text: string, maxChars: number): string[] {
   return out.length > 0 ? out : [text]
 }
 
+/** つなぎ目が文節の切れ目になっているか */
+function isPhraseBoundary(a: string, b: string): boolean {
+  const phrases = parser.parse(a + b)
+  let at = 0
+  for (const p of phrases) {
+    at += p.length
+    if (at === a.length) return true
+    if (at > a.length) return false
+  }
+  return true
+}
+
+/**
+ * これ以上間が空いていたら、別の発言としてつながない。
+ *
+ * 🔴 実データから取ること。実機の書き出し（テスト.fcpxml）では
+ *      無理やり割られた組: 間 -0.03秒 / 0.03秒（＝間が無い）
+ *      本当の切れ目      : 間  0.40秒 / 0.53秒 / 0.60秒
+ *    と、はっきり分かれていた。「間がほぼ無い」ことが、
+ *    機械的に割られた印になる。0.4 にすると本当の切れ目まで
+ *    つないでしまう（「こもりやすい」と次の文がつながった）。
+ */
+const JOIN_GAP = 0.15
+
+/** つないでよい長さの上限（1枚ぶんの何倍まで許すか）。つなぎ過ぎを防ぐ */
+const JOIN_MAX_RATIO = 2.5
+
+/**
+ * 語の途中で切れている隣どうしをつなぎ直す。
+ *
+ * 🔴 エンジンは**単語の時刻と文字数**でしか区切れない。
+ *    句読点も間も無いまま喋り続けると 40文字の保険上限に当たり、
+ *    そこで機械的に切れる。実機で
+ *    「…しづらさを減 / らすこともあります」と割れた（2026-08-31）。
+ *
+ *    こちらは割り直す側なので、**先につなぎ直してから割る**。
+ *    割るだけでは、すでに割れているものを直せない。
+ *
+ * 🔴 つなぐのは「つなぎ目が文節の切れ目になっていない」ときだけ。
+ *    切れ目として正しい所までつなぐと、1枚が長くなるだけで良いことがない。
+ */
+export function joinBrokenTelops(telops: Telop[], maxChars: number): Telop[] {
+  const out: Telop[] = []
+  for (const t of telops) {
+    const prev = out[out.length - 1]
+    const joined = prev ? prev.text + t.text : ''
+    const hasWords = (prev?.words?.length ?? 0) > 0 && (t.words?.length ?? 0) > 0
+    if (
+      prev &&
+      prev.style === t.style &&
+      t.start - prev.end <= JOIN_GAP &&
+      !isPhraseBoundary(prev.text, t.text) &&
+      displayLength(joined) <= maxChars * JOIN_MAX_RATIO &&
+      // 🔴 語の時刻が無いものをつなぐのは、割り直せるときだけ。
+      //    つないだ結果が上限を超えても割れず、長すぎるテロップが残る。
+      (hasWords || displayLength(joined) <= maxChars)
+    ) {
+      out[out.length - 1] = {
+        ...prev,
+        text: joined,
+        end: t.end,
+        words: [...(prev.words ?? []), ...(t.words ?? [])],
+      }
+      continue
+    }
+    out.push(t)
+  }
+  return out
+}
+
 /**
  * 文字位置から、その位置の時刻を引く。
  *
@@ -139,7 +209,12 @@ export function splitTelops(telops: Telop[], maxChars = DEFAULT_TELOP_MAX_CHARS)
 
   const out: Telop[] = []
 
-  for (const t of telops) {
+  /*
+    🔴 先につなぎ直すこと。
+       エンジンから届く時点で語の途中で割れていることがあり、
+       割るだけでは直せない（2026-08-31に実機で出た）。
+  */
+  for (const t of joinBrokenTelops(telops, limit)) {
     const chunks = chunkByPhrase(t.text, limit)
     if (chunks.length <= 1) {
       out.push(t)
