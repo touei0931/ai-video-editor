@@ -54,6 +54,8 @@ final class EngineClient {
         model: String,
         /// 間の詰め具合（sidecar/cut.py の PRESETS の名前）
         cutPreset: String,
+        /// 話が繋がっていないひとりごとも候補に挙げるか
+        detectAside: Bool,
         /// 繋がらなかったときにアプリを起こしてやり直すか。やり直しの回では false
         wake: Bool = true,
         progress: @escaping (String, Double) -> Void,
@@ -66,6 +68,7 @@ final class EngineClient {
             "language": language,
             "model": model,
             "cutPreset": cutPreset,
+            "detectAside": detectAside,
         ]
 
         post(path: "/analyze", body: body) { [weak self] result in
@@ -118,6 +121,7 @@ final class EngineClient {
                             // 🔴 やり直しでも同じ設定で頼むこと。
                             //    ここを落とすと、繋がらなかった1回目だけ設定が効く
                             cutPreset: cutPreset,
+                            detectAside: detectAside,
                             wake: false,
                             progress: progress,
                             completion: completion

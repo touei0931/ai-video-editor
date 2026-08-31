@@ -29,6 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--language", default="ja")
     p.add_argument("--cut-preset", default="talk", choices=CUT_PRESETS,
                    help="間の詰め具合（左ほど間を残す）")
+    p.add_argument("--aside", default="on", choices=["on", "off"],
+                   help="話が繋がっていないひとりごとも候補に挙げるか")
     p.add_argument("--ffmpeg", default="ffmpeg")
     p.add_argument("--waveform-points", type=int, default=800)
     args = p.parse_args(argv)
@@ -45,7 +47,10 @@ def main(argv: list[str] | None = None) -> int:
             language=args.language,
             ffmpeg=args.ffmpeg,
             waveform_points=args.waveform_points,
-            options={"cut": {"preset": args.cut_preset}},
+            options={"cut": {
+                "preset": args.cut_preset,
+                "detect_aside": args.aside == "on",
+            }},
             progress=progress,
         )
     except Exception as e:  # noqa: BLE001

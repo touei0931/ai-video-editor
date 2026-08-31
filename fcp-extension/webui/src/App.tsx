@@ -57,6 +57,8 @@ export function App() {
     model: 'large-v3-turbo',
     // 既定は「ふつう」。詰めた設定を長尺に当てると、意図して置いた間まで消える
     cutPreset: 'talk',
+    // 必ず人が1件ずつ見る側に入るので、既定で挙げる
+    detectAside: true,
     telopMaxChars: DEFAULT_TELOP_MAX_CHARS,
   })
   const [progress, setProgress] = useState({ stage: '準備しています', ratio: 0 })

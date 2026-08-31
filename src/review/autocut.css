@@ -329,6 +329,9 @@
 .autocut .nowat .kind.restate {
   background: #c99fe0;
 }
+.autocut .nowat .kind.aside {
+  background: #8fd8c4;
+}
 
 .autocut .nowat .time {
   color: var(--muted);

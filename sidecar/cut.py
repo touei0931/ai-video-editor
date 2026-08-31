@@ -38,6 +38,17 @@ DEFAULTS = {
     # これより短くしかならないカットは候補にしない。
     # 0.2秒詰めるためにジャンプカットを1つ増やすのは割に合わない。
     "min_gain": 0.3,
+    # ── 独り言・話が逸れた所 ──
+    # 話の本筋と繋がっていないひとりごとを候補にするか
+    "detect_aside": True,
+    # これ以上の間があいたら、そこで発話をひとかたまりに区切る
+    "aside_gap": 0.6,
+    # 前後がこれだけ空いていれば「ぽつんと言った」とみなす
+    "aside_isolation": 1.0,
+    # これより長く喋っているものは、話の一部とみなして触らない（全角の文字数）
+    "aside_max_chars": 20,
+    # 前後いくつの発話と語を見比べるか
+    "aside_context": 2,
 }
 
 #: 素材の種類で「間」の扱いはまるで違う。
@@ -57,6 +68,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "keep_padding": 0.3,
         "confident_silence": 1.0,
         "min_gain": 0.45,
+        "aside_isolation": 1.4,
+        "aside_max_chars": 14,
     },
     # 10〜20分の解説・実況。既定
     "talk": {
@@ -64,6 +77,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "keep_padding": 0.22,
         "confident_silence": 1.4,
         "min_gain": 0.35,
+        "aside_isolation": 1.0,
+        "aside_max_chars": 20,
     },
     # ショート動画。テンポ優先で詰める
     "short": {
@@ -71,6 +86,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "keep_padding": 0.08,
         "confident_silence": 1.8,
         "min_gain": 0.2,
+        "aside_isolation": 0.8,
+        "aside_max_chars": 26,
     },
     # とにかく詰める。間はほとんど残らない
     "tight": {
@@ -78,6 +95,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "keep_padding": 0.05,
         "confident_silence": 2.4,
         "min_gain": 0.12,
+        "aside_isolation": 0.6,
+        "aside_max_chars": 32,
     },
 }
 
@@ -168,6 +187,58 @@ def _normalize(text: str) -> str:
 def _is_filler(word: str) -> bool:
     w = _normalize(word)
     return w in {_normalize(f) for f in FILLERS}
+
+
+#: 独り言・撮り直しのつぶやきに出やすい言い回し。
+#:
+#: 🔴 これ単体で切らないこと。「あれ」「待って」は普通の話にも出る。
+#:    前後と語がつながっていないことと**合わせて**初めて手がかりになる。
+ASIDE_MARKERS = [
+    # 撮影そのものへの言及（話の中身ではない）
+    "止まって", "録れて", "撮れて", "回ってる", "カメラ", "マイク",
+    # 撮り直し・言い間違いの自己申告
+    "もう一回", "もっかい", "今の無し", "今のなし", "やり直", "間違え",
+    "しまった", "やば", "ミス", "とちった", "噛んだ",
+    # ひとりごとの出だし・行き止まり
+    "あれ", "あっ", "うわ", "えっ", "なんだっけ", "だっけ",
+    "大丈夫かな", "いいのかな", "こんな感じ",
+]
+
+#: 内容語（話題を表す語）を拾う。
+#:
+#: 🔴 形態素解析器を足さないこと。
+#:    ここは友達の Mac に配る中身で、増やした依存はそのまま容量と
+#:    起動時間になる。漢字・カタカナ・英数の連なりを内容語とみなせば、
+#:    日本語では実用上これで足りる。ひらがなだけの語はほとんどが
+#:    助詞・助動詞で、話題を表さない。
+_CONTENT = re.compile(r"[一-龥々〆ヶ]+|[ァ-ヴ][ァ-ヴー]+|[A-Za-z]{2,}|[0-9]+")
+
+
+def _content_tokens(text: str) -> set[str]:
+    return set(_CONTENT.findall(_normalize(text)))
+
+
+def _utterances(words: list[dict[str, Any]], gap: float) -> list[list[dict[str, Any]]]:
+    """間で区切って「ひとかたまりの発話」にまとめる。
+
+    話が繋がっているかは語1つでは判断できない。
+    「息を継がずに言い切ったところ」をひとかたまりとして扱う。
+    """
+    groups: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    for w in words:
+        if current and w["src_start"] - current[-1]["src_end"] >= gap:
+            groups.append(current)
+            current = []
+        current.append(w)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _has_marker(text: str) -> bool:
+    t = _normalize(text)
+    return any(m in t for m in ASIDE_MARKERS)
 
 
 def detect_candidates(transcript: dict[str, Any], options: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -304,6 +375,85 @@ def detect_candidates(transcript: dict[str, Any], options: dict[str, Any] | None
                 word=a,
                 before="".join(x["text"] for x in words[max(0, i - 5):i]).strip(),
                 after="".join(x["text"] for x in words[i + n:i + n + 6]).strip(),
+            )
+
+    # ── 独り言・話が逸れた所 ──────────────────────────────
+    #
+    # 「あれ、止まってない？」「もう一回」のような、話の本筋と繋がっていない
+    # ひとりごと。無音でもフィラーでも言い直しでもないので、
+    # 今までどれにも引っかからなかった。
+    #
+    # 🔴 意味を読んでいるわけではない。
+    #    見ているのは「前後と同じ話題の語を使っているか」「ぽつんと
+    #    孤立しているか」「撮り直しの言い回しが出ているか」の3つ。
+    #    本当の意味判定は LLM の仕事（§11.4）で、ここはその手前の形の判定。
+    #
+    # 🔴 確信度は必ずレビュー帯（0.6以上 0.9未満）に収めること。
+    #    ここは間違えると**話の中身を消す**。人間が必ず1件ずつ見る側に置く。
+    #    言い直しで一度踏んだ罠（0.55固定＝常に自動却下）の逆側も同じで、
+    #    0.9以上にすると黙って本編が消える。
+    if opts.get("detect_aside", True):
+        groups = _utterances(words, float(opts["aside_gap"]))
+        ctx_n = int(opts["aside_context"])
+        max_chars = int(opts["aside_max_chars"])
+        iso_need = float(opts["aside_isolation"])
+
+        texts = ["".join(x["text"] for x in g).strip() for g in groups]
+        tokens = [_content_tokens(t) for t in texts]
+
+        for gi, g in enumerate(groups):
+            text = texts[gi]
+            if not text or len(_normalize(text)) > max_chars:
+                # 長く喋っているなら、それは話の一部
+                continue
+
+            # 前後と同じ話題の語を使っていれば、繋がっている
+            context: set[str] = set()
+            for j in range(max(0, gi - ctx_n), min(len(groups), gi + ctx_n + 1)):
+                if j != gi:
+                    context |= tokens[j]
+            if tokens[gi] & context:
+                continue
+
+            start = g[0]["src_start"]
+            end = g[-1]["src_end"]
+            before_gap = start - groups[gi - 1][-1]["src_end"] if gi > 0 else start
+            after_gap = (
+                groups[gi + 1][0]["src_start"] - end
+                if gi + 1 < len(groups)
+                else max(0.0, duration - end)
+            )
+            isolation = min(before_gap, after_gap)
+            marker = _has_marker(text)
+            edge = gi == 0 or gi == len(groups) - 1
+
+            # 手がかりを足していく。2つ以上そろわないと候補にしない
+            strength = 0.30 if tokens[gi] else 0.20
+            if isolation >= iso_need:
+                strength += 0.30
+            if marker:
+                strength += 0.30
+            if edge:
+                strength += 0.15
+            if len(_normalize(text)) <= max_chars / 2:
+                strength += 0.10
+            if strength < 0.55:
+                continue
+
+            add(
+                "aside",
+                start,
+                end,
+                0.60 + min(0.28, (strength - 0.55) * 0.5),
+                word=text,
+                before=texts[gi - 1] if gi > 0 else "",
+                after=texts[gi + 1] if gi + 1 < len(groups) else "",
+                # 何を見てそう判断したかを残す。画面で理由を出せるようにする
+                reason={
+                    "isolation": round(isolation, 2),
+                    "marker": marker,
+                    "edge": edge,
+                },
             )
 
     candidates.sort(key=lambda c: c["src_start"])

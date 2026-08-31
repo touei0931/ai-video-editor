@@ -9,7 +9,7 @@
  * カットの種類。
  * manual は人が範囲を指定して足したもので、AIが出した候補ではない。
  */
-export type CutKind = 'silence' | 'filler' | 'restate' | 'manual';
+export type CutKind = 'silence' | 'filler' | 'restate' | 'aside' | 'manual';
 
 export interface CutCandidate {
   id: string;
@@ -45,6 +45,12 @@ export const KIND_LABEL: Record<CutKind, string> = {
   silence: '無音',
   filler: 'フィラー',
   restate: '言い直し',
+  /**
+   * 話の本筋と繋がっていないひとりごと（「あれ、止まってない？」など）。
+   * 🔴 意味を読んでいるわけではないので、必ず人が1件ずつ見る側に入る。
+   *    sidecar/cut.py の確信度をレビュー帯に収めてある。
+   */
+  aside: '独り言',
   manual: '手動',
 };
 

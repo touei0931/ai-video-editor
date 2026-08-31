@@ -193,6 +193,8 @@ final class EngineServer {
             "--language", (params["language"] as? String) ?? "ja",
             // 間の詰め具合。渡さないとどんな素材でも「ふつう」で候補を出す
             "--cut-preset", (params["cutPreset"] as? String) ?? "talk",
+            // 話が繋がっていないひとりごとも候補に挙げるか
+            "--aside", ((params["detectAside"] as? Bool) ?? true) ? "on" : "off",
             "--ffmpeg", EnginePaths.ffmpeg.path,
         ]
 

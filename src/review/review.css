@@ -431,6 +431,9 @@
 .kind.restate {
   background: #c99fe0;
 }
+.kind.aside {
+  background: #8fd8c4;
+}
 
 .meta .word {
   color: #e0d08f;

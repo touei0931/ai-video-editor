@@ -108,6 +108,30 @@ export function SettingsScreen({
               </p>
             </section>
 
+            {/* 独り言 */}
+            <section className="settings-card">
+              <h3>独り言も候補にする</h3>
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={settings.detectAside}
+                  onChange={(e) => onChange({ detectAside: e.target.checked })}
+                />
+                <span>話が繋がっていない所を探す</span>
+              </label>
+              <p className="settings-note">
+                「あれ、止まってない？」「もう一回」のような、話の本筋と繋がっていない
+                ひとりごとを候補に挙げます。無音でもフィラーでもないので、今までどれにも
+                引っかかりませんでした。
+                <br />
+                見ているのは<strong>前後と同じ話題の語を使っているか</strong>・
+                <strong>ぽつんと孤立しているか</strong>・
+                <strong>撮り直しの言い回しか</strong>の3つで、話の意味そのものは読んでいません。
+                外すこともあるので、切るかどうかは必ず「④ カット」で1件ずつ決めてください
+                （勝手に切ることはありません）。
+              </p>
+            </section>
+
             {/* テロップ1枚の長さ */}
             <section className="settings-card">
               <h3>テロップ1枚の文字数</h3>

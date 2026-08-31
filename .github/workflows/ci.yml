@@ -82,6 +82,10 @@ jobs:
       # 🔴 確信度の3分割。「自動で見送り」が構造上ずっと空だったので数字で縛る
       - name: カット候補の確信度
         run: python scripts/test_cut_confidence.py
+      # 🔴 独り言の判定は、外すと**話の中身を消す**。
+      #    「見つかること」より「本編を巻き込まないこと」を先に縛る
+      - name: 独り言・話が逸れた所
+        run: python scripts/test_aside.py
       # Final Cut へ渡すタイムライン。フレーム境界と file:// URL が要点
       - name: FCPXML の書き出し
         run: python scripts/test_fcpxml.py

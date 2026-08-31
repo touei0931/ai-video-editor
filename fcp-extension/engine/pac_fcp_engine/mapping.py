@@ -10,7 +10,7 @@ import sys
 from typing import Any
 
 # PAC 側で扱えるカットの種類。ここに無いものは通せない
-_KINDS = ("silence", "filler", "restate")
+_KINDS = ("silence", "filler", "restate", "aside")
 
 
 def _note(sink: list[str] | None, message: str) -> None:

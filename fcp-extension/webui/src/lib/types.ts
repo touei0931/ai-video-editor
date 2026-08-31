@@ -1,7 +1,7 @@
 // PAC パネルの共通データ型。Swift 側とやり取りする JSON の形もこれに合わせる。
 
 /** カット候補の種類 */
-export type CutKind = 'silence' | 'filler' | 'restate'
+export type CutKind = 'silence' | 'filler' | 'restate' | 'aside'
 
 /** 人間の判断 */
 export type Decision = 'pending' | 'approved' | 'rejected'
@@ -135,6 +135,7 @@ export const CUT_LABEL: Record<CutKind, string> = {
   silence: '無音',
   filler: 'フィラー',
   restate: '言い直し',
+  aside: '独り言',
 }
 
 export const STYLE_LABEL: Record<StyleName, string> = {
@@ -188,6 +189,16 @@ export interface AnalyzeSettings {
    *    「カットが2つしかない」と言われた（2026-08-31）。
    */
   cutPreset: CutPreset
+  /**
+   * 話の本筋と繋がっていないひとりごと（「あれ、止まってない？」など）も
+   * 候補に挙げるか。
+   *
+   * 🔴 意味を読んでいるわけではない。見ているのは
+   *    「前後と同じ話題の語を使っているか」「ぽつんと孤立しているか」
+   *    「撮り直しの言い回しか」の3つ。外すこともあるので、
+   *    切るかどうかは必ず「④ カット」で人が決める。
+   */
+  detectAside: boolean
   /**
    * テロップ1枚に入れる文字数の上限（全角換算。半角は 0.5 と数える）。
    *

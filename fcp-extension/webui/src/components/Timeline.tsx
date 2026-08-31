@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Filmstrip } from './Filmstrip'
 
-export type ClipKind = 'silence' | 'filler' | 'restate' | 'telop'
+export type ClipKind = 'silence' | 'filler' | 'restate' | 'aside' | 'telop'
 
 export interface Clip {
   id: string
@@ -47,6 +47,7 @@ const CLIP_COLOR: Record<ClipKind, string> = {
   silence: 'var(--cut-silence)',
   filler: 'var(--cut-filler)',
   restate: 'var(--cut-restate)',
+  aside: 'var(--cut-aside)',
   telop: 'var(--clip-title)',
 }
 

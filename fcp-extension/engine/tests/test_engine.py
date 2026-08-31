@@ -238,5 +238,42 @@ class Test間の詰め具合(unittest.TestCase):
 
 
 
+class Test独り言がパネルまで届く(unittest.TestCase):
+    """🔴 mapping の _KINDS はふるいになっている。
+
+    ここに足し忘れると、PAC 本体が候補を出していても
+    パネルには**1件も届かない**。エラーにもならないので、
+    「なんとなく出ない」としか見えない。
+    """
+
+    def test_独り言が通る(self) -> None:
+        unknown: list[str] = []
+        out = map_cuts([{
+            "id": "a1", "src_start": 36.5, "src_end": 37.6, "kind": "aside",
+            "text": "あれ止まってない", "confidence": 0.75,
+        }], unknown)
+        self.assertEqual(len(out), 1, unknown)
+        self.assertEqual(out[0]["kind"], "aside")
+        self.assertEqual(out[0]["text"], "あれ止まってない")
+        self.assertEqual(out[0]["decision"], "pending")
+        self.assertEqual(unknown, [])
+
+    def test_PAC本体が出す種類は全部通る(self) -> None:
+        """PAC 本体に種類が増えたら、ここが落ちて気づけるようにする"""
+        transcript = make_transcript()
+        got = {c["kind"] for c in pac_cut.detect_candidates(transcript)["candidates"]}
+        unknown: list[str] = []
+        map_cuts([{"id": "x", "src_start": 0.0, "src_end": 1.0, "kind": k} for k in got],
+                 unknown)
+        self.assertEqual(unknown, [], f"パネルに届かない種類がある: {unknown}")
+
+    def test_設定で切れる(self) -> None:
+        from pac_fcp_engine.__main__ import main  # noqa: F401  (引数の形だけ確かめる)
+        import argparse
+        # 知らない値は受け取らない（黙って既定に戻すと、効いていないことに気づけない）
+        with self.assertRaises(SystemExit):
+            main(["--video", "a.mp4", "--out", "b.json", "--aside", "たぶん"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

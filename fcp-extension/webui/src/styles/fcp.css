@@ -24,6 +24,7 @@
   --cut-silence: #6a6a6a;
   --cut-filler: #b8862f;
   --cut-restate: #a8514f;
+  --cut-aside: #3f7f6d;
 
   --ok: #4f9d5d;
   --ng: #a8514f;
@@ -254,6 +255,7 @@ button.tiny { padding: 2px 6px; font-size: 11px; }
 .badge.silence { background: var(--cut-silence); color: #fff; }
 .badge.filler { background: var(--cut-filler); color: #2a1e05; }
 .badge.restate { background: var(--cut-restate); color: #fff; }
+.badge.aside { background: var(--cut-aside); color: #fff; }
 .badge.normal { background: #45566b; color: #dfe8f2; }
 .badge.emphasis { background: #8a6a1f; color: #ffeec2; }
 .row-time { font-family: "SF Mono", Menlo, Consolas, monospace; color: var(--text-dim); flex: 0 0 auto; }

@@ -26,6 +26,7 @@ export const MOCK: ProjectState = {
     { id: 'c5', start: 30.6, end: 31.1, kind: 'filler', text: 'あのー', confidence: 0.84, decision: 'pending' },
     { id: 'c6', start: 38.9, end: 41.2, kind: 'silence', text: '', confidence: 0.9, decision: 'pending' },
     { id: 'c7', start: 47.3, end: 48.0, kind: 'filler', text: 'まあ', confidence: 0.66, decision: 'pending' },
+    { id: 'c9', start: 57.5, end: 58.6, kind: 'aside', text: 'あれ、止まってない？', confidence: 0.75, decision: 'pending' },
     { id: 'c8', start: 53.2, end: 55.6, kind: 'restate', text: 'つまり、つまり何が言いたいかというと', confidence: 0.79, decision: 'pending' },
   ],
   telops: [
