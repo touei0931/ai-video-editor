@@ -235,15 +235,15 @@ extension WorkflowExtensionViewController {
             videoPath: videoPath,
             language: (params["language"] as? String) ?? "ja",
             model: (params["model"] as? String) ?? "large-v3-turbo",
+            cutPreset: (params["cutPreset"] as? String) ?? "talk",
+            detectAside: (params["detectAside"] as? Bool) ?? true,
+            extraFillers: (params["extraFillers"] as? String) ?? "",
             /*
               🔴 覚えた境目は、ここで混ぜること。
                  画面から渡す形にすると、途中のどこかで落ちても
                  「候補が少ない」としか見えない。読むのは1か所にする。
             */
             minGain: CutMemory.load().learnedMinGain()?.minGain ?? 0,
-            cutPreset: (params["cutPreset"] as? String) ?? "talk",
-            detectAside: (params["detectAside"] as? Bool) ?? true,
-            extraFillers: (params["extraFillers"] as? String) ?? "",
             progress: { [weak self] stage, ratio in
                 self?.sendProgress(stage: stage, ratio: ratio)
             },
