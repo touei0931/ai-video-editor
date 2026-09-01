@@ -86,6 +86,12 @@ export interface Telop {
 /** 友達のテロップ見本（FCPXML から取り込んだもの）の要約 */
 export interface TitleTemplateSummary {
   effectName: string
+  /**
+   * 見本に文字の書式（書体・大きさ）が入っていたか。
+   * 🔴 見本のタイトルに文字を入れずに書き出すと false になる。
+   *    写すものが無いので既定の見た目になる。必ず画面で知らせること。
+   */
+  hasStyle?: boolean
   font: string
   fontFace: string
   fontSize: number

@@ -520,7 +520,8 @@ enum FCPXMLWriter {
              最後の砦として、枠の高さから決めた大きさを必ず入れる。
         */
         if (attrs["fontSize"].flatMap { Double($0) } ?? 0) <= 0 {
-            attrs["fontSize"] = String(max(24, frameHeight / 11))
+            // 素材の高さの 4.5%（友達の見本 167px / 3840 とほぼ同じ割合）
+            attrs["fontSize"] = String(max(24, Int(Double(frameHeight) * 0.045)))
         }
 
         return attrs

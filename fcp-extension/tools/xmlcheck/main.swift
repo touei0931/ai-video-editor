@@ -305,6 +305,61 @@ do {
      「テロップが意味が分からないくらい小さい」になる
      （2026-09-01、見本 基本01_13 で発生）。
 */
+/* ================================================ 文字の入っていない見本
+
+  🔴 見本のタイトルに**文字を入れずに**書き出すと、Final Cut は
+     <text/> だけを書き、text-style-def を1つも書かない。
+     こちらは写すものが無く、書体も大きさも既定に落ちる。
+     「テロップが小さい」の形でしか現れず、原因が見えない
+     （2026-09-02、友達の 試験.fcpxml がまさにこれだった）。
+     画面で知らせられるよう、写せたかどうかを持ち帰る。
+*/
+do {
+    let 空の見本 = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE fcpxml>
+    <fcpxml version="1.13">
+      <resources><effect id="r2" name="基本01_10" uid="~/T/基本01_10.moti"/></resources>
+      <library><event name="e"><project name="p"><sequence><spine>
+        <title ref="r2" offset="0s" name="基本01_10" start="3600s" duration="60100/6000s">
+          <param name="位置" key="9999/1/2/3/100/101" value="0 -46.5"/>
+          <text/>
+        </title>
+      </spine></sequence></project></event></library>
+    </fcpxml>
+    """
+    guard let tpl = try? TitleTemplate.parse(fcpxml: 空の見本) else {
+        check("文字の無い見本でも読める", false); exit(1)
+    }
+    check("文字の無い見本でも読める", true)
+    check("param は写せている", tpl.params.count == 1, "\(tpl.params.count)")
+    check("書式が無いことを持ち帰る", (tpl.summary["hasStyle"] as? Bool) == false,
+          "\(tpl.summary["hasStyle"] ?? "無し")")
+
+    // 🔴 それでも大きさの無い text-style を出さないこと
+    let xml = FCPXMLWriter.build(
+        cuts: [], telops: [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal"]],
+        styles: [:], mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10,
+        mediaWidth: 2160, mediaHeight: 3840, template: tpl)
+    check("文字の無い見本でも大きさが入る", xml.contains("fontSize="),
+          xml.range(of: "<text-style [^>]*/>", options: .regularExpression)
+            .map { String(xml[$0]) } ?? "無し")
+    // 高さの 4.5% 前後（3840 なら 172 前後）。豆粒にしない
+    check("枠に見合った大きさになる", xml.contains("fontSize=\"172\""),
+          xml.range(of: "fontSize=\"[0-9]+\"", options: .regularExpression)
+            .map { String(xml[$0]) } ?? "?")
+}
+
+// 書式のある見本では、写せたと分かること
+do {
+    let 文字入り = templateXML
+    if let tpl = try? TitleTemplate.parse(fcpxml: 文字入り) {
+        check("書式のある見本は写せたと分かる", (tpl.summary["hasStyle"] as? Bool) == true)
+    } else {
+        check("書式のある見本は写せたと分かる", false, "読めなかった")
+    }
+}
+
 do {
     // 見本が大きさを持っていない場合（色と縁取りだけ）
     let noSize = """

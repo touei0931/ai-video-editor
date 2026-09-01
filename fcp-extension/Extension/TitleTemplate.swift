@@ -39,6 +39,16 @@ struct TitleTemplate: Codable {
             "fontSize": Double(textStyle["fontSize"] ?? "") ?? 0,
             "bold": (textStyle["bold"] ?? "0") == "1",
             "paramCount": params.count,
+            /*
+              🔴 見本に文字の書式が入っていたかを、画面に伝えること。
+
+                 見本のタイトルに**文字を入れずに**書き出すと、FCP は
+                 <text/> だけを書き、text-style-def を1つも書かない。
+                 こちらは写すものが無いので、書体も大きさも既定に落ちる。
+                 「テロップが小さい」の形でしか現れず、原因が見えない
+                 （2026-09-02、試験.fcpxml がまさにこれだった）。
+            */
+            "hasStyle": !textStyle.isEmpty,
         ]
     }
 

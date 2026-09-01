@@ -168,6 +168,18 @@ export function useStore(): Store {
     setState((s) => (s ? { ...s, template: null } : s))
   }, [])
 
+  /*
+    素材の高さに対する、テロップの文字の大きさ。
+
+    🔴 決め打ちの px にしないこと。
+       既定を 48px にしていたため、縦4K（3840）でも 1080p でも同じ 48px で
+       書き出していた。友達の見本（基本01_10）は 3840 の枠で 167px、
+       つまり高さの 4.35%。48px は 1080p ではほぼ同じ割合になるが、
+       大きい枠では文字が豆粒になる（2026-09-02）。
+       見本が大きさを持っていれば、そちらが優先される。
+  */
+  const TELOP_HEIGHT_RATIO = { normal: 0.045, emphasis: 0.056 }
+
   const applyAnalysis = useCallback((result: Partial<ProjectState>, telopMaxChars?: number) => {
     setState((s) => {
       // 解析が返すのは素材そのものの情報だけ。
@@ -180,8 +192,27 @@ export function useStore(): Store {
       */
       const telops = splitTelops(result.telops ?? [], telopMaxChars)
       if (!base) return { ...(result as ProjectState), telops }
+      /*
+        🔴 見本が大きさを持っていないときは、素材の高さから決めること。
+           持っているときは触らない（見た目を写すのが見本の役目）。
+      */
+      const h = result.height ?? base.height ?? 0
+      const fromTemplate = (base.template?.fontSize ?? 0) > 0
+      const styles =
+        h > 0 && !fromTemplate
+          ? {
+              ...base.styles,
+              normal: { ...base.styles.normal, fontSize: Math.round(h * TELOP_HEIGHT_RATIO.normal) },
+              emphasis: {
+                ...base.styles.emphasis,
+                fontSize: Math.round(h * TELOP_HEIGHT_RATIO.emphasis),
+              },
+            }
+          : base.styles
+
       return {
         ...base,
+        styles,
         videoUrl: result.videoUrl ?? base.videoUrl,
         // 🔴 素材の大きさとコマ数を落とさないこと。落とすと書き出しが決め打ちに戻る
         width: result.width ?? base.width,

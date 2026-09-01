@@ -273,9 +273,20 @@ export function SettingsScreen({
               {template ? (
                 <div className="settings-value">
                   {template.effectName}
-                  <span className="settings-sub">
-                    {template.font} {template.fontFace} / {template.fontSize}px
-                  </span>
+                  {template.hasStyle === false ? (
+                    /*
+                      🔴 見本に文字が入っていないと、書式が1つも写せない。
+                         黙って既定の見た目になり、「テロップが小さい」の形でしか
+                         現れないので、ここではっきり知らせる（2026-09-02）。
+                    */
+                    <span className="settings-sub warn">
+                      文字の書式は写せていません（見本に文字が入っていないため）
+                    </span>
+                  ) : (
+                    <span className="settings-sub">
+                      {template.font} {template.fontFace} / {template.fontSize}px
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="settings-value warn">未設定（標準のタイトルになります）</div>
@@ -288,6 +299,13 @@ export function SettingsScreen({
                 いつも使っているテロップを1つ置いた状態で FCP から XML を書き出し、それを選んでください。
                 見た目をそのまま写すので、仕上がりが完全に一致します。
               </p>
+              {template?.hasStyle === false && (
+                <p className="settings-note warn">
+                  見本のテロップに<strong>文字を入れた状態</strong>で書き出し直してください。
+                  文字が空のまま書き出すと、Final Cut は書体や大きさを XML に書きません。
+                  写せるものが無いので、書体と大きさは下の既定値（素材の高さに合わせた大きさ）になります。
+                </p>
+              )}
             </section>
           </div>
         </div>
