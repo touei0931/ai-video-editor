@@ -341,10 +341,22 @@ do {
         cuts: [], telops: [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal"]],
         styles: ["normal": broken], mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10,
         mediaWidth: 1920, mediaHeight: 1080, template: tpl)
-    let styles = xml.components(separatedBy: "<text-style ").dropFirst()
+    /*
+      🔴 数えるのは「見た目を決めている方」だけ。
+         <text-style ref="…">本文</text-style> は本文に見た目を割り当てる参照で、
+         属性は持たない。これを数えると正しい XML でも必ず落ちる。
+         見た目を決めているのは <text-style-def> の中の閉じタグ無しの方。
+    */
+    var defs: [String] = []
+    if let re = try? NSRegularExpression(pattern: "<text-style [^>]*/>") {
+        let ns = xml as NSString
+        for m in re.matches(in: xml, range: NSRange(location: 0, length: ns.length)) {
+            defs.append(ns.substring(with: m.range))
+        }
+    }
     check("大きさの無い text-style が無い",
-          !styles.isEmpty && styles.allSatisfy { $0.contains("fontSize=") },
-          "\(styles.count) 件中 \(styles.filter { !$0.contains("fontSize=") }.count) 件が無し")
+          !defs.isEmpty && defs.allSatisfy { $0.contains("fontSize=") },
+          "\(defs.count) 件中 \(defs.filter { !$0.contains("fontSize=") }.count) 件が無し")
 }
 
 /* ================================================ テロップの時刻
