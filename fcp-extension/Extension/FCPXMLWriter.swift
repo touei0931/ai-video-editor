@@ -61,12 +61,40 @@ enum FCPXMLWriter {
     ///    Apple が「決まった形ではない」の意味で使う名前に倒し、
     ///    大きさは width/height だけで決めさせる。
     static func formatName(width: Int, height: Int, fps: Double) -> String {
-        let r = Int(fps.rounded())
+        /*
+          🔴 コマ数の方も「決まった値」でなければ、決まった名前を名乗らないこと。
+
+             以前は Int(fps.rounded()) で名前を作っていたため、
+             中身が 59.99 でも「FFVideoFormat1080p60」と名乗っていた。
+             名前と中身が食い違うと Final Cut はカスタム扱いにし、
+             読み込んだプロジェクトのビデオ設定から 1080p や 4K を
+             選べなくなる（2026-09-02に実機で発生）。
+
+          🔴 呼び名は Apple の書き方に合わせること。
+             29.97 は「p30」ではなく「p2997」、59.94 は「p5994」。
+             ここを丸めても、やはり名前と中身が食い違う。
+        */
+        guard let rate = rateName(fps) else { return "FFVideoFormatRateUndefined" }
         switch (width, height) {
-        case (1920, 1080): return "FFVideoFormat1080p\(r)"
-        case (1280, 720): return "FFVideoFormat720p\(r)"
-        case (3840, 2160): return "FFVideoFormat4K\(r)"
+        case (1920, 1080): return "FFVideoFormat1080p\(rate)"
+        case (1280, 720): return "FFVideoFormat720p\(rate)"
+        case (3840, 2160): return "FFVideoFormat4K\(rate)"
         default: return "FFVideoFormatRateUndefined"
+        }
+    }
+
+    /// 決まったコマ数なら、その呼び名を返す。外れていれば nil
+    static func rateName(_ fps: Double) -> String? {
+        switch (fps * 1000).rounded() / 1000 {
+        case 23.976, 23.98: return "2398"
+        case 24: return "24"
+        case 25: return "25"
+        case 29.97: return "2997"
+        case 30: return "30"
+        case 50: return "50"
+        case 59.94: return "5994"
+        case 60: return "60"
+        default: return nil
         }
     }
 

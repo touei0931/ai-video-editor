@@ -129,6 +129,32 @@ def cut_text_from_transcript(
     return candidates
 
 
+#: Final Cut が「決まった形」として扱うコマ数。
+#:
+#: 🔴 ここから外れた値を渡すと、プロジェクトが「カスタム」になり、
+#:    Final Cut のプロジェクト設定で 1080p や 4K を選べなくなる。
+STANDARD_FPS = (23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0)
+
+
+def snap_fps(fps: float, tolerance: float = 0.01) -> float:
+    """近い標準のコマ数に寄せる。
+
+    🔴 ffmpeg が返すのは**平均**のコマ数。可変フレームレートの素材では
+       59.99 や 29.98 のような半端な値になる。そのまま書き出すと、
+       名前は「1080p60」なのに中身は 59.99、という食い違った形式になり、
+       Final Cut はカスタム扱いにする。実機で、読み込んだプロジェクトの
+       ビデオ欄から 1080p や 4K を選べなくなった（2026-09-02）。
+
+    🔴 1% を超えて離れていたら寄せないこと。
+       48fps を 50 に寄せるような真似をすると、尺がずれる。
+       本当に半端な素材は、半端なまま渡すほうが害が小さい。
+    """
+    if fps <= 0:
+        return 0.0
+    best = min(STANDARD_FPS, key=lambda s: abs(s - fps))
+    return best if abs(best - fps) <= best * tolerance else fps
+
+
 def project_state(
     duration: float,
     waveform: list[float],
@@ -156,5 +182,6 @@ def project_state(
         state["width"] = int(info["width"])
         state["height"] = int(info["height"])
     if float(info.get("fps") or 0) > 0:
-        state["fps"] = round(float(info["fps"]), 3)
+        # 🔴 標準のコマ数に寄せてから渡すこと（snap_fps の注意書き）
+        state["fps"] = round(snap_fps(float(info["fps"])), 3)
     return state

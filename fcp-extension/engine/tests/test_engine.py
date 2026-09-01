@@ -312,5 +312,41 @@ class Test覚えた境目(unittest.TestCase):
         self.assertIsInstance(self._無音の数({"preset": "tight", "min_gain": 99}), int)
 
 
+class Testコマ数を標準に寄せる(unittest.TestCase):
+    """🔴 半端なコマ数のまま渡すと、Final Cut がプロジェクトを
+
+    「カスタム」扱いにし、ビデオ設定から 1080p や 4K を選べなくなる
+    （2026-09-02に実機で発生。59.99fps だった）。
+    """
+
+    def test_近い標準に寄る(self) -> None:
+        from pac_fcp_engine.mapping import snap_fps
+        self.assertEqual(snap_fps(59.99), 60.0)
+        self.assertEqual(snap_fps(29.98), 29.97)
+        self.assertEqual(snap_fps(23.98), 23.976)
+
+    def test_もともと標準ならそのまま(self) -> None:
+        from pac_fcp_engine.mapping import snap_fps, STANDARD_FPS
+        for f in STANDARD_FPS:
+            self.assertEqual(snap_fps(f), f)
+
+    def test_遠い値は寄せない(self) -> None:
+        """🔴 48 を 50 に寄せるような真似をすると尺がずれる"""
+        from pac_fcp_engine.mapping import snap_fps
+        self.assertEqual(snap_fps(48.0), 48.0)
+        self.assertEqual(snap_fps(15.0), 15.0)
+
+    def test_0でも落ちない(self) -> None:
+        from pac_fcp_engine.mapping import snap_fps
+        self.assertEqual(snap_fps(0), 0.0)
+
+    def test_パネルに渡る値も寄っている(self) -> None:
+        state = project_state(
+            duration=10, waveform=[], cuts=[], telops=[],
+            video_info={"width": 1920, "height": 1080, "fps": 59.99},
+        )
+        self.assertEqual(state["fps"], 60.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

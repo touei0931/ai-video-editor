@@ -475,6 +475,47 @@ check("横1080pはそのまま 1080p",
       FCPXMLWriter.formatName(width: 1920, height: 1080, fps: 30) == "FFVideoFormat1080p30")
 check("横4Kはそのまま 4K",
       FCPXMLWriter.formatName(width: 3840, height: 2160, fps: 30) == "FFVideoFormat4K30")
+
+/* ================================================ コマ数と名前
+
+  🔴 名前と中身（frameDuration）を食い違わせないこと。
+
+     以前は Int(fps.rounded()) で名前を作っていたため、59.99fps の素材で
+     「FFVideoFormat1080p60」と名乗りながら中身は 59.99 になっていた。
+     Final Cut はカスタム扱いにし、読み込んだプロジェクトのビデオ設定から
+     1080p や 4K を選べなくなった（2026-09-02に実機で発生）。
+*/
+check("半端なコマ数では決まった名前を名乗らない",
+      FCPXMLWriter.formatName(width: 1920, height: 1080, fps: 59.99) == "FFVideoFormatRateUndefined",
+      FCPXMLWriter.formatName(width: 1920, height: 1080, fps: 59.99))
+// 🔴 29.97 を「p30」と呼ばない。これも名前と中身の食い違い
+check("29.97 は p2997",
+      FCPXMLWriter.formatName(width: 1920, height: 1080, fps: 29.97) == "FFVideoFormat1080p2997",
+      FCPXMLWriter.formatName(width: 1920, height: 1080, fps: 29.97))
+check("59.94 は p5994",
+      FCPXMLWriter.formatName(width: 1920, height: 1080, fps: 59.94) == "FFVideoFormat1080p5994",
+      FCPXMLWriter.formatName(width: 1920, height: 1080, fps: 59.94))
+
+// 名前が決まった形を名乗るなら、中身のコマ数もその値になっていること
+do {
+    for fps in [24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0] {
+        let xml = FCPXMLWriter.build(
+            cuts: [], telops: [], styles: [:], mediaPath: "/m/a.mov", fps: fps,
+            mediaDuration: 10, mediaWidth: 1920, mediaHeight: 1080)
+        guard let f = xml.range(of: "<format id=\"r1\"[^>]*>", options: .regularExpression) else {
+            check("形式がある（\(fps)）", false); continue
+        }
+        let tag = String(xml[f])
+        var dur = -1.0
+        if let r = tag.range(of: "frameDuration=\"[^\"]+\"", options: .regularExpression) {
+            dur = seconds(String(tag[r]).replacingOccurrences(of: "frameDuration=\"", with: "")
+                .replacingOccurrences(of: "\"", with: ""))
+        }
+        let 実際 = dur > 0 ? 1 / dur : 0
+        check("名前と中身のコマ数が合う（\(fps)）", abs(実際 - fps) < 0.01,
+              "名前 \(FCPXMLWriter.formatName(width: 1920, height: 1080, fps: fps)) / 中身 \(実際)")
+    }
+}
 // 🔴 ここが本題。縦に横の名札を貼らない
 check("縦4Kを 4K と呼ばない",
       !FCPXMLWriter.formatName(width: 2160, height: 3840, fps: 60).contains("4K"),
