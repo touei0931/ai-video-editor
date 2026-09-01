@@ -78,6 +78,31 @@ extension WorkflowExtensionViewController {
         // 何で作ったか。XML に1行残して、後から追えるようにする
         let meta = (params["meta"] as? [String: Any]) ?? [:]
 
+        /*
+          🔴 判断を覚えるのは、書き出した（＝確定した）ときだけにすること。
+             画面を行き来するたびに覚えると、同じ判断を何度も数えてしまい、
+             まぐれの1件が重く効く。
+        */
+        if let decisions = params["decisions"] as? [[String: Any]] {
+            var memory = CutMemory.load()
+            memory.record(decisions.compactMap { d in
+                guard
+                    let kind = d["kind"] as? String,
+                    let start = d["start"] as? Double,
+                    let end = d["end"] as? Double,
+                    let decision = d["decision"] as? String,
+                    decision == "approved" || decision == "rejected"
+                else { return nil }
+                return CutMemory.Entry(
+                    kind: kind,
+                    length: max(0, end - start),
+                    text: (d["text"] as? String) ?? "",
+                    cut: decision == "approved"
+                )
+            })
+            memory.save()
+        }
+
         if cuts.isEmpty && telops.isEmpty {
             completion(false, "書き出すものがありません")
             return
@@ -210,6 +235,12 @@ extension WorkflowExtensionViewController {
             videoPath: videoPath,
             language: (params["language"] as? String) ?? "ja",
             model: (params["model"] as? String) ?? "large-v3-turbo",
+            /*
+              🔴 覚えた境目は、ここで混ぜること。
+                 画面から渡す形にすると、途中のどこかで落ちても
+                 「候補が少ない」としか見えない。読むのは1か所にする。
+            */
+            minGain: CutMemory.load().learnedMinGain()?.minGain ?? 0,
             cutPreset: (params["cutPreset"] as? String) ?? "talk",
             detectAside: (params["detectAside"] as? Bool) ?? true,
             extraFillers: (params["extraFillers"] as? String) ?? "",

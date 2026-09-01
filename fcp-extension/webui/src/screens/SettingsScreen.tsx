@@ -3,7 +3,11 @@
 // モデルの選択は「初回だけ大きなダウンロードが走る」ことを必ず見せる。
 // 何分も無反応に見えると、壊れたと思って強制終了されるため。
 
-import type { AnalyzeSettings, CutPreset, ModelName, TitleTemplateSummary } from '../lib/types'
+import { useEffect, useState } from 'react'
+import type {
+  AnalyzeSettings, CutMemorySummary, CutPreset, ModelName, TitleTemplateSummary,
+} from '../lib/types'
+import { forgetCutMemory, loadCutMemory } from '../lib/bridge'
 import { CUT_PRESETS, LANGUAGES, MODELS } from '../lib/types'
 import { DEFAULT_TELOP_MAX_CHARS, TELOP_MAX_CHARS_RANGE } from '../lib/splitTelop'
 
@@ -30,6 +34,16 @@ export function SettingsScreen({
 }: Props) {
   const model = MODELS.find((m) => m.name === settings.model)
   const pace = CUT_PRESETS.find((p) => p.name === settings.cutPreset)
+
+  /*
+    覚えた「間の好み」。
+    🔴 必ず根拠と一緒に見せること。候補が減る仕組みなので、
+       理由が見えないと不具合と区別がつかない。
+  */
+  const [memory, setMemory] = useState<CutMemorySummary | null>(null)
+  useEffect(() => {
+    void loadCutMemory().then(setMemory)
+  }, [])
 
   return (
     <div className="body">
@@ -129,6 +143,64 @@ export function SettingsScreen({
                 <strong>撮り直しの言い回しか</strong>の3つで、話の意味そのものは読んでいません。
                 外すこともあるので、切るかどうかは必ず「④ カット」で1件ずつ決めてください
                 （勝手に切ることはありません）。
+              </p>
+            </section>
+
+            {/* 覚えた間の好み */}
+            <section className="settings-card">
+              <h3>覚えた間の好み</h3>
+              {memory && memory.minGain ? (
+                <>
+                  <div className="settings-value">
+                    {memory.minGain}秒 より短い間は候補にしません
+                  </div>
+                  <p className="settings-note">
+                    「④ カット」で下した判断 <strong>{memory.samples}件</strong>から決めました
+                    （記録との一致 {Math.round((memory.agreement ?? 0) * 100)}%）。
+                    書き出すたびに更新されます。
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="settings-value settings-sub">まだ覚えていません</div>
+                  <p className="settings-note">
+                    無音の判断が <strong>{memory?.silences ?? 0} / {memory?.minSamples ?? 30}件</strong>。
+                    これだけ溜まると、あなたが残している短い間を候補から外します。
+                    <br />
+                    いつも切る・いつも残す、のように判断が片方に寄っている間は覚えません
+                    （線を引く意味がないため）。
+                  </p>
+                </>
+              )}
+
+              {memory && memory.fillerSuggestions.length > 0 && (
+                <p className="settings-note">
+                  よく切っている言葉：
+                  <strong>{memory.fillerSuggestions.join('・')}</strong>
+                  <br />
+                  <button
+                    className="tiny"
+                    onClick={() =>
+                      onChange({
+                        extraFillers: [settings.extraFillers, ...memory.fillerSuggestions]
+                          .filter(Boolean)
+                          .join('、'),
+                      })
+                    }
+                  >
+                    口ぐせに足す
+                  </button>
+                </p>
+              )}
+
+              <p className="settings-note">
+                <span className="settings-sub">
+                  ※ 判断の記録だけです。学習も送信もしていません（この Mac の中で完結）
+                </span>
+                <br />
+                <button className="tiny" onClick={() => void forgetCutMemory().then(setMemory)}>
+                  覚えたことを忘れる
+                </button>
               </p>
             </section>
 

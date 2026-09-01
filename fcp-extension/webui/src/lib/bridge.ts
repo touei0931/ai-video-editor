@@ -11,6 +11,7 @@ import type {
   CutCandidate,
   TitleTemplateSummary,
   AnalyzeSettings,
+  CutMemorySummary,
 } from './types'
 
 type Resolver = { resolve: (v: unknown) => void; reject: (e: unknown) => void }
@@ -158,6 +159,27 @@ export async function loadTitleTemplate(): Promise<TitleTemplateSummary> {
   return callSwift<TitleTemplateSummary>('loadTitleTemplate', {}, 0)
 }
 
+/**
+ * 覚えた「間の好み」を読む。
+ *
+ * 🔴 これは機械学習ではない。④カットで下した判断の記録と、
+ *    その境目の探索だけ。どこにも送っていない。
+ */
+export async function loadCutMemory(): Promise<CutMemorySummary> {
+  if (!isInFCP) {
+    return { decisions: 0, silences: 0, minSamples: 30, fillerSuggestions: [] }
+  }
+  return callSwift<CutMemorySummary>('cutMemory', {}, 0)
+}
+
+/** 覚えたことを忘れる */
+export async function forgetCutMemory(): Promise<CutMemorySummary> {
+  if (!isInFCP) {
+    return { decisions: 0, silences: 0, minSamples: 30, fillerSuggestions: [] }
+  }
+  return callSwift<CutMemorySummary>('forgetCutMemory', {}, 0)
+}
+
 export async function clearTitleTemplate(): Promise<void> {
   if (!isInFCP) return
   await callSwift('clearTitleTemplate')
@@ -183,6 +205,11 @@ export async function sendToFCP(
      *    Final Cut が「対応するメディアがない」と言って読み込みを拒む。
      */
     durationSec: number
+    /**
+     * ④カットで下した判断ぜんぶ（切る・残すの両方）。
+     * 🔴 承認したものだけでは「好み」は分からない。残した方も要る。
+     */
+    decisions?: { kind: string; start: number; end: number; text: string; decision: string }[]
     /** 素材の大きさ。無いと書き出しが 1920x1080 決め打ちになる */
     width?: number
     height?: number

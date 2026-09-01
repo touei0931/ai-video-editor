@@ -132,6 +132,11 @@ jobs:
       - name: パネルへ返す値の検査
         run: ./fcp-extension/scripts/check_json.sh
 
+      # 🔴 間の好み。覚え方を間違えると「切りたい所が候補に出てこない」になる。
+      #    出てこないものには気づけないので、必ず見張る
+      - name: 間の好みの検査
+        run: ./fcp-extension/scripts/check_memory.sh
+
       # 🔴 素材の配り手。範囲の読み方が狂うと「途中へ飛べない」になる
       - name: 素材の配り手の検査
         run: ./fcp-extension/scripts/check_media.sh

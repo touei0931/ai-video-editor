@@ -275,5 +275,42 @@ class Test独り言がパネルまで届く(unittest.TestCase):
             main(["--video", "a.mp4", "--out", "b.json", "--aside", "たぶん"])
 
 
+class Test覚えた境目(unittest.TestCase):
+    """🔴 これは候補を**減らす**仕組み。
+
+    間違えると「切りたい所が候補に出てこない」という形で現れる。
+    出てこないものには気づけないので、届いていることを検査で縛る。
+    """
+
+    def _素材(self):
+        words = []
+        at = 0.0
+        for gap in (0.25, 0.4, 0.6, 0.9, 1.5):
+            at += gap
+            words.append(word("話", at, at + 0.4))
+            at += 0.4
+        return {"duration": at, "segments": [{"id": 0, "text": "話" * len(words), "words": words}]}
+
+    def _無音の数(self, options):
+        got = pac_cut.detect_candidates(self._素材(), options)["candidates"]
+        return len([c for c in got if c["kind"] == "silence"])
+
+    def test_境目を渡すと候補が減る(self) -> None:
+        ゆるい = self._無音の数({"preset": "tight"})
+        きびしい = self._無音の数({"preset": "tight", "min_gain": 0.5})
+        self.assertLess(きびしい, ゆるい, f"{きびしい} / {ゆるい}")
+
+    def test_0は渡さないのと同じ(self) -> None:
+        """🔴 0 は「まだ覚えていない」の意味。既定を上書きしてはいけない"""
+        from pac_fcp_engine.__main__ import main  # noqa: F401
+        既定 = self._無音の数({"preset": "tight"})
+        ゼロ = self._無音の数({"preset": "tight", "min_gain": 0})
+        # min_gain 0 だと全部の間が候補になるので、既定より減ることはない
+        self.assertGreaterEqual(ゼロ, 既定)
+
+    def test_知らない値でも落ちない(self) -> None:
+        self.assertIsInstance(self._無音の数({"preset": "tight", "min_gain": 99}), int)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -139,6 +139,15 @@ export function App() {
       const res = await sendToFCP(
         {
           cuts: store.approvedCuts,
+          /*
+            🔴 残した方も渡すこと。切ったものだけでは「好み」は分からない。
+               「この長さは残す人だ」が分かって初めて境目が引ける。
+          */
+          decisions: store.state.cuts
+            .filter((c) => c.decision !== 'pending')
+            .map((c) => ({
+              kind: c.kind, start: c.start, end: c.end, text: c.text, decision: c.decision,
+            })),
           telops: store.state.telops,
           styles: store.state.styles,
           /*

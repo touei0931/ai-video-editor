@@ -141,6 +141,11 @@ extension WorkflowExtensionViewController: WKScriptMessageHandler {
             loadTitleTemplate { ok, payload in
                 self.reply(id: id, ok: ok, payload: payload)
             }
+        case "cutMemory":
+            reply(id: id, ok: true, payload: CutMemory.load().summary)
+        case "forgetCutMemory":
+            CutMemory.clear()
+            reply(id: id, ok: true, payload: CutMemory.load().summary)
         case "clearTitleTemplate":
             TitleTemplate.clear()
             reply(id: id, ok: true, payload: NSNull())

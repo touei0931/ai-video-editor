@@ -225,6 +225,22 @@ export interface AnalyzeSettings {
 }
 
 
+/**
+ * 覚えた「間の好み」。
+ * 🔴 必ず根拠（件数・一致率）と一緒に見せること。
+ *    候補が減る仕組みなので、理由が見えないと不具合と区別できない。
+ */
+export interface CutMemorySummary {
+  decisions: number
+  silences: number
+  minSamples: number
+  fillerSuggestions: string[]
+  /** これより短い間は候補にしない（秒）。覚えていなければ無し */
+  minGain?: number
+  samples?: number
+  agreement?: number
+}
+
 export const LANGUAGES: { code: string; label: string }[] = [
   { code: 'ja', label: '日本語' },
   { code: 'en', label: '英語' },

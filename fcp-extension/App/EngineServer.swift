@@ -197,6 +197,8 @@ final class EngineServer {
             "--aside", ((params["detectAside"] as? Bool) ?? true) ? "on" : "off",
             // 利用者が足した口ぐせ（読点・空白区切り）
             "--fillers", (params["extraFillers"] as? String) ?? "",
+            // 覚えた境目。0 なら渡さない扱いにする（エンジン側で無視される）
+            "--min-gain", String((params["minGain"] as? Double) ?? 0),
             "--ffmpeg", EnginePaths.ffmpeg.path,
         ]
 

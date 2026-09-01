@@ -33,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="話が繋がっていないひとりごとも候補に挙げるか")
     p.add_argument("--fillers", default="",
                    help="利用者が足す口ぐせ（読点・空白区切り）")
+    p.add_argument("--min-gain", type=float, default=0.0,
+                   help="これより短くしかならない間は候補にしない（0 なら詰め具合の既定）")
     p.add_argument("--ffmpeg", default="ffmpeg")
     p.add_argument("--waveform-points", type=int, default=800)
     args = p.parse_args(argv)
@@ -53,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
                 "preset": args.cut_preset,
                 "detect_aside": args.aside == "on",
                 "extra_fillers": args.fillers,
+                # 🔴 0 は「覚えていない」の意味。詰め具合の既定を上書きしない
+                **({"min_gain": args.min_gain} if args.min_gain > 0 else {}),
             }},
             progress=progress,
         )

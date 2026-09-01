@@ -58,6 +58,8 @@ final class EngineClient {
         detectAside: Bool,
         /// 利用者が足した口ぐせ
         extraFillers: String,
+        /// 覚えた「これより短い間は候補にしない」（秒）。0 なら覚えていない
+        minGain: Double,
         /// 繋がらなかったときにアプリを起こしてやり直すか。やり直しの回では false
         wake: Bool = true,
         progress: @escaping (String, Double) -> Void,
@@ -72,6 +74,7 @@ final class EngineClient {
             "cutPreset": cutPreset,
             "detectAside": detectAside,
             "extraFillers": extraFillers,
+            "minGain": minGain,
         ]
 
         post(path: "/analyze", body: body) { [weak self] result in
@@ -126,6 +129,7 @@ final class EngineClient {
                             cutPreset: cutPreset,
                             detectAside: detectAside,
                             extraFillers: extraFillers,
+                            minGain: minGain,
                             wake: false,
                             progress: progress,
                             completion: completion
