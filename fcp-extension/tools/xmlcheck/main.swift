@@ -387,9 +387,24 @@ do {
     let attrs = FCPXMLWriter.textStyleAttributes(style: broken, template: tpl, frameHeight: 1080)
     check("それでも大きさが入る", attrs.contains("fontSize="), attrs)
 
-    // 枠の高さに見合った大きさであること（極小にしない）
-    let tall = FCPXMLWriter.textStyleAttributes(style: broken, template: tpl, frameHeight: 1920)
-    check("縦の枠なら大きめになる", tall.contains("fontSize=\"174\""), tall)
+    /*
+      枠の高さに見合った大きさであること（極小にしない）。
+
+      🔴 数値を直書きしないこと。式を変えるたびに、正しい結果で落ちる。
+         見たいのは「枠の高さに対する割合が妥当か」。
+         友達の見本は 3840 の枠で 167px＝高さの 4.35%。その辺りに来ればよい。
+    */
+    for h in [1080, 1920, 3840] {
+        let attrs = FCPXMLWriter.textStyleAttributes(style: broken, template: tpl, frameHeight: h)
+        var size = 0.0
+        if let r = attrs.range(of: "fontSize=\"[0-9]+\"", options: .regularExpression) {
+            size = Double(String(attrs[r]).replacingOccurrences(of: "fontSize=\"", with: "")
+                .replacingOccurrences(of: "\"", with: "")) ?? 0
+        }
+        let ratio = size / Double(h)
+        check("枠の高さに見合う大きさ（\(h)）", ratio > 0.035 && ratio < 0.06,
+              "\(Int(size))px / 高さ \(h) = \(Int(ratio * 1000))‰")
+    }
 
     // 書き出し全体でも、大きさの無い text-style が1つも無いこと
     let xml = FCPXMLWriter.build(
