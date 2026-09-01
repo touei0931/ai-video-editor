@@ -132,6 +132,26 @@ export function SettingsScreen({
               </p>
             </section>
 
+            {/* 口ぐせ */}
+            <section className="settings-card">
+              <h3>自分の口ぐせ</h3>
+              <textarea
+                rows={2}
+                value={settings.extraFillers}
+                placeholder="ですね、まあまあ、なんていうか"
+                onChange={(e) => onChange({ extraFillers: e.target.value })}
+              />
+              <p className="settings-note">
+                ここに書いた言葉も「フィラー」として候補に挙げます。
+                読点・空白・改行のどれで区切ってもかまいません。
+                <br />
+                「えー」「あのー」「えっと」「なんか」などは<strong>最初から入っています</strong>ので、
+                それ以外の自分の癖だけ書いてください。
+                <br />
+                <span className="settings-sub">※ 変えた分は次の「解析」から効きます</span>
+              </p>
+            </section>
+
             {/* テロップ1枚の長さ */}
             <section className="settings-card">
               <h3>テロップ1枚の文字数</h3>

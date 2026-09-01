@@ -195,6 +195,8 @@ final class EngineServer {
             "--cut-preset", (params["cutPreset"] as? String) ?? "talk",
             // 話が繋がっていないひとりごとも候補に挙げるか
             "--aside", ((params["detectAside"] as? Bool) ?? true) ? "on" : "off",
+            // 利用者が足した口ぐせ（読点・空白区切り）
+            "--fillers", (params["extraFillers"] as? String) ?? "",
             "--ffmpeg", EnginePaths.ffmpeg.path,
         ]
 

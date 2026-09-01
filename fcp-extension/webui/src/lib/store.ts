@@ -129,12 +129,31 @@ export function useStore(): Store {
       setState((s) => {
         if (!s) return s
         const face = t.fontFace ? `${t.font} ${t.fontFace}` : t.font
+        /*
+          🔴 見本が持っていない項目で、今の値を上書きしないこと。
+
+             見本の text-style に font / fontSize が書かれていないことがある
+             （Motion 側で決めている作り）。そのとき Swift は空文字と 0 を返す。
+             それをそのまま入れていたため、パネルの既定（48px・ヒラギノ）が
+             **0 と空文字で潰れ**、書き出した XML に fontSize が1つも
+             入らなくなっていた。Final Cut は既定の極小サイズで描くので、
+             「テロップが意味が分からないくらい小さい」になる
+             （2026-09-01、見本 基本01_13 で発生）。
+        */
+        const font = face.trim() || s.styles.normal.fontFamily
+        const size = t.fontSize > 0 ? t.fontSize : s.styles.normal.fontSize
         return {
           ...s,
           template: t,
           styles: {
-            normal: { ...s.styles.normal, fontFamily: face, fontSize: t.fontSize, bold: t.bold, color: '#ffffff' },
-            emphasis: { ...s.styles.emphasis, fontFamily: face, fontSize: t.fontSize, bold: t.bold },
+            normal: { ...s.styles.normal, fontFamily: font, fontSize: size, bold: t.bold, color: '#ffffff' },
+            emphasis: {
+              ...s.styles.emphasis,
+              fontFamily: font,
+              // 強調は通常より少し大きいまま保つ（見本が大きさを持っていないときも）
+              fontSize: t.fontSize > 0 ? t.fontSize : s.styles.emphasis.fontSize,
+              bold: t.bold,
+            },
           },
         }
       })

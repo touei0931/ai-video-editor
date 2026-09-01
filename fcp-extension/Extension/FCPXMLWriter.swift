@@ -296,7 +296,7 @@ enum FCPXMLWriter {
                     else { continue }
                     let oneFrame = Double(fdNum) / Double(fdDen)
                     let shown = max(min(e, seg.end) - s, oneFrame)
-                    xml += titleElement(t, styles: styles, offsetSec: s, durationSec: shown, fps: fps, template: template, indent: "          ")
+                    xml += titleElement(t, styles: styles, offsetSec: s, durationSec: shown, fps: fps, template: template, frameHeight: h, indent: "          ")
                 }
                 xml += "        </asset-clip>\n"
                 offset += dur
@@ -305,7 +305,7 @@ enum FCPXMLWriter {
             xml += "        <gap name=\"Gap\" offset=\"0s\" start=\"0s\" duration=\"\(time(total, fps: fps))\">\n"
             for t in telops {
                 guard let s = t["start"] as? Double, let e = t["end"] as? Double else { continue }
-                xml += titleElement(t, styles: styles, offsetSec: s, durationSec: max(e - s, Double(fdNum) / Double(fdDen)), fps: fps, template: template, indent: "          ")
+                xml += titleElement(t, styles: styles, offsetSec: s, durationSec: max(e - s, Double(fdNum) / Double(fdDen)), fps: fps, template: template, frameHeight: h, indent: "          ")
             }
             xml += "        </gap>\n"
         }
@@ -331,6 +331,8 @@ enum FCPXMLWriter {
         durationSec: Double,
         fps: Double,
         template: TitleTemplate?,
+        /// プロジェクトの高さ。文字の大きさが決まらないときの拠り所にする
+        frameHeight: Int,
         indent: String
     ) -> String {
         let text = (telop["text"] as? String) ?? ""
@@ -383,7 +385,7 @@ enum FCPXMLWriter {
             if let color = run.color { runStyle["color"] = color }
             if let bold = run.bold { runStyle["bold"] = bold }
             s += "\(indent)  <text-style-def id=\"\(idBase)_\(i)\">\n"
-            s += "\(indent)    <text-style \(textStyleAttributes(style: runStyle, template: template))/>\n"
+            s += "\(indent)    <text-style \(textStyleAttributes(style: runStyle, template: template, frameHeight: frameHeight))/>\n"
             s += "\(indent)  </text-style-def>\n"
         }
 
@@ -448,7 +450,9 @@ enum FCPXMLWriter {
 
     /// テンプレの text-style を土台に、パネルで変えた分（フォント・大きさ・色・太字）だけ上書きする。
     /// 縁取り・影・その他はテンプレの値をそのまま残す。テンプレが無ければパネルの値だけで組む。
-    static func textStyleAttributes(style: [String: Any], template: TitleTemplate?) -> String {
+    static func textStyleAttributes(
+        style: [String: Any], template: TitleTemplate?, frameHeight: Int = 1080
+    ) -> String {
         var attrs: [String: String] = template?.textStyle ?? [:]
 
         if attrs.isEmpty {
@@ -476,6 +480,19 @@ enum FCPXMLWriter {
         }
         if let bold = style["bold"] as? Bool {
             if bold { attrs["bold"] = "1" } else { attrs.removeValue(forKey: "bold") }
+        }
+
+        /*
+          🔴 文字の大きさを必ず書くこと。
+
+             見本の text-style に fontSize が無く（Motion 側で決めている作り）、
+             パネル側の値も 0 になっていると、ここが1つも入らない XML ができる。
+             Final Cut は既定の極小サイズで描くので、テロップが読めない大きさで
+             出る（2026-09-01、見本 基本01_13 で発生）。
+             最後の砦として、枠の高さから決めた大きさを必ず入れる。
+        */
+        if (attrs["fontSize"].flatMap { Double($0) } ?? 0) <= 0 {
+            attrs["fontSize"] = String(max(24, frameHeight / 11))
         }
 
         return attrs

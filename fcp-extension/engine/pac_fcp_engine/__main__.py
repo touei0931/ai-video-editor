@@ -31,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="間の詰め具合（左ほど間を残す）")
     p.add_argument("--aside", default="on", choices=["on", "off"],
                    help="話が繋がっていないひとりごとも候補に挙げるか")
+    p.add_argument("--fillers", default="",
+                   help="利用者が足す口ぐせ（読点・空白区切り）")
     p.add_argument("--ffmpeg", default="ffmpeg")
     p.add_argument("--waveform-points", type=int, default=800)
     args = p.parse_args(argv)
@@ -50,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
             options={"cut": {
                 "preset": args.cut_preset,
                 "detect_aside": args.aside == "on",
+                "extra_fillers": args.fillers,
             }},
             progress=progress,
         )

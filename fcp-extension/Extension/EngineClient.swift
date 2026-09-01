@@ -56,6 +56,8 @@ final class EngineClient {
         cutPreset: String,
         /// 話が繋がっていないひとりごとも候補に挙げるか
         detectAside: Bool,
+        /// 利用者が足した口ぐせ
+        extraFillers: String,
         /// 繋がらなかったときにアプリを起こしてやり直すか。やり直しの回では false
         wake: Bool = true,
         progress: @escaping (String, Double) -> Void,
@@ -69,6 +71,7 @@ final class EngineClient {
             "model": model,
             "cutPreset": cutPreset,
             "detectAside": detectAside,
+            "extraFillers": extraFillers,
         ]
 
         post(path: "/analyze", body: body) { [weak self] result in
@@ -122,6 +125,7 @@ final class EngineClient {
                             //    ここを落とすと、繋がらなかった1回目だけ設定が効く
                             cutPreset: cutPreset,
                             detectAside: detectAside,
+                            extraFillers: extraFillers,
                             wake: false,
                             progress: progress,
                             completion: completion

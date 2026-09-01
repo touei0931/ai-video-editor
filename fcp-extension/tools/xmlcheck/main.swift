@@ -294,6 +294,59 @@ do {
           (try? XMLDocument(xmlString: bare, options: [])) != nil && bare.contains("<!-- PAC"))
 }
 
+/* ================================================ 文字の大きさ
+
+  🔴 text-style に fontSize を必ず書くこと。
+
+     見本の text-style に fontSize が無い（Motion 側で決めている作りの）
+     テンプレートがある。そのとき Swift 側は 0 を返し、画面側の既定
+     （48px）を 0 で上書きしてしまっていた。結果、書き出した XML に
+     fontSize が1つも入らず、Final Cut は既定の極小サイズで描いた。
+     「テロップが意味が分からないくらい小さい」になる
+     （2026-09-01、見本 基本01_13 で発生）。
+*/
+do {
+    // 見本が大きさを持っていない場合（色と縁取りだけ）
+    let noSize = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE fcpxml>
+    <fcpxml version="1.13">
+      <resources><effect id="r2" name="大きさ無し" uid="~/T/大きさ無し.moti"/></resources>
+      <library><event name="e"><project name="p"><sequence><spine>
+        <title ref="r2" offset="0s" name="見本" start="3600s" duration="60/30s">
+          <text><text-style ref="ts1">見本</text-style></text>
+          <text-style-def id="ts1">
+            <text-style alignment="center" fontColor="1 1 1 1" strokeColor="0 0 0 1" strokeWidth="6"/>
+          </text-style-def>
+        </title>
+      </spine></sequence></project></event></library>
+    </fcpxml>
+    """
+    guard let tpl = try? TitleTemplate.parse(fcpxml: noSize) else {
+        check("大きさの無い見本を読める", false); exit(1)
+    }
+    check("見本の大きさは 0 と分かる", (Double(tpl.textStyle["fontSize"] ?? "") ?? 0) == 0)
+
+    // 画面側の値も落ちている（0）状態。ここが今回の実機と同じ形
+    let broken: [String: Any] = ["fontSize": 0.0, "fontFamily": "", "color": "#ffffff"]
+    let attrs = FCPXMLWriter.textStyleAttributes(style: broken, template: tpl, frameHeight: 1080)
+    check("それでも大きさが入る", attrs.contains("fontSize="), attrs)
+
+    // 枠の高さに見合った大きさであること（極小にしない）
+    let tall = FCPXMLWriter.textStyleAttributes(style: broken, template: tpl, frameHeight: 1920)
+    check("縦の枠なら大きめになる", tall.contains("fontSize=\"174\""), tall)
+
+    // 書き出し全体でも、大きさの無い text-style が1つも無いこと
+    let xml = FCPXMLWriter.build(
+        cuts: [], telops: [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal"]],
+        styles: ["normal": broken], mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10,
+        mediaWidth: 1920, mediaHeight: 1080, template: tpl)
+    let styles = xml.components(separatedBy: "<text-style ").dropFirst()
+    check("大きさの無い text-style が無い",
+          !styles.isEmpty && styles.allSatisfy { $0.contains("fontSize=") },
+          "\(styles.count) 件中 \(styles.filter { !$0.contains("fontSize=") }.count) 件が無し")
+}
+
 /* ================================================ テロップの時刻
 
   🔴 clip にぶら下げた title の offset は「その clip の中の時刻」。

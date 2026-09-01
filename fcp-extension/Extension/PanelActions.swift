@@ -212,6 +212,7 @@ extension WorkflowExtensionViewController {
             model: (params["model"] as? String) ?? "large-v3-turbo",
             cutPreset: (params["cutPreset"] as? String) ?? "talk",
             detectAside: (params["detectAside"] as? Bool) ?? true,
+            extraFillers: (params["extraFillers"] as? String) ?? "",
             progress: { [weak self] stage, ratio in
                 self?.sendProgress(stage: stage, ratio: ratio)
             },

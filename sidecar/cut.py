@@ -38,6 +38,8 @@ DEFAULTS = {
     # これより短くしかならないカットは候補にしない。
     # 0.2秒詰めるためにジャンプカットを1つ増やすのは割に合わない。
     "min_gain": 0.3,
+    # 利用者が足すフィラー（口ぐせ）。1行の文字列でも一覧でもよい
+    "extra_fillers": "",
     # ── 独り言・話が逸れた所 ──
     # 話の本筋と繋がっていないひとりごとを候補にするか
     "detect_aside": True,
@@ -184,9 +186,27 @@ def _normalize(text: str) -> str:
     return re.sub(r"[、。,.\s]", "", text)
 
 
-def _is_filler(word: str) -> bool:
-    w = _normalize(word)
-    return w in {_normalize(f) for f in FILLERS}
+def filler_set(extra: list[str] | str | None = None) -> set[str]:
+    """判定に使うフィラーの一覧。
+
+    🔴 口ぐせは人によって違う。決め打ちの一覧だけでは足りない。
+       利用者が足したものを、決め打ちの一覧と同じ扱いで混ぜる。
+    🔴 揺れを吸収すること。「えーと」「えーと、」「 えーと 」は同じ語。
+       正規化してから比べる（比較のときと同じ関数を通す）。
+    """
+    words = list(FILLERS)
+    if isinstance(extra, str):
+        # 画面からは1行の文字列で来る。読点・改行・空白のどれで区切ってもよい
+        extra = re.split(r"[,\u3001\s]+", extra)
+    for w in extra or []:
+        w = _normalize(str(w))
+        if w:
+            words.append(w)
+    return {_normalize(f) for f in words if _normalize(f)}
+
+
+def _is_filler(word: str, known: set[str] | None = None) -> bool:
+    return _normalize(word) in (known if known is not None else filler_set())
 
 
 #: 独り言・撮り直しのつぶやきに出やすい言い回し。
@@ -318,8 +338,10 @@ def detect_candidates(transcript: dict[str, Any], options: dict[str, Any] | None
         )
 
     # ── フィラー ──────────────────────────────────────────
+    # 口ぐせは人によって違うので、利用者が足したものも同じ扱いで混ぜる
+    known_fillers = filler_set(opts.get("extra_fillers"))
     for i, w in enumerate(words):
-        if not _is_filler(w["text"]):
+        if not _is_filler(w["text"], known_fillers):
             continue
         add(
             "filler",
