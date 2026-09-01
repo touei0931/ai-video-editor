@@ -70,7 +70,17 @@ do {
         check("はっきり分かれていれば覚える", false, "覚えなかった"); exit(1)
     }
     check("はっきり分かれていれば覚える", true)
-    check("境目が 0.4〜0.6 に入る", l.minGain > 0.40 && l.minGain <= 0.56, "\(l.minGain)")
+    /*
+      🔴 決め打ちの範囲で縛らないこと。
+         「0.4〜0.6」のような書き方は、正しい答え（0.40）を落とす。
+         見たいのは**2つの群を分けていること**そのもの。
+         残した中でいちばん長いものより後、切った中でいちばん短いもの以下。
+    */
+    let 残す最大 = es.filter { !$0.cut }.map(\.length).max() ?? 0
+    let 切る最小 = es.filter { $0.cut }.map(\.length).min() ?? 0
+    check("境目が2つの群を分けている",
+          l.minGain > 残す最大 && l.minGain <= 切る最小,
+          "境目 \(l.minGain) / 残す最大 \(残す最大) / 切る最小 \(切る最小)")
     check("記録と食い違わない", l.agreement > 0.95, "\(l.agreement)")
     check("根拠の件数を持つ", l.samples == 80, "\(l.samples)")
 
