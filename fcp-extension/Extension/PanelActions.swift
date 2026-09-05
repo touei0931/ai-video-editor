@@ -77,6 +77,8 @@ extension WorkflowExtensionViewController {
         let mediaHeight = (params["height"] as? Int) ?? 0
         // 何で作ったか。XML に1行残して、後から追えるようにする
         let meta = (params["meta"] as? [String: Any]) ?? [:]
+        // 再生速度。1.0 なら速度の指定は一切書かない
+        let speed = (params["speed"] as? Double) ?? 1.0
 
         /*
           🔴 判断を覚えるのは、書き出した（＝確定した）ときだけにすること。
@@ -150,6 +152,7 @@ extension WorkflowExtensionViewController {
                     mediaWidth: mediaWidth,
                     mediaHeight: mediaHeight,
                     meta: meta,
+                    speed: speed,
                     template: TitleTemplate.load()
                 )
                 self.sendProgress(stage: "書き出しています", ratio: 0.8)

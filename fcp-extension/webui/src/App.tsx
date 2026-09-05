@@ -98,6 +98,7 @@ export function App() {
     // 必ず人が1件ずつ見る側に入るので、既定で挙げる
     detectAside: true,
     extraFillers: '',
+    exportSpeed: 1,
     telopMaxChars: DEFAULT_TELOP_MAX_CHARS,
   })
   const [progress, setProgress] = useState({ stage: '準備しています', ratio: 0 })
@@ -177,8 +178,10 @@ export function App() {
                版・設定・件数が追える。困ったときに送ってもらうのは
                XML なので、そこに書いておくのが一番確実。
           */
+          speed: settings.exportSpeed,
           meta: {
             build: __PAC_BUILD__,
+            speed: settings.exportSpeed,
             cutPreset: store.state.report?.cutPreset ?? settings.cutPreset,
             detectAside: store.state.report?.detectAside ?? settings.detectAside,
             telopMaxChars: settings.telopMaxChars,

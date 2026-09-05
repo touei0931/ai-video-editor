@@ -210,6 +210,8 @@ export async function sendToFCP(
      * 🔴 承認したものだけでは「好み」は分からない。残した方も要る。
      */
     decisions?: { kind: string; start: number; end: number; text: string; decision: string }[]
+    /** 書き出す再生速度（1.0 = 等倍）。1.0 なら速度の指定は書かれない */
+    speed?: number
     /** 素材の大きさ。無いと書き出しが 1920x1080 決め打ちになる */
     width?: number
     height?: number

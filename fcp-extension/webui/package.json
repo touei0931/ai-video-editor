@@ -11,8 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test:split": "node --experimental-strip-types test/split-telop.mjs",
     "test:strip": "node --experimental-strip-types test/filmstrip-step.mjs",
-    "test": "npm run test:split && npm run test:join && npm run test:strip",
-    "test:join": "node --experimental-strip-types test/join-telop.mjs"
+    "test": "npm run test:split && npm run test:join && npm run test:pause && npm run test:strip",
+    "test:join": "node --experimental-strip-types test/join-telop.mjs",
+    "test:pause": "node --experimental-strip-types test/pause-split.mjs"
   },
   "dependencies": {
     "budoux": "^0.9.1",

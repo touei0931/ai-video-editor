@@ -181,6 +181,74 @@ export function joinBrokenTelops(telops: Telop[], maxChars: number): Telop[] {
 }
 
 /**
+ * これ以上の間があいたら、話し手がそこで区切ったとみなす。
+ *
+ * 🔴 エンジンは 0.5秒を超える間で別のまとまりにする。そこまで行かない
+ *    0.3〜0.5秒の間が、まとまりの中に残る。人はそこで区切って喋っている。
+ */
+const SPEECH_PAUSE = 0.3
+
+/** 長すぎて割るしかないときに、区切りとして使ってよい最小の間 */
+const WEAK_PAUSE = 0.12
+
+/** 語の並びの中で、間が空いている「文字位置」を返す */
+function pausePoints(words: TelopWord[], minPause: number): { at: number; gap: number }[] {
+  const out: { at: number; gap: number }[] = []
+  let at = 0
+  for (let i = 0; i < words.length - 1; i++) {
+    at += words[i].text.length
+    const gap = words[i + 1].srcStart - words[i].srcEnd
+    if (gap >= minPause) out.push({ at, gap })
+  }
+  return out
+}
+
+/**
+ * 1つのまとまりを、1画面ぶんに割る。
+ *
+ * 🔴 割る場所は、文字数ではなく**話し手の区切り**から選ぶこと。
+ *    文字数だけで割ると「俺はサイヤ人になり / たいんだけどやっぱり自信がなくて」の
+ *    ように、喋りと関係ない所で切れる。直すのに手間がかかると言われた
+ *    （2026-09-02）。
+ *
+ * 優先順は、話し手の間 → 弱い間 → 文節の切れ目。
+ * language より先に「実際にどこで区切ったか」を見る。
+ */
+function chunksFor(text: string, words: TelopWord[], maxChars: number): string[] {
+  if (words.length === 0) return chunkByPhrase(text, maxChars)
+
+  // 1) はっきりした間では、長さに関わらず切る（そこが話し手の区切り）
+  let pieces: { text: string; from: number }[] = []
+  let prev = 0
+  for (const p of pausePoints(words, SPEECH_PAUSE)) {
+    pieces.push({ text: text.slice(prev, p.at), from: prev })
+    prev = p.at
+  }
+  pieces.push({ text: text.slice(prev), from: prev })
+  pieces = pieces.filter((p) => p.text.length > 0)
+
+  // 2) それでも長い分は、いちばん大きい弱い間で割る（真ん中に近いものを選ぶ）
+  const byWeakPause = (piece: { text: string; from: number }): typeof pieces => {
+    if (displayLength(piece.text) <= maxChars) return [piece]
+    const inside = pausePoints(words, WEAK_PAUSE)
+      .filter((g) => g.at > piece.from && g.at < piece.from + piece.text.length)
+    if (inside.length === 0) return [piece]
+    // 真ん中に近いものを選ぶ。端で切ると片方だけ長いままになる
+    const mid = piece.from + piece.text.length / 2
+    const best = inside.reduce((a, b) => (Math.abs(a.at - mid) <= Math.abs(b.at - mid) ? a : b))
+    const left = { text: text.slice(piece.from, best.at), from: piece.from }
+    const right = { text: text.slice(best.at, piece.from + piece.text.length), from: best.at }
+    return [...byWeakPause(left), ...byWeakPause(right)]
+  }
+  pieces = pieces.flatMap(byWeakPause)
+
+  // 3) 間が無いのに長いものだけ、文節の切れ目で割る
+  return pieces.flatMap((p) =>
+    displayLength(p.text) <= maxChars ? [p.text] : chunkByPhrase(p.text, maxChars),
+  )
+}
+
+/**
  * 文字位置から、その位置の時刻を引く。
  *
  * 🔴 語ごとの時刻から出すこと。長さで按分すると、
@@ -231,13 +299,13 @@ export function splitTelops(telops: Telop[], maxChars = DEFAULT_TELOP_MAX_CHARS)
        割るだけでは直せない（2026-08-31に実機で出た）。
   */
   for (const t of joinBrokenTelops(telops, limit)) {
-    const chunks = chunkByPhrase(t.text, limit)
+    const words = t.words ?? []
+    const chunks = chunksFor(t.text, words, limit)
     if (chunks.length <= 1) {
       out.push(t)
       continue
     }
 
-    const words = t.words ?? []
     if (words.length === 0) {
       // 🔴 時刻の裏づけが無いまま割らないこと。
       //    出どころの無い時刻でテロップを並べると、声とずれたまま気づけない。

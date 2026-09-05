@@ -429,6 +429,87 @@ do {
           "\(defs.count) 件中 \(defs.filter { !$0.contains("fontSize=") }.count) 件が無し")
 }
 
+/* ================================================ 再生速度
+
+  🔴 素材の側の時刻（start）を速度で割らないこと。
+     あれは「素材のどこを使うか」であって、出来上がりの長さではない。
+     割ると素材の別の場所を指すことになる。
+
+  🔴 割るのは出来上がりの長さ（duration と offset）だけ。
+
+  🔴 中身の並び順を守ること。timeMap は adjust-* や title より前。
+     逆にすると DTD で弾かれ、読み込みごと失敗する
+     （adjust-conform と title の順番で一度踏んでいる）。
+*/
+do {
+    let cuts: [[String: Any]] = [["decision": "approved", "start": 5.0, "end": 6.0]]
+    let telops: [[String: Any]] = [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal"]]
+
+    // 等倍のときは、速度の指定を一切書かない
+    let 等倍 = FCPXMLWriter.build(
+        cuts: cuts, telops: telops, styles: [:], mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 20, mediaWidth: 1920, mediaHeight: 1080, speed: 1.0)
+    check("等倍では速度の指定を書かない", !等倍.contains("<timeMap>"))
+
+    // 2倍速
+    let 倍速 = FCPXMLWriter.build(
+        cuts: cuts, telops: telops, styles: [:], mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 20, mediaWidth: 1920, mediaHeight: 1080, speed: 2.0)
+    check("速度を変えると指定が入る", 倍速.contains("<timeMap>"))
+    check("XML として妥当", (try? XMLDocument(xmlString: 倍速, options: [])) != nil)
+
+    // 並び順
+    if let tm = 倍速.range(of: "<timeMap>"), let ac = 倍速.range(of: "<adjust-conform") {
+        check("timeMap は adjust-conform より前", tm.lowerBound < ac.lowerBound)
+    } else {
+        check("timeMap は adjust-conform より前", false, "どちらかが無い")
+    }
+    if let tm = 倍速.range(of: "<timeMap>"), let ti = 倍速.range(of: "<title ") {
+        check("timeMap は title より前", tm.lowerBound < ti.lowerBound)
+    } else {
+        check("timeMap は title より前", false, "どちらかが無い")
+    }
+
+    func nums(_ xml: String, _ attr: String, in tag: String) -> [Double] {
+        var out: [Double] = []
+        guard let re = try? NSRegularExpression(pattern: "<\(tag) [^>]*>") else { return out }
+        let ns = xml as NSString
+        for m in re.matches(in: xml, range: NSRange(location: 0, length: ns.length)) {
+            let t = ns.substring(with: m.range)
+            if let r = t.range(of: attr + "=\"[^\"]+\"", options: .regularExpression) {
+                out.append(seconds(String(t[r]).replacingOccurrences(of: attr + "=\"", with: "")
+                    .replacingOccurrences(of: "\"", with: "")))
+            }
+        }
+        return out
+    }
+
+    // 🔴 素材の側は変わらないこと
+    check("素材の側の時刻は変わらない",
+          nums(等倍, "start", in: "asset-clip") == nums(倍速, "start", in: "asset-clip"),
+          "\(nums(等倍, "start", in: "asset-clip")) / \(nums(倍速, "start", in: "asset-clip"))")
+
+    // 出来上がりの長さは半分
+    let d1 = nums(等倍, "duration", in: "asset-clip").reduce(0, +)
+    let d2 = nums(倍速, "duration", in: "asset-clip").reduce(0, +)
+    check("2倍速なら出来上がりは半分", near(d2, d1 / 2, 0.1), "\(d1) → \(d2)")
+
+    // クリップが隙間なく並んでいること
+    let offs = nums(倍速, "offset", in: "asset-clip")
+    let durs = nums(倍速, "duration", in: "asset-clip")
+    var ok = true
+    for i in 1..<offs.count where !near(offs[i], offs[i - 1] + durs[i - 1], 0.05) { ok = false }
+    check("クリップが隙間なく並ぶ", ok, "\(offs) / \(durs)")
+
+    // 由来の1行にも速度が残る
+    let 記録 = FCPXMLWriter.build(
+        cuts: cuts, telops: telops, styles: [:], mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 20, mediaWidth: 1920, mediaHeight: 1080,
+        meta: ["speed": 1.5], speed: 1.5)
+    check("由来の1行に速度が残る", 記録.contains("速度 150%"),
+          記録.range(of: "<!-- [^>]*-->", options: .regularExpression).map { String(記録[$0]) } ?? "?")
+}
+
 /* ================================================ テロップの時刻
 
   🔴 clip にぶら下げた title の offset は「その clip の中の時刻」。

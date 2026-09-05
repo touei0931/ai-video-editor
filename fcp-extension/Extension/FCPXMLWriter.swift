@@ -135,6 +135,9 @@ enum FCPXMLWriter {
         if let chars = meta["telopMaxChars"] as? Int, chars > 0 {
             parts.append("1枚 \(chars)文字")
         }
+        if let speed = meta["speed"] as? Double, speed != 1.0 {
+            parts.append("速度 \(String(format: "%g", speed * 100))%")
+        }
         return parts.joined(separator: " / ")
     }
 
@@ -186,6 +189,11 @@ enum FCPXMLWriter {
         ///    設定が効いたのかを毎回キャプチャで聞き直すことになる。
         ///    実際それで何往復もした（2026-08-31）。
         meta: [String: Any] = [:],
+        /// 再生速度（1.0 = 等倍、2.0 = 2倍速）。
+        ///
+        /// 🔴 1.0 のときは速度の指定を**一切書かない**こと。
+        ///    使わない人の書き出しを、この機能で変えてはいけない。
+        speed: Double = 1.0,
         template: TitleTemplate? = nil
     ) -> String {
         let (fdNum, fdDen) = frameDuration(fps: fps)
@@ -235,6 +243,8 @@ enum FCPXMLWriter {
         */
         let guessed = max(telopEnd, cutEnd)
         let total = mediaDuration > 0 ? mediaDuration : guessed
+        // 出来上がりの尺。速度を変えるとシーケンスも縮む
+        let outTotal = total / (speed > 0 ? speed : 1.0)
 
         var xml = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -284,7 +294,7 @@ enum FCPXMLWriter {
           <library>
             <event name="PAC">
               <project name="\(escape(projectName(mediaPath: mediaPath)))">
-                <sequence format="r1" duration="\(time(total, fps: fps))" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
+                <sequence format="r1" duration="\(time(outTotal, fps: fps))" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
                   <spine>
 
         """
@@ -295,14 +305,48 @@ enum FCPXMLWriter {
             let keeps = approvedCuts.isEmpty
                 ? [(start: 0.0, end: total)]
                 : keepSegments(duration: total, cuts: approvedCuts)
+            /*
+              再生速度。
+
+              🔴 素材の側の時刻（start）は速度で割らないこと。
+                 あれは「素材のどこを使うか」であって、出来上がりの長さではない。
+                 割ってしまうと、素材の別の場所を指すことになる。
+
+              🔴 割るのは**出来上がりの長さ**（duration と offset）だけ。
+                 2倍速なら、素材 10秒ぶんが 5秒に収まる。
+
+              🔴 テロップの時刻は素材の時刻のまま置く。
+                 clip にぶら下げたものは、Final Cut が素材の時刻から
+                 出来上がりの時刻へ読み替える。こちらで割ると二重に効く。
+            */
+            let rate = speed > 0 ? speed : 1.0
             var offset = 0.0
             for (i, seg) in keeps.enumerated() {
                 let dur = seg.end - seg.start
+                let outDur = dur / rate
                 xml += """
-                        <asset-clip ref="r3" name="clip\(i + 1)" offset="\(time(offset, fps: fps))" start="\(time(seg.start, fps: fps))" duration="\(time(dur, fps: fps))" tcFormat="NDF">
-                          <adjust-conform type="\(conformType)"/>
+                        <asset-clip ref="r3" name="clip\(i + 1)" offset="\(time(offset, fps: fps))" start="\(time(seg.start, fps: fps))" duration="\(time(outDur, fps: fps))" tcFormat="NDF">
 
                 """
+                /*
+                  🔴 速度の指定は、いちばん先に置くこと。
+                     中身の並びは DTD で決まっていて、時間に関する指定
+                     （timeMap）は場所に関する指定（adjust-*）や
+                     ぶら下げたもの（title）より前。順番を間違えると
+                     読み込みが丸ごと失敗し、「DTD の検証でエラー」としか出ない。
+                     adjust-conform と title の順番でも一度踏んでいる。
+                */
+                if rate != 1.0 {
+                    xml += """
+                                  <timeMap>
+                                    <timept time="0s" value="\(time(seg.start, fps: fps))" interp="linear"/>
+                                    <timept time="\(time(outDur, fps: fps))" value="\(time(seg.end, fps: fps))" interp="linear"/>
+                                  </timeMap>
+
+                    """
+                }
+                xml += "          <adjust-conform type=\"\(conformType)\"/>
+"
                 /*
                   この区間に入るテロップを、この clip にぶら下げる。
 

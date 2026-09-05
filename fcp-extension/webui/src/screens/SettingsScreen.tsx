@@ -224,6 +224,41 @@ export function SettingsScreen({
               </p>
             </section>
 
+            {/* 書き出す速度 */}
+            <section className="settings-card">
+              <h3>書き出す再生速度</h3>
+              <div className="inline">
+                <input
+                  type="number"
+                  min={25}
+                  max={400}
+                  step={5}
+                  value={Math.round(settings.exportSpeed * 100)}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    if (!Number.isFinite(n)) return
+                    onChange({ exportSpeed: n / 100 })
+                  }}
+                  onBlur={(e) => {
+                    const n = Number(e.target.value)
+                    const fixed = Number.isFinite(n) ? Math.min(400, Math.max(25, n)) : 100
+                    onChange({ exportSpeed: fixed / 100 })
+                  }}
+                  style={{ width: 90 }}
+                />
+                <span className="settings-sub">％（100 で等倍）</span>
+              </div>
+              <p className="settings-note">
+                <strong>あとで Final Cut 側で速度を変えると、テロップの位置がずれます。</strong>
+                ここで指定しておけば、テロップも一緒に付いてきます。
+                <br />
+                120 なら 1.2倍速。素材そのものには手を加えず、書き出す
+                プロジェクトの速度だけが変わります。
+                <br />
+                <span className="settings-sub">※ これは書き出しにだけ効きます（解析はやり直し不要）</span>
+              </p>
+            </section>
+
             {/* テロップ1枚の長さ */}
             <section className="settings-card">
               <h3>テロップ1枚の文字数</h3>
