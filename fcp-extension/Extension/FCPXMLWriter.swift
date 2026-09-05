@@ -345,8 +345,7 @@ enum FCPXMLWriter {
 
                     """
                 }
-                xml += "          <adjust-conform type=\"\(conformType)\"/>
-"
+                xml += "          <adjust-conform type=\"\(conformType)\"/>\n"
                 /*
                   この区間に入るテロップを、この clip にぶら下げる。
 
