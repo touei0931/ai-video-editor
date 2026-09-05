@@ -255,7 +255,10 @@ export function SettingsScreen({
                 120 なら 1.2倍速。素材そのものには手を加えず、書き出す
                 プロジェクトの速度だけが変わります。
                 <br />
-                <span className="settings-sub">※ これは書き出しにだけ効きます（解析はやり直し不要）</span>
+                <span className="settings-sub">
+                  ※ 解析はやり直し不要です。「④ カット」「⑤ テロップ」のプレビューでも
+                  同じ値を変えられ、その速さで見たものがそのまま書き出されます
+                </span>
               </p>
             </section>
 

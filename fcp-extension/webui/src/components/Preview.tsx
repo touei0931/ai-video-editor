@@ -27,7 +27,16 @@ interface Props {
   videoRef: (el: HTMLVideoElement | null) => void
   /** テロップを掴んで動かしたとき。位置は % で返す */
   onMoveTelop?: (id: string, leftPercent: number, bottomPercent: number) => void
+  /**
+   * 再生速度。**書き出しに指定するものと同じ値**。
+   * ここで見た速さが、そのまま書き出される。
+   */
+  speed?: number
+  onSpeedChange?: (speed: number) => void
 }
+
+/** 速度の選択肢（％） */
+const SPEEDS = [50, 75, 100, 125, 150, 200]
 
 /** 本文を、見た目が変わる範囲ごとに切り分ける */
 function splitBySpans(text: string, spans: TelopSpan[] | undefined) {
@@ -57,6 +66,8 @@ export function Preview({
   style,
   videoRef,
   onMoveTelop,
+  speed,
+  onSpeedChange,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const [stageWidth, setStageWidth] = useState(640)
@@ -257,6 +268,28 @@ export function Preview({
         <button onClick={onToggle} title="スペースキーでも再生/停止">
           {playing ? '❚❚' : '▶'}
         </button>
+        {onSpeedChange && (
+          /*
+            🔴 書き出しの速度と同じ値にすること。
+               ここで確かめた速さと違うものが書き出されると、
+               確かめた意味が無くなる。
+          */
+          <select
+            className="speed"
+            value={Math.round((speed ?? 1) * 100)}
+            onChange={(e) => onSpeedChange(Number(e.target.value) / 100)}
+            title="再生速度。書き出しにも同じ速度が使われます"
+          >
+            {(SPEEDS.includes(Math.round((speed ?? 1) * 100))
+              ? SPEEDS
+              : [...SPEEDS, Math.round((speed ?? 1) * 100)].sort((a, b) => a - b)
+            ).map((v) => (
+              <option key={v} value={v}>
+                {v === 100 ? '等倍' : `${v}%`}
+              </option>
+            ))}
+          </select>
+        )}
         <span className="tc">{fmtTimecode(time)}</span>
         <input
           className="scrub"

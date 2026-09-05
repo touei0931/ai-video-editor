@@ -295,8 +295,22 @@ export function App() {
         />
       )}
 
-      {step === 'cut' && <CutScreen store={store} onNext={() => setStep('telop')} />}
-      {step === 'telop' && <TelopScreen store={store} />}
+      {step === 'cut' && (
+          <CutScreen
+            store={store}
+            onNext={() => setStep('telop')}
+            /* 🔴 書き出しと同じ値を渡すこと。別の速さで確かめても意味がない */
+            speed={settings.exportSpeed}
+            onSpeedChange={(v) => setSettings((s) => ({ ...s, exportSpeed: v }))}
+          />
+        )}
+      {step === 'telop' && (
+          <TelopScreen
+            store={store}
+            speed={settings.exportSpeed}
+            onSpeedChange={(v) => setSettings((s) => ({ ...s, exportSpeed: v }))}
+          />
+        )}
     </div>
   )
 }

@@ -181,6 +181,14 @@ button.tiny { padding: 2px 6px; font-size: 11px; }
   border-radius: var(--radius);
   padding: 3px 8px;
 }
+/* 再生速度。書き出しにも同じ値が使われる */
+.transport select.speed {
+  width: auto;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 4px;
+}
+
 .scrub { flex: 1; }
 
 /* ---- タイムライン ---- */

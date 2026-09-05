@@ -261,11 +261,25 @@ export function usePlayback(
   videoEl: HTMLVideoElement | null,
   /** 承認したカット。再生中はここを飛ばす（切ったあとの繋がりを確かめるため） */
   skips: { start: number; end: number }[] = [],
+  /**
+   * 再生速度。書き出しに指定するものと同じ値を渡す。
+   *
+   * 🔴 time（再生位置）は**素材の時刻のまま**にすること。
+   *    速度で割ると、テロップの出る位置がずれる。
+   *    速いのは実時間の進み方であって、素材の中の位置ではない。
+   */
+  speed = 1,
 ) {
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const raf = useRef<number | null>(null)
   const last = useRef<number>(0)
+
+  // 速度は video 要素に任せる（再生位置は素材の時刻のまま進む）
+  useEffect(() => {
+    if (!videoEl) return
+    videoEl.playbackRate = speed > 0 ? speed : 1
+  }, [videoEl, speed])
 
   // 動画がある場合は video 要素に追従する
   useEffect(() => {
@@ -291,7 +305,7 @@ export function usePlayback(
       // パネルが隠れている間 requestAnimationFrame は止まる。
       // 復帰したときに「隠れていた時間」がまるごと加算されて
       // 再生位置が飛ぶので、1フレーム分の上限をかける。
-      const dt = Math.min(0.25, (now - last.current) / 1000)
+      const dt = Math.min(0.25, (now - last.current) / 1000) * (speed > 0 ? speed : 1)
       last.current = now
       setTime((t) => {
         const next = t + dt

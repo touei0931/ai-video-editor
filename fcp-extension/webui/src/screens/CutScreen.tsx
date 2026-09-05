@@ -17,7 +17,18 @@ import { fmtTime } from '../lib/format'
 /** 承認したあと、次の候補の何秒前から再生するか */
 const LEAD_IN = 0.5
 
-export function CutScreen({ store, onNext }: { store: Store; onNext: () => void }) {
+export function CutScreen({
+  store,
+  onNext,
+  speed,
+  onSpeedChange,
+}: {
+  store: Store
+  onNext: () => void
+  /** 再生速度。書き出しに指定するものと同じ値 */
+  speed: number
+  onSpeedChange: (speed: number) => void
+}) {
   const { state, decideCut, decideAllCuts, updateCut, undo } = store
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -25,7 +36,7 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
 
   const duration = state?.durationSec ?? 0
   // 承認したカットは飛ばして再生する。切ると決めた区間を流しても確認にならない
-  const { time, playing, seek, toggle, play } = usePlayback(duration, videoEl, store.approvedCuts)
+  const { time, playing, seek, toggle, play } = usePlayback(duration, videoEl, store.approvedCuts, speed)
 
   /**
    * いま再生位置がかかっているカット候補。
@@ -158,6 +169,8 @@ export function CutScreen({ store, onNext }: { store: Store; onNext: () => void 
           telop={null}
           style={null}
           videoRef={setVideoEl}
+          speed={speed}
+          onSpeedChange={onSpeedChange}
         />
         <div style={{ padding: '0 8px 8px' }}>
           <Timeline

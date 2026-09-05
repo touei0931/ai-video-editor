@@ -29,7 +29,16 @@ function newTelopId(): string {
   return `t${Date.now().toString(36)}${(telopSeq++).toString(36)}${rand}`
 }
 
-export function TelopScreen({ store }: { store: Store }) {
+export function TelopScreen({
+  store,
+  speed,
+  onSpeedChange,
+}: {
+  store: Store
+  /** 再生速度。書き出しに指定するものと同じ値 */
+  speed: number
+  onSpeedChange: (speed: number) => void
+}) {
   const { state, updateTelop, addTelop, removeTelop, updateStyle, pickTemplate, dropTemplate, undo } =
     store
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
@@ -46,7 +55,7 @@ export function TelopScreen({ store }: { store: Store }) {
 
   const duration = state?.durationSec ?? 0
   // 承認したカットは飛ばして再生する（切ったあとの繋がりを確かめるため）
-  const { time, playing, seek, toggle } = usePlayback(duration, videoEl, store.approvedCuts)
+  const { time, playing, seek, toggle } = usePlayback(duration, videoEl, store.approvedCuts, speed)
 
   const selected = state?.telops.find((t) => t.id === selectedId) ?? null
 
@@ -193,6 +202,8 @@ export function TelopScreen({ store }: { store: Store }) {
           telop={shown}
           style={shownStyle}
           videoRef={setVideoEl}
+          speed={speed}
+          onSpeedChange={onSpeedChange}
           onMoveTelop={(id, leftPercent, bottomPercent) => {
             const t = state.telops.find((x) => x.id === id)
             if (!t) return
