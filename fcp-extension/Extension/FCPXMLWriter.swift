@@ -370,7 +370,9 @@ enum FCPXMLWriter {
                     xml += titleElement(t, styles: styles, offsetSec: s, durationSec: shown, fps: fps, template: template, frameHeight: h, indent: "          ")
                 }
                 xml += "        </asset-clip>\n"
-                offset += dur
+                // 🔴 積むのは出来上がりの長さ。素材の長さを積むと、
+                //    速度を変えたときにクリップの間が空く
+                offset += outDur
             }
         } else {
             xml += "        <gap name=\"Gap\" offset=\"0s\" start=\"0s\" duration=\"\(time(total, fps: fps))\">\n"
