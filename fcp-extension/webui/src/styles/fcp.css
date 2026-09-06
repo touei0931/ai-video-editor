@@ -525,6 +525,16 @@ button.big { padding: 8px 22px; font-size: 13px; }
 .telop-text.movable { pointer-events: auto; cursor: move; }
 .telop-text.movable:hover { outline: 1px dashed rgba(255,255,255,0.6); outline-offset: 6px; }
 
+/* 選んでいる間は枠を出したままにする。
+   🔴 hover だけだと、触っていない間はどれが選ばれているのか分からない。
+      右の「選択中のテロップ」がどれを指しているのかを、映像の側でも示す。 */
+.telop-text.selected,
+.telop-text.movable.selected:hover {
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
+  border-radius: 2px;
+}
+
 /* ---- 選んだ文字だけの見た目 ---- */
 .span-editor {
   padding: 8px 10px;

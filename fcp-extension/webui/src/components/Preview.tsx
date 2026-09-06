@@ -28,6 +28,16 @@ interface Props {
   /** テロップを掴んで動かしたとき。位置は % で返す */
   onMoveTelop?: (id: string, leftPercent: number, bottomPercent: number) => void
   /**
+   * いま選ばれているテロップ。枠を出したままにする目印。
+   *
+   * 🔴 hover だけで枠を出さないこと。触っていない間は選ばれているのか
+   *    どうかが分からず、右の「選択中のテロップ」がどれを指しているのか
+   *    見失う（2026-09-07に言われた）。
+   */
+  selectedTelopId?: string | null
+  /** プレビューのテロップを押したとき。一覧の選択もそこへ合わせる */
+  onSelectTelop?: (id: string) => void
+  /**
    * 再生速度。**書き出しに指定するものと同じ値**。
    * ここで見た速さが、そのまま書き出される。
    */
@@ -66,6 +76,8 @@ export function Preview({
   style,
   videoRef,
   onMoveTelop,
+  selectedTelopId,
+  onSelectTelop,
   speed,
   onSpeedChange,
 }: Props) {
@@ -107,7 +119,19 @@ export function Preview({
       /* 覚えられなくても再生は続く */
     }
   }, [volume, muted])
-  const drag = useRef<{ id: string; startX: number; startY: number; left: number; bottom: number } | null>(null)
+  const drag = useRef<
+    { id: string; startX: number; startY: number; left: number; bottom: number; moved: boolean } | null
+  >(null)
+
+  /**
+   * ここまで動かすまでは「押しただけ」とみなす（px）。
+   *
+   * 🔴 押した瞬間から動かし始めないこと。
+   *    テロップを押すのは**選ぶため**でもある。マウスでもトラックパッドでも
+   *    クリックのあいだに数 px は動くので、選んだだけのつもりで位置がずれる。
+   *    実際、選択の確認をしただけで 108% / 95% まで飛んだ（2026-09-07）。
+   */
+  const DRAG_THRESHOLD = 4
 
   // テロップのサイズは 1920x1080 基準で持っているので、表示幅に合わせて縮める
   useEffect(() => {
@@ -128,10 +152,14 @@ export function Preview({
       const d = drag.current
       const stage = stageRef.current
       if (!d || !stage) return
+      const dx = e.clientX - d.startX
+      const dy = e.clientY - d.startY
+      if (!d.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+      d.moved = true
       const box = stage.getBoundingClientRect()
       // 画面の外にも少しはみ出せるようにしておく（端で切れるテロップも作れる）
-      const left = Math.max(-15, Math.min(115, d.left + ((e.clientX - d.startX) / box.width) * 100))
-      const bottom = Math.max(-10, Math.min(95, d.bottom - ((e.clientY - d.startY) / box.height) * 100))
+      const left = Math.max(-15, Math.min(115, d.left + (dx / box.width) * 100))
+      const bottom = Math.max(-10, Math.min(95, d.bottom - (dy / box.height) * 100))
       onMoveTelop?.(d.id, Math.round(left * 10) / 10, Math.round(bottom * 10) / 10)
     }
     const up = () => {
@@ -208,7 +236,11 @@ export function Preview({
         <div className="telop-layer">
           {telop && style && (
             <div
-              className={`telop-text ${movable ? 'movable' : ''}`}
+              className={[
+                'telop-text',
+                movable ? 'movable' : '',
+                telop.id === selectedTelopId ? 'selected' : '',
+              ].join(' ')}
               style={{
                 bottom: `${style.bottomPercent}%`,
                 left: `${style.leftPercent ?? 50}%`,
@@ -231,15 +263,18 @@ export function Preview({
               onPointerDown={(e) => {
                 if (!movable) return
                 e.preventDefault()
+                // 押した時点で選ぶ。動かさずに押しただけでも選択が移る
+                onSelectTelop?.(telop.id)
                 drag.current = {
                   id: telop.id,
                   startX: e.clientX,
                   startY: e.clientY,
                   left: style.leftPercent ?? 50,
                   bottom: style.bottomPercent,
+                  moved: false,
                 }
               }}
-              title={movable ? '掴んで動かせます' : undefined}
+              title={movable ? '押すと選べます。掴むと動かせます' : undefined}
             >
               {parts.map((p, i) => (
                 <span

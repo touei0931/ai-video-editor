@@ -79,6 +79,39 @@ export function TelopScreen({
     return { ...state.styles[shown.style], ...(shown.overrides ?? {}) }
   }, [state, shown])
 
+  /**
+   * 選択中のテロップに、いま効いている見た目（既定＋そのテロップの上書き）。
+   *
+   * 🔴 編集欄は shown ではなく selected を見ること。
+   *    再生中の shown は「その時刻に出るテロップ」なので、選択中と別物になる。
+   *    shownStyle を編集欄に出していたため、再生しながら触ると
+   *    **別のテロップの値が見えている**状態で書き換えることになっていた。
+   */
+  const selectedStyle: TelopStyle | null = useMemo(() => {
+    if (!state || !selected) return null
+    return { ...state.styles[selected.style], ...(selected.overrides ?? {}) }
+  }, [state, selected])
+
+  /** 選択中のテロップだけの上書きを足す */
+  const patchOverride = (patch: Partial<TelopStyle>) => {
+    if (!selected) return
+    updateTelop(selected.id, { overrides: { ...(selected.overrides ?? {}), ...patch } })
+  }
+
+  /**
+   * 見た目の上書きだけを外して、既定に戻す。
+   * 🔴 位置と自動改行は残すこと。あれは「どこに出すか」の話で、
+   *    見た目（書体・大きさ・色）とは別に決めたいことが多い。
+   */
+  const LOOK_KEYS = ['fontFamily', 'fontSize', 'bold', 'color', 'strokeColor', 'strokeWidth', 'shadow'] as const
+  const hasLookOverride = !!selected && LOOK_KEYS.some((k) => selected.overrides?.[k] !== undefined)
+  const clearLook = () => {
+    if (!selected?.overrides) return
+    const rest = { ...selected.overrides }
+    for (const k of LOOK_KEYS) delete rest[k]
+    updateTelop(selected.id, { overrides: rest })
+  }
+
   // 再生中のテロップが画面の外に出たら、一覧を追いかけさせる。
   //
   // 位置は getBoundingClientRect で測る。offsetTop は「位置指定された親」からの
@@ -204,6 +237,9 @@ export function TelopScreen({
           videoRef={setVideoEl}
           speed={speed}
           onSpeedChange={onSpeedChange}
+          /* 🔴 プレビューでも、選んでいるものが分かるようにする */
+          selectedTelopId={selectedId}
+          onSelectTelop={setSelectedId}
           onMoveTelop={(id, leftPercent, bottomPercent) => {
             const t = state.telops.find((x) => x.id === id)
             if (!t) return
@@ -324,6 +360,99 @@ export function TelopScreen({
                 <option value="emphasis">{STYLE_LABEL.emphasis}</option>
               </select>
 
+              {/*
+                このテロップだけの見た目。
+                🔴 触った項目だけを上書きすること。まとめて書き込むと、
+                   あとで既定（通常/強調スタイル）を変えても、このテロップだけ
+                   置いていかれる。
+              */}
+              <label>フォント</label>
+              <select
+                value={selectedStyle?.fontFamily ?? ''}
+                onChange={(e) => patchOverride({ fontFamily: e.target.value })}
+              >
+                {(state.fonts ?? []).map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+
+              <label>大きさ</label>
+              <div className="inline">
+                <input
+                  type="number"
+                  min={12}
+                  max={400}
+                  value={Math.round(selectedStyle?.fontSize ?? 48)}
+                  onChange={(e) => patchOverride({ fontSize: Number(e.target.value) })}
+                  style={{ width: 80 }}
+                />
+                <span style={{ color: 'var(--text-faint)' }}>px</span>
+                <label style={{ marginLeft: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedStyle?.bold ?? false}
+                    onChange={(e) => patchOverride({ bold: e.target.checked })}
+                  />
+                  太字
+                </label>
+              </div>
+
+              <label>文字色</label>
+              <div className="inline">
+                <input
+                  type="color"
+                  value={selectedStyle?.color ?? '#ffffff'}
+                  onChange={(e) => patchOverride({ color: e.target.value })}
+                />
+                <span style={{ color: 'var(--text-faint)' }}>{selectedStyle?.color}</span>
+              </div>
+
+              <label>縁取り</label>
+              <div className="inline">
+                <input
+                  type="color"
+                  value={selectedStyle?.strokeColor ?? '#000000'}
+                  onChange={(e) => patchOverride({ strokeColor: e.target.value })}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={40}
+                  value={Math.round(selectedStyle?.strokeWidth ?? 0)}
+                  onChange={(e) => patchOverride({ strokeWidth: Number(e.target.value) })}
+                  style={{ width: 70 }}
+                />
+                <span style={{ color: 'var(--text-faint)' }}>px</span>
+                <label style={{ marginLeft: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedStyle?.shadow ?? true}
+                    onChange={(e) => patchOverride({ shadow: e.target.checked })}
+                  />
+                  影
+                </label>
+              </div>
+
+              <label />
+              <div className="inline">
+                {hasLookOverride ? (
+                  <>
+                    <span className="warn" style={{ fontSize: 11 }}>
+                      このテロップだけ既定と違う見た目です
+                    </span>
+                    <button className="tiny" onClick={clearLook}>
+                      既定に戻す
+                    </button>
+                  </>
+                ) : (
+                  <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>
+                    いまは「{STYLE_LABEL[selected.style]}」の既定どおりです
+                  </span>
+                )}
+              </div>
+
               <label>時間</label>
               <div className="inline">
                 <input
@@ -348,7 +477,7 @@ export function TelopScreen({
                   type="number"
                   min={0}
                   max={100}
-                  value={Math.round(shownStyle?.leftPercent ?? 50)}
+                  value={Math.round(selectedStyle?.leftPercent ?? 50)}
                   onChange={(e) =>
                     updateTelop(selected.id, {
                       overrides: {
@@ -363,7 +492,7 @@ export function TelopScreen({
                   type="number"
                   min={0}
                   max={90}
-                  value={Math.round(shownStyle?.bottomPercent ?? 12)}
+                  value={Math.round(selectedStyle?.bottomPercent ?? 12)}
                   onChange={(e) =>
                     updateTelop(selected.id, {
                       overrides: {
@@ -380,7 +509,7 @@ export function TelopScreen({
               <div className="inline">
                 <input
                   type="checkbox"
-                  checked={shownStyle?.autoWrap ?? true}
+                  checked={selectedStyle?.autoWrap ?? true}
                   onChange={(e) =>
                     updateTelop(selected.id, {
                       overrides: { ...(selected.overrides ?? {}), autoWrap: e.target.checked },

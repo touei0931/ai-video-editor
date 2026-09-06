@@ -294,6 +294,66 @@ do {
           (try? XMLDocument(xmlString: bare, options: [])) != nil && bare.contains("<!-- PAC"))
 }
 
+/* ================================================ テロップごとの見た目
+
+  🔴 テロップ1枚だけの上書き（overrides）を、書き出しまで通すこと。
+
+     画面で1枚だけ書体や色を変えられるようにした（2026-09-07）。
+     ここが落ちると、画面では変わって見えるのに Final Cut では
+     既定のまま、という食い違いになる。開くまで気づけない。
+*/
+do {
+    let styles: [String: Any] = [
+        "normal": [
+            "fontFamily": "Hiragino Sans", "fontSize": 48.0, "color": "#ffffff",
+            "strokeColor": "#000000", "strokeWidth": 6.0, "shadow": true, "bold": false,
+            "bottomPercent": 12.0,
+        ],
+    ]
+    let telops: [[String: Any]] = [
+        ["start": 1.0, "end": 3.0, "text": "ふつう", "style": "normal"],
+        [
+            "start": 4.0, "end": 6.0, "text": "この1枚だけ", "style": "normal",
+            "overrides": [
+                "fontFamily": "ヒラギノ丸ゴ ProN W4", "fontSize": 120.0,
+                "color": "#ffe14d", "bold": true, "strokeWidth": 14.0,
+            ],
+        ],
+    ]
+    let xml = FCPXMLWriter.build(
+        cuts: [], telops: telops, styles: styles, mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 20, mediaWidth: 1920, mediaHeight: 1080)
+
+    var defs: [String] = []
+    if let re = try? NSRegularExpression(pattern: "<text-style [^>]*/>") {
+        let ns = xml as NSString
+        for m in re.matches(in: xml, range: NSRange(location: 0, length: ns.length)) {
+            defs.append(ns.substring(with: m.range))
+        }
+    }
+    check("テロップの数だけ見た目がある", defs.count == 2, "\(defs.count) 件")
+
+    // 1枚目は既定のまま
+    check("上書きしていない方は既定のまま",
+          defs.first?.contains("fontSize=\"48\"") == true
+            && defs.first?.contains("fontColor=\"1.0000 1.0000 1.0000 1\"") == true,
+          defs.first ?? "無し")
+
+    // 2枚目だけ上書きが効いている
+    let one = defs.count > 1 ? defs[1] : ""
+    check("大きさの上書きが効く", one.contains("fontSize=\"120\""), one)
+    check("色の上書きが効く", one.contains("fontColor=\"1.0000 0.8824 0.3020 1\""), one)
+    check("書体の上書きが効く", one.contains("font=\"ヒラギノ丸ゴ ProN W4\""), one)
+    check("太字の上書きが効く", one.contains("bold=\"1\""), one)
+    check("縁取りの上書きが効く", one.contains("strokeWidth=\"14\""), one)
+
+    // 🔴 1枚だけの上書きが、他のテロップに漏れないこと
+    check("上書きが他の枚に漏れない",
+          defs.first?.contains("fontSize=\"120\"") == false
+            && defs.first?.contains("bold=\"1\"") == false,
+          defs.first ?? "無し")
+}
+
 /* ================================================ 文字の大きさ
 
   🔴 text-style に fontSize を必ず書くこと。
