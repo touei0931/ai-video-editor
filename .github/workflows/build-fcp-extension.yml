@@ -214,7 +214,8 @@ jobs:
           # 🔴 うまくいかなかったときの診断も一緒に入れること。
           #    あとから送ると、相手はもう一度ファイルを受け取る所からになる。
           cp "$GITHUB_WORKSPACE/fcp-extension/deliver/パネルが出ないとき.command" "$PACK/"
-          cp "$GITHUB_WORKSPACE/fcp-extension/deliver/はじめに読んでね.md" "$PACK/はじめに読んでね.txt"
+          # 相手が読むのはメモ帳なので、markdown の ** は消してから入れる。
+          sed 's/\*\*//g' "$GITHUB_WORKSPACE/fcp-extension/deliver/はじめに読んでね.md" > "$PACK/はじめに読んでね.txt"
           chmod +x "$PACK/インストールと確認.command"
           chmod +x "$PACK/パネルが出ないとき.command"
 
