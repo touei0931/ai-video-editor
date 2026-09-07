@@ -166,8 +166,8 @@ export function CutScreen({
           playing={playing}
           onSeek={seek}
           onToggle={toggle}
-          telop={null}
-          style={null}
+          telops={[]}
+          frameWidth={state.width}
           videoRef={setVideoEl}
           speed={speed}
           onSpeedChange={onSpeedChange}

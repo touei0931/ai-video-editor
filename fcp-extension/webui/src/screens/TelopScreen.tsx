@@ -80,6 +80,27 @@ export function TelopScreen({
   }, [state, shown])
 
   /**
+   * プレビューに出すもの一式（見た目を解決済み）。
+   *
+   * 🔴 1枚に絞らないこと。時間が重なっているテロップは同時に出る。
+   *    絞っていたため、複製したテロップが**プレビューに出てこなかった**
+   *    （2026-09-07に言われた）。Final Cut では重なったぶんだけ出る。
+   *
+   * 🔴 止めているときは、選択中が時刻の外でも出すこと。
+   *    出さないと見た目を確かめながら直せない。
+   */
+  const shownList = useMemo(() => {
+    if (!state) return []
+    const at = state.telops.filter((t) => time >= t.start && time <= t.end)
+    const list = [...at]
+    if (!playing && selected && !list.some((t) => t.id === selected.id)) list.push(selected)
+    return list.map((t) => ({
+      telop: t,
+      style: { ...state.styles[t.style], ...(t.overrides ?? {}) },
+    }))
+  }, [state, time, playing, selected])
+
+  /**
    * 選択中のテロップに、いま効いている見た目（既定＋そのテロップの上書き）。
    *
    * 🔴 編集欄は shown ではなく selected を見ること。
@@ -232,8 +253,8 @@ export function TelopScreen({
           playing={playing}
           onSeek={seek}
           onToggle={toggle}
-          telop={shown}
-          style={shownStyle}
+          telops={shownList}
+          frameWidth={state.width}
           videoRef={setVideoEl}
           speed={speed}
           onSpeedChange={onSpeedChange}

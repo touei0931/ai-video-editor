@@ -526,13 +526,12 @@ button.big { padding: 8px 22px; font-size: 13px; }
 .telop-text.movable:hover { outline: 1px dashed rgba(255,255,255,0.6); outline-offset: 6px; }
 
 /* 選んでいる間は枠を出したままにする。
-   🔴 hover だけだと、触っていない間はどれが選ばれているのか分からない。
-      右の「選択中のテロップ」がどれを指しているのかを、映像の側でも示す。 */
-.telop-text.selected,
-.telop-text.movable.selected:hover {
-  outline: 2px solid var(--accent);
+   🔴 hover と同じ白の破線にすること。色や太さを変えると、映像の上で
+      主張しすぎて中身が見えにくくなる。要るのは
+      「触っていなくても選ばれていると分かる」ことだけ。 */
+.telop-text.selected {
+  outline: 1px dashed rgba(255, 255, 255, 0.6);
   outline-offset: 6px;
-  border-radius: 2px;
 }
 
 /* ---- 選んだ文字だけの見た目 ---- */

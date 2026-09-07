@@ -22,8 +22,23 @@ interface Props {
   onSeek: (t: number) => void
   onToggle: () => void
   /** いま画面に出ているテロップ（無ければ null） */
-  telop: Telop | null
-  style: TelopStyle | null
+  /**
+   * いま画面に出すテロップ（見た目を解決済み）。
+   *
+   * 🔴 1枚だけにしないこと。時間が重なっているテロップは同時に出る。
+   *    1枚しか描いていなかったため、複製したテロップが**見えなかった**
+   *    （2026-09-07に言われた）。Final Cut では重なったぶんだけ表示される。
+   */
+  telops: { telop: Telop; style: TelopStyle }[]
+  /**
+   * プロジェクトの横幅。テロップの大きさをこれ基準で縮めて描く。
+   *
+   * 🔴 1920 決め打ちにしないこと。素材が 568x320 のとき、
+   *    高さに合わせた 14px のテロップが 1920 基準では 4px になり、
+   *    下限 8px に張り付いて**大きさを変えても見た目が変わらない**
+   *    （2026-09-07に言われた）。
+   */
+  frameWidth?: number
   videoRef: (el: HTMLVideoElement | null) => void
   /** テロップを掴んで動かしたとき。位置は % で返す */
   onMoveTelop?: (id: string, leftPercent: number, bottomPercent: number) => void
@@ -72,8 +87,8 @@ export function Preview({
   playing,
   onSeek,
   onToggle,
-  telop,
-  style,
+  telops,
+  frameWidth,
   videoRef,
   onMoveTelop,
   selectedTelopId,
@@ -143,8 +158,8 @@ export function Preview({
     return () => ro.disconnect()
   }, [])
 
-  const scale = stageWidth / 1920
-  const movable = !!(onMoveTelop && telop)
+  const scale = stageWidth / (frameWidth && frameWidth > 0 ? frameWidth : 1920)
+  const movable = !!onMoveTelop
 
   useEffect(() => {
     if (!movable) return
@@ -173,8 +188,6 @@ export function Preview({
     }
   }, [movable, onMoveTelop])
 
-  const parts = telop ? splitBySpans(telop.text, telop.spans) : []
-
   /**
    * 自動改行するときの折り返し幅。
    *
@@ -182,11 +195,11 @@ export function Preview({
    * ここを画面幅で固定すると、右に寄せたテロップが画面からはみ出す。
    * （はみ出させたいときは自動改行を切る）
    */
-  const leftPercent = style?.leftPercent ?? 50
-  const wrapWidth = Math.max(
-    stageWidth * 0.08,
-    Math.min(stageWidth * 0.96, stageWidth * 2 * (Math.min(leftPercent, 100 - leftPercent) / 100)),
-  )
+  const wrapWidthFor = (leftPercent: number) =>
+    Math.max(
+      stageWidth * 0.08,
+      Math.min(stageWidth * 0.96, stageWidth * 2 * (Math.min(leftPercent, 100 - leftPercent) / 100)),
+    )
 
   return (
     <div className="preview-wrap">
@@ -234,68 +247,78 @@ export function Preview({
         )}
 
         <div className="telop-layer">
-          {telop && style && (
-            <div
-              className={[
-                'telop-text',
-                movable ? 'movable' : '',
-                telop.id === selectedTelopId ? 'selected' : '',
-              ].join(' ')}
-              style={{
-                bottom: `${style.bottomPercent}%`,
-                left: `${style.leftPercent ?? 50}%`,
-                // 🔴 幅は内容基準にすること。
-                //    left だけ指定した絶対配置は「右端までの残り幅」に合わせて
-                //    箱が勝手に縮むので、右に動かすほど早く折り返してしまう。
-                //    折り返すかどうかは max-width だけで決める。
-                width: 'max-content',
-                maxWidth: (style.autoWrap ?? true) ? `${wrapWidth}px` : 'none',
-                whiteSpace: (style.autoWrap ?? true) ? 'pre-wrap' : 'pre',
-                fontFamily: `"${style.fontFamily}", sans-serif`,
-                fontSize: `${Math.max(8, style.fontSize * scale)}px`,
-                fontWeight: style.bold ? 700 : 400,
-                color: style.color,
-                WebkitTextStrokeWidth: `${Math.max(0, style.strokeWidth * scale)}px`,
-                WebkitTextStrokeColor: style.strokeColor,
-                paintOrder: 'stroke fill',
-                textShadow: style.shadow ? `0 ${2 * scale}px ${6 * scale}px rgba(0,0,0,0.8)` : 'none',
-              }}
-              onPointerDown={(e) => {
-                if (!movable) return
-                e.preventDefault()
-                // 押した時点で選ぶ。動かさずに押しただけでも選択が移る
-                onSelectTelop?.(telop.id)
-                drag.current = {
-                  id: telop.id,
-                  startX: e.clientX,
-                  startY: e.clientY,
-                  left: style.leftPercent ?? 50,
-                  bottom: style.bottomPercent,
-                  moved: false,
-                }
-              }}
-              title={movable ? '押すと選べます。掴むと動かせます' : undefined}
-            >
-              {parts.map((p, i) => (
-                <span
-                  key={i}
-                  style={
-                    p.span
-                      ? {
-                          fontSize: p.span.fontSize
-                            ? `${Math.max(8, p.span.fontSize * scale)}px`
-                            : undefined,
-                          color: p.span.color,
-                          fontWeight: p.span.bold ? 700 : undefined,
-                        }
-                      : undefined
+          {/*
+            🔴 重なっているものは重なったまま出すこと。
+               1枚だけ描いていたため、複製したテロップが見えなかった。
+          */}
+          {telops.map(({ telop, style }) => {
+            const parts = splitBySpans(telop.text, telop.spans)
+            const leftPercent = style.leftPercent ?? 50
+            const wrapWidth = wrapWidthFor(leftPercent)
+            return (
+              <div
+                key={telop.id}
+                className={[
+                  'telop-text',
+                  movable ? 'movable' : '',
+                  telop.id === selectedTelopId ? 'selected' : '',
+                ].join(' ')}
+                style={{
+                  bottom: `${style.bottomPercent}%`,
+                  left: `${leftPercent}%`,
+                  // 🔴 幅は内容基準にすること。
+                  //    left だけ指定した絶対配置は「右端までの残り幅」に合わせて
+                  //    箱が勝手に縮むので、右に動かすほど早く折り返してしまう。
+                  //    折り返すかどうかは max-width だけで決める。
+                  width: 'max-content',
+                  maxWidth: (style.autoWrap ?? true) ? `${wrapWidth}px` : 'none',
+                  whiteSpace: (style.autoWrap ?? true) ? 'pre-wrap' : 'pre',
+                  fontFamily: `"${style.fontFamily}", sans-serif`,
+                  fontSize: `${Math.max(6, style.fontSize * scale)}px`,
+                  fontWeight: style.bold ? 700 : 400,
+                  color: style.color,
+                  WebkitTextStrokeWidth: `${Math.max(0, style.strokeWidth * scale)}px`,
+                  WebkitTextStrokeColor: style.strokeColor,
+                  paintOrder: 'stroke fill',
+                  textShadow: style.shadow ? `0 ${2 * scale}px ${6 * scale}px rgba(0,0,0,0.8)` : 'none',
+                }}
+                onPointerDown={(e) => {
+                  if (!movable) return
+                  e.preventDefault()
+                  // 押した時点で選ぶ。動かさずに押しただけでも選択が移る
+                  onSelectTelop?.(telop.id)
+                  drag.current = {
+                    id: telop.id,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    left: leftPercent,
+                    bottom: style.bottomPercent,
+                    moved: false,
                   }
-                >
-                  {p.text}
-                </span>
-              ))}
-            </div>
-          )}
+                }}
+                title={movable ? '押すと選べます。掴むと動かせます' : undefined}
+              >
+                {parts.map((p, i) => (
+                  <span
+                    key={i}
+                    style={
+                      p.span
+                        ? {
+                            fontSize: p.span.fontSize
+                              ? `${Math.max(6, p.span.fontSize * scale)}px`
+                              : undefined,
+                            color: p.span.color,
+                            fontWeight: p.span.bold ? 700 : undefined,
+                          }
+                        : undefined
+                    }
+                  >
+                    {p.text}
+                  </span>
+                ))}
+              </div>
+            )
+          })}
         </div>
       </div>
 
