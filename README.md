@@ -7,6 +7,21 @@
 - 実利用者: 友達（IT 知識なし、**MacBook Air M2 / 24GB**）
 - 最大のペイン: **カット作業に 1 本あたり 30〜60 分** → これを約 2 分にするのが第一目標
 
+## ライセンス（オープンソースではありません）
+
+> **Copyright (c) 2026 touei. All rights reserved. / 無断複製・転載を禁じます。**
+>
+> このリポジトリが公開されているのは、**ビルド基盤（GitHub Actions の macOS ランナー）を
+> 利用するため**と、開発の経過を記録として残すためです。**いかなる権利の許諾も意味しません。**
+>
+> 複製・改変・再配布・商用利用・派生物の作成は、著作権者の事前の許可なく行えません。
+> 閲覧と私的な学習目的での参照は妨げません。詳細は [LICENSE](LICENSE) を参照してください。
+>
+> 同梱フォント（SIL OFL 1.1）や ffmpeg（LGPL）など第三者コンポーネントは、
+> それぞれの提供元のライセンスに従います。
+>
+> *This is not open source. Public visibility is for build infrastructure only and grants no rights. See [LICENSE](LICENSE).*
+
 ## ドキュメント
 
 | ファイル | 内容 |
