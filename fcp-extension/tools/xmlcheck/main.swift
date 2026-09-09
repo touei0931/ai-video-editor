@@ -557,8 +557,10 @@ do {
     // クリップが隙間なく並んでいること
     let offs = nums(倍速, "offset", in: "asset-clip")
     let durs = nums(倍速, "duration", in: "asset-clip")
+    // 🔴 ここを 0.05秒まで許していたため、1フレーム（30fpsで0.033秒）の
+    //    ずれが素通りし、実機で読み込みが壊れた（2026-09-08）。ぴったりで見る
     var ok = true
-    for i in 1..<offs.count where !near(offs[i], offs[i - 1] + durs[i - 1], 0.05) { ok = false }
+    for i in 1..<offs.count where !near(offs[i], offs[i - 1] + durs[i - 1], 0.0005) { ok = false }
     check("クリップが隙間なく並ぶ", ok, "\(offs) / \(durs)")
 
     // 由来の1行にも速度が残る
@@ -568,6 +570,102 @@ do {
         meta: ["speed": 1.5], speed: 1.5)
     check("由来の1行に速度が残る", 記録.contains("速度 150%"),
           記録.range(of: "<!-- [^>]*-->", options: .regularExpression).map { String(記録[$0]) } ?? "?")
+}
+
+/* ================================================ 速度とテロップの位置
+
+  🔴 timeMap を付けても、Final Cut は clip にぶら下げたものの offset を
+     読み替えない。素材の時刻のまま書くと、速度を上げたぶんだけ
+     テロップが後ろへずれ、しまいに clip の外へ出る。
+     外へ出たものは「対応するメディアがない不正な編集です」として弾かれ、
+     その clip から後ろが丸ごと消える。実機で 25クリップのうち
+     2つ目までしか残らなかった（2026-09-08）。
+
+  🔴 数を決め打ちで書かないこと。速度と clip の中の位置の**関係**を見る。
+*/
+do {
+    var cuts: [[String: Any]] = []
+    for i in 1...5 {
+        cuts.append(["decision": "approved", "start": Double(i) * 5.0, "end": Double(i) * 5.0 + 0.5])
+    }
+    var telops: [[String: Any]] = []
+    for i in 0..<28 {
+        telops.append(["start": Double(i) + 0.1, "end": Double(i) + 0.85,
+                       "text": "テロップ\(i)", "style": "normal"])
+    }
+
+    let 速度たち: [Double] = [1.0, 1.25, 2.0]
+    // 速度ごとに「clip の中の何秒目に出るか」を集めて、あとで比べる
+    var 相対位置: [Double: [Double]] = [:]
+
+    for speed in 速度たち {
+        let xml = FCPXMLWriter.build(
+            cuts: cuts, telops: telops, styles: [:], mediaPath: "/m/a.mov", fps: 24,
+            mediaDuration: 30, mediaWidth: 1080, mediaHeight: 1920, speed: speed)
+
+        guard
+            let doc = try? XMLDocument(xmlString: xml, options: []),
+            let clips = (try? doc.nodes(forXPath: "//asset-clip")) as? [XMLElement],
+            !clips.isEmpty
+        else {
+            check("速度 \(speed): XML が読める", false)
+            continue
+        }
+
+        func attr(_ e: XMLElement, _ n: String) -> Double {
+            seconds(e.attribute(forName: n)?.stringValue ?? "0s")
+        }
+
+        var 並びの崩れ: [String] = []
+        var 外に出た: [String] = []
+        var rel: [Double] = []
+        var cursor: Double? = nil
+        var 合計 = 0.0
+
+        for c in clips {
+            let off = attr(c, "offset"), st = attr(c, "start"), du = attr(c, "duration")
+            if let cur = cursor, !near(off, cur, 0.0005) { 並びの崩れ.append("\(off) ≠ \(cur)") }
+            cursor = off + du
+            合計 += du
+            for t in ((try? c.nodes(forXPath: "title")) as? [XMLElement]) ?? [] {
+                let to = attr(t, "offset"), td = attr(t, "duration")
+                if to < st - 0.0005 || to + td > st + du + 0.0005 {
+                    外に出た.append("\(t.attribute(forName: "name")?.stringValue ?? "?") "
+                                  + "\(to)+\(td) ∉ [\(st), \(st + du)]")
+                }
+                rel.append(to - st)
+            }
+        }
+        相対位置[speed] = rel
+
+        check("速度 \(speed): クリップが1フレームの狂いもなく並ぶ",
+              並びの崩れ.isEmpty, 並びの崩れ.prefix(3).joined(separator: " / "))
+        check("速度 \(speed): テロップが clip の外に出ない",
+              外に出た.isEmpty, "\(外に出た.count)件 " + 外に出た.prefix(3).joined(separator: " / "))
+        check("速度 \(speed): テロップが1枚も落ちない", rel.count == telops.count,
+              "\(rel.count) / \(telops.count)")
+
+        let seq = seconds((((try? doc.nodes(forXPath: "//sequence")) as? [XMLElement])?.first?
+            .attribute(forName: "duration")?.stringValue) ?? "0s")
+        check("速度 \(speed): シーケンスの尺はクリップの合計", near(seq, 合計, 0.0005),
+              "\(seq) / \(合計)")
+    }
+
+    // 速度を上げたぶんだけ、clip の中で手前に寄ること
+    if let 等倍 = 相対位置[1.0] {
+        for speed in 速度たち where speed != 1.0 {
+            guard let r = 相対位置[speed], r.count == 等倍.count else {
+                check("速度 \(speed): 等倍と同じ枚数で比べられる", false)
+                continue
+            }
+            var ずれ: [String] = []
+            for (a, b) in zip(等倍, r) where !near(b, a / speed, 1.0 / 24.0 + 0.0005) {
+                ずれ.append("\(a) → \(b)（\(a / speed) のはず）")
+            }
+            check("速度 \(speed): テロップが 1/\(speed) の位置に詰まる",
+                  ずれ.isEmpty, ずれ.prefix(3).joined(separator: " / "))
+        }
+    }
 }
 
 /* ================================================ テロップの時刻

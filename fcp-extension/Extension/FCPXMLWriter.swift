@@ -23,9 +23,28 @@ enum FCPXMLWriter {
 
     /// 秒 -> フレーム境界にスナップした "num/den s"
     static func time(_ seconds: Double, fps: Double) -> String {
-        guard seconds > 0 else { return "0s" }
+        timeFrames(frameCount(seconds, fps: fps), fps: fps)
+    }
+
+    /// 秒 -> フレーム数（いちばん近いフレームへ）
+    static func frameCount(_ seconds: Double, fps: Double) -> Int {
+        guard seconds > 0 else { return 0 }
         let (num, den) = frameDuration(fps: fps)
-        let frames = Int((seconds * Double(den) / Double(num)).rounded())
+        return Int((seconds * Double(den) / Double(num)).rounded())
+    }
+
+    /// フレーム数 -> FCPXML の時刻。
+    ///
+    /// 🔴 clip の並びは秒で積まないこと。
+    ///    offset は前の clip の終わりと 1フレームの狂いもなく
+    ///    一致していなければならない。秒で積むと offset と duration が
+    ///    別々に丸められ、1フレーム重なったり空いたりする。
+    ///    Final Cut はそこを「対応するメディアがない不正な編集です」と言って
+    ///    弾き、**そこから後ろを丸ごと捨てる**。実機で 25クリップのうち
+    ///    2つ目までしか残らなかった（2026-09-08）。
+    static func timeFrames(_ frames: Int, fps: Double) -> String {
+        guard frames > 0 else { return "0s" }
+        let (num, den) = frameDuration(fps: fps)
         let n = num * frames
         return n % den == 0 ? "\(n / den)s" : "\(n)/\(den)s"
     }
@@ -243,8 +262,38 @@ enum FCPXMLWriter {
         */
         let guessed = max(telopEnd, cutEnd)
         let total = mediaDuration > 0 ? mediaDuration : guessed
-        // 出来上がりの尺。速度を変えるとシーケンスも縮む
-        let outTotal = total / (speed > 0 ? speed : 1.0)
+
+        /*
+          再生速度。
+
+          🔴 素材の側の時刻（start）は速度で割らないこと。
+             あれは「素材のどこを使うか」であって、出来上がりの長さではない。
+             割ってしまうと、素材の別の場所を指すことになる。
+
+          🔴 割るのは**出来上がりの長さ**（duration と offset）だけ。
+             2倍速なら、素材 10秒ぶんが 5秒に収まる。
+        */
+        let rate = speed > 0 ? speed : 1.0
+        let hasMedia = !(mediaPath ?? "").isEmpty
+        let keeps: [(start: Double, end: Double)] = approvedCuts.isEmpty
+            ? [(start: 0.0, end: total)]
+            : keepSegments(duration: total, cuts: approvedCuts)
+        /*
+          各クリップの、出来上がりでの長さ（フレーム）。
+          🔴 ここで一度だけ決めて、offset も duration も
+             シーケンスの尺も、すべてこの数から作ること。
+        */
+        let clipFrames: [Int] = keeps.map { seg in
+            let src = frameCount(seg.end, fps: fps) - frameCount(seg.start, fps: fps)
+            return max(1, Int((Double(src) / rate).rounded()))
+        }
+        /*
+          シーケンスの尺。
+          🔴 素材の長さではなく、**残したクリップの合計**にすること。
+             素材の長さのままだと、切ったぶんがそのまま終わりの空白になる。
+             「とにかく詰める」だと 20秒以上の黒みがぶら下がっていた。
+        */
+        let outTotalF = hasMedia ? clipFrames.reduce(0, +) : frameCount(total, fps: fps)
 
         var xml = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -280,52 +329,14 @@ enum FCPXMLWriter {
              いまは、省くのが最も安全。
         */
         if let mediaPath, !mediaPath.isEmpty {
-            let url = URL(fileURLWithPath: mediaPath)
-            xml += """
-                <asset id="r3" name="\(escape(url.deletingPathExtension().lastPathComponent))" start="0s" duration="\(time(total, fps: fps))" hasVideo="1" videoSources="1" hasAudio="1" audioSources="1" audioChannels="2">
-                  <media-rep kind="original-media" src="\(escape(url.absoluteString))"/>
-                </asset>
-
-            """
-        }
-        xml += "  </resources>\n"
-
-        xml += """
-          <library>
-            <event name="PAC">
-              <project name="\(escape(projectName(mediaPath: mediaPath)))">
-                <sequence format="r1" duration="\(time(outTotal, fps: fps))" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
-                  <spine>
-
-        """
-
-        // 本体（カット済みの映像、または空の gap）
-        if let mediaPath, !mediaPath.isEmpty {
             _ = mediaPath
-            let keeps = approvedCuts.isEmpty
-                ? [(start: 0.0, end: total)]
-                : keepSegments(duration: total, cuts: approvedCuts)
-            /*
-              再生速度。
-
-              🔴 素材の側の時刻（start）は速度で割らないこと。
-                 あれは「素材のどこを使うか」であって、出来上がりの長さではない。
-                 割ってしまうと、素材の別の場所を指すことになる。
-
-              🔴 割るのは**出来上がりの長さ**（duration と offset）だけ。
-                 2倍速なら、素材 10秒ぶんが 5秒に収まる。
-
-              🔴 テロップの時刻は素材の時刻のまま置く。
-                 clip にぶら下げたものは、Final Cut が素材の時刻から
-                 出来上がりの時刻へ読み替える。こちらで割ると二重に効く。
-            */
-            let rate = speed > 0 ? speed : 1.0
-            var offset = 0.0
+            var offsetF = 0
             for (i, seg) in keeps.enumerated() {
-                let dur = seg.end - seg.start
-                let outDur = dur / rate
+                let startF = frameCount(seg.start, fps: fps)
+                let endF = frameCount(seg.end, fps: fps)
+                let outDurF = clipFrames[i]
                 xml += """
-                        <asset-clip ref="r3" name="clip\(i + 1)" offset="\(time(offset, fps: fps))" start="\(time(seg.start, fps: fps))" duration="\(time(outDur, fps: fps))" tcFormat="NDF">
+                        <asset-clip ref="r3" name="clip\(i + 1)" offset="\(timeFrames(offsetF, fps: fps))" start="\(timeFrames(startF, fps: fps))" duration="\(timeFrames(outDurF, fps: fps))" tcFormat="NDF">
 
                 """
                 /*
@@ -339,8 +350,8 @@ enum FCPXMLWriter {
                 if rate != 1.0 {
                     xml += """
                                   <timeMap>
-                                    <timept time="0s" value="\(time(seg.start, fps: fps))" interp="linear"/>
-                                    <timept time="\(time(outDur, fps: fps))" value="\(time(seg.end, fps: fps))" interp="linear"/>
+                                    <timept time="0s" value="\(timeFrames(startF, fps: fps))" interp="linear"/>
+                                    <timept time="\(timeFrames(outDurF, fps: fps))" value="\(timeFrames(endF, fps: fps))" interp="linear"/>
                                   </timeMap>
 
                     """
@@ -349,36 +360,68 @@ enum FCPXMLWriter {
                 /*
                   この区間に入るテロップを、この clip にぶら下げる。
 
-                  🔴 offset は「**この clip の中の時刻**」で書くこと。
-                     clip にぶら下げたものの原点は、シーケンスの 0 秒ではなく
-                     clip の start（＝素材の時刻）になる。
+                  🔴 offset の原点は「この clip の start（＝素材の時刻）」。
                      シーケンス上の時刻を書いていたため、頭を 11 秒切った素材で
                      テロップが**まるごと 11 秒ずれ**、喋っている所と
-                     違う所に出ていた（2026-08-31）。素材の時刻をそのまま書けばよい。
+                     違う所に出ていた（2026-08-31）。
+
+                  🔴 原点から先は**出来上がりの時刻**で測ること。
+                     timeMap を付けても、Final Cut は
+                     ぶら下げたものの offset を読み替えてくれない。
+                     素材の時刻のまま書くと、速度を上げたぶんだけ
+                     テロップが後ろへずれていき、しまいに clip の外へ出る。
+                     外へ出たものは「不正な編集」として弾かれ、
+                     その clip から後ろが丸ごと消えた（2026-09-08）。
 
                   🔴 clip の終わりで切ること。
                      はみ出した分は、次の clip のテロップと重なって2枚同時に出る。
                 */
+                let limitF = startF + outDurF
                 for t in telops {
                     guard
                         let s = t["start"] as? Double,
-                        let e = t["end"] as? Double,
-                        s >= seg.start, s < seg.end
+                        let e = t["end"] as? Double
                     else { continue }
-                    let oneFrame = Double(fdNum) / Double(fdDen)
-                    let shown = max(min(e, seg.end) - s, oneFrame)
-                    xml += titleElement(t, styles: styles, offsetSec: s, durationSec: shown, fps: fps, template: template, frameHeight: h, indent: "          ")
+                    /*
+                      どの clip にぶら下げるか。
+
+                      🔴 「始まりが入っているか」で決めないこと。
+                         カットの終わりと喋り出しは数フレーム重なることがあり、
+                         始まりだけカットに食い込んだテロップが丸ごと消えていた。
+                         実機で 66枚中 17枚が出ていなかった（2026-09-08）。
+
+                      🔴 **いちばん長く乗っている clip** に付けること。
+                         またがったものが2つの clip に出て二重になるのを防ぐ。
+                         どの clip にも乗らないもの（カットの中に収まっている
+                         フィラーなど）は、これまでどおり出さない。
+                    */
+                    var best = -1
+                    var bestOverlap = 0.0
+                    for (j, k) in keeps.enumerated() {
+                        let ov = min(e, k.end) - max(s, k.start)
+                        if ov > bestOverlap { bestOverlap = ov; best = j }
+                    }
+                    guard best == i else { continue }
+                    let sF = max(frameCount(max(s, seg.start), fps: fps), startF)
+                    let eF = max(min(frameCount(e, fps: fps), endF), sF + 1)
+                    var tOffF = startF + Int((Double(sF - startF) / rate).rounded())
+                    if tOffF >= limitF { tOffF = limitF - 1 }
+                    var tDurF = max(1, Int((Double(eF - sF) / rate).rounded()))
+                    if tOffF + tDurF > limitF { tDurF = limitF - tOffF }
+                    xml += titleElement(t, styles: styles, offsetFrames: tOffF, durationFrames: tDurF, fps: fps, template: template, frameHeight: h, indent: "          ")
                 }
                 xml += "        </asset-clip>\n"
                 // 🔴 積むのは出来上がりの長さ。素材の長さを積むと、
                 //    速度を変えたときにクリップの間が空く
-                offset += outDur
+                offsetF += outDurF
             }
         } else {
             xml += "        <gap name=\"Gap\" offset=\"0s\" start=\"0s\" duration=\"\(time(total, fps: fps))\">\n"
             for t in telops {
                 guard let s = t["start"] as? Double, let e = t["end"] as? Double else { continue }
-                xml += titleElement(t, styles: styles, offsetSec: s, durationSec: max(e - s, Double(fdNum) / Double(fdDen)), fps: fps, template: template, frameHeight: h, indent: "          ")
+                let sF = frameCount(s, fps: fps)
+                let eF = max(frameCount(e, fps: fps), sF + 1)
+                xml += titleElement(t, styles: styles, offsetFrames: sF, durationFrames: eF - sF, fps: fps, template: template, frameHeight: h, indent: "          ")
             }
             xml += "        </gap>\n"
         }
@@ -400,8 +443,10 @@ enum FCPXMLWriter {
     private static func titleElement(
         _ telop: [String: Any],
         styles: [String: Any],
-        offsetSec: Double,
-        durationSec: Double,
+        /// この title を置く場所。clip の start を原点とした**出来上がり**のフレーム数
+        offsetFrames: Int,
+        /// 出す長さ（出来上がりのフレーム数）
+        durationFrames: Int,
         fps: Double,
         template: TitleTemplate?,
         /// プロジェクトの高さ。文字の大きさが決まらないときの拠り所にする
@@ -417,14 +462,14 @@ enum FCPXMLWriter {
 
         let spans = (telop["spans"] as? [[String: Any]]) ?? []
         let runs = splitRuns(text: text, spans: spans)
-        let idBase = "ts\(abs(text.hashValue % 100000))_\(Int(offsetSec * 1000))"
+        let idBase = "ts\(abs(text.hashValue % 100000))_\(offsetFrames)"
 
         // テンプレがある場合、title の内部 start はテンプレのものに合わせる
         // （Motion テンプレは 3600s のことが多く、ここを変えると表示が壊れる）
         let titleStart = template?.titleStart ?? "0s"
 
         var s = """
-        \(indent)<title ref="r2" lane="1" offset="\(time(offsetSec, fps: fps))" name="\(escape(text))" start="\(titleStart)" duration="\(time(durationSec, fps: fps))">
+        \(indent)<title ref="r2" lane="1" offset="\(timeFrames(offsetFrames, fps: fps))" name="\(escape(text))" start="\(titleStart)" duration="\(timeFrames(durationFrames, fps: fps))">
 
         """
 
