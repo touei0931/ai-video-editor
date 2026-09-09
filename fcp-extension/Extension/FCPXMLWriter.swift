@@ -329,6 +329,27 @@ enum FCPXMLWriter {
              いまは、省くのが最も安全。
         */
         if let mediaPath, !mediaPath.isEmpty {
+            let url = URL(fileURLWithPath: mediaPath)
+            xml += """
+                <asset id="r3" name="\(escape(url.deletingPathExtension().lastPathComponent))" start="0s" duration="\(time(total, fps: fps))" hasVideo="1" videoSources="1" hasAudio="1" audioSources="1" audioChannels="2">
+                  <media-rep kind="original-media" src="\(escape(url.absoluteString))"/>
+                </asset>
+
+            """
+        }
+        xml += "  </resources>\n"
+
+        xml += """
+          <library>
+            <event name="PAC">
+              <project name="\(escape(projectName(mediaPath: mediaPath)))">
+                <sequence format="r1" duration="\(timeFrames(outTotalF, fps: fps))" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
+                  <spine>
+
+        """
+
+        // 本体（カット済みの映像、または空の gap）
+        if let mediaPath, !mediaPath.isEmpty {
             _ = mediaPath
             var offsetF = 0
             for (i, seg) in keeps.enumerated() {

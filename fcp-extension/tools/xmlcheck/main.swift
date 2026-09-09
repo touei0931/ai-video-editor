@@ -714,22 +714,42 @@ do {
           offsets.allSatisfy { $0 >= clipStart - 0.001 && $0 < clipStart + 20.001 }, "\(offsets)")
 }
 
-// カットをまたぐテロップは、その clip の終わりで切る（次の clip のものと重ならないように）
+// カットをまたぐテロップは、いちばん長く乗っている clip に1枚だけ出す
+//
+// 🔴 2つの clip に出して二重に見せないこと。
+// 🔴 clip の外へはみ出させないこと。はみ出したものは
+//    「対応するメディアがない不正な編集です」として弾かれる。
 do {
     let cuts: [[String: Any]] = [["decision": "approved", "start": 10.0, "end": 12.0]]
     let telops: [[String: Any]] = [["id": "t1", "start": 9.0, "end": 15.0, "text": "またぐ", "style": "normal"]]
     let xml = FCPXMLWriter.build(
         cuts: cuts, telops: telops, styles: [:],
         mediaPath: "/m/a.mov", fps: 30, mediaDuration: 30)
-    var dur = -1.0
-    if let r = xml.range(of: "<title [^>]*duration=\"[^\"]+\"", options: .regularExpression) {
-        let tag = String(xml[r])
-        if let d = tag.range(of: "duration=\"[^\"]+\"", options: .regularExpression) {
-            dur = seconds(String(tag[d]).replacingOccurrences(of: "duration=\"", with: "")
-                .replacingOccurrences(of: "\"", with: ""))
+
+    guard
+        let doc = try? XMLDocument(xmlString: xml, options: []),
+        let clips = (try? doc.nodes(forXPath: "//asset-clip")) as? [XMLElement]
+    else {
+        check("またぐテロップ: XML が読める", false)
+        exit(1)
+    }
+    func attr(_ e: XMLElement, _ n: String) -> Double {
+        seconds(e.attribute(forName: n)?.stringValue ?? "0s")
+    }
+    var 枚数 = 0
+    var はみ出し: [String] = []
+    for c in clips {
+        let st = attr(c, "start"), du = attr(c, "duration")
+        for t in ((try? c.nodes(forXPath: "title")) as? [XMLElement]) ?? [] {
+            枚数 += 1
+            let to = attr(t, "offset"), td = attr(t, "duration")
+            if to < st - 0.001 || to + td > st + du + 0.001 {
+                はみ出し.append("\(to)+\(td) ∉ [\(st), \(st + du)]")
+            }
         }
     }
-    check("またぐテロップは clip の終わりで切る", near(dur, 1), "\(dur) 秒")
+    check("またぐテロップは1枚だけ出る", 枚数 == 1, "\(枚数) 枚")
+    check("またぐテロップは clip の中に収まる", はみ出し.isEmpty, はみ出し.joined(separator: " / "))
 }
 
 /* ================================================ 素材と同じ大きさ
