@@ -52,6 +52,43 @@ struct TitleTemplate: Codable {
         ]
     }
 
+    /*
+      見本の見た目を、既定のスタイルに写す。
+
+      🔴 「見本を読み込む」を押した直後だけでなく、**パネルを開くたびに**
+         当てること。覚えているのは見本そのものだけで、スタイルは毎回
+         48px の既定から作り直していた。そのため
+           ・見本を読んだその場では、見本どおりの大きさで書き出せる
+           ・パネルを開き直すと 48px に戻る
+         という、直りにくい形になっていた。
+         しかも「見本が大きさを持っている」ことを理由に、素材の高さからの
+         決め直しも止まる。結果、2160x3840 の素材に 48px
+         （高さの 1.25%。ふつうは 4〜5%）が出た（2026-09-09）。
+
+      🔴 見本が持っていない項目は触らないこと。
+         本文を入れずに書き出した見本は text-style を1つも持たず、
+         font も fontSize も空で返る。そこを上書きすると既定まで潰れる
+         （2026-09-01）。
+    */
+    static func applyLook(to styles: [String: Any], template: TitleTemplate?) -> [String: Any] {
+        guard let t = template, !t.textStyle.isEmpty else { return styles }
+        let face = [t.textStyle["font"] ?? "", t.textStyle["fontFace"] ?? ""]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let size = Double(t.textStyle["fontSize"] ?? "") ?? 0
+        let bold = t.textStyle["bold"].map { $0 == "1" }
+
+        var out = styles
+        for name in styles.keys {
+            guard var s = out[name] as? [String: Any] else { continue }
+            if !face.isEmpty { s["fontFamily"] = face }
+            if size > 0 { s["fontSize"] = size }
+            if let bold { s["bold"] = bold }
+            out[name] = s
+        }
+        return out
+    }
+
     // MARK: - 読み込み
 
     enum LoadError: LocalizedError {

@@ -49,17 +49,25 @@ enum PanelData {
             }
         }
 
+        /*
+          覚えている見本。
+          🔴 見本の「見た目」も、ここでスタイルに写すこと。
+             見本そのものだけを覚えて、スタイルは毎回 48px の既定から
+             作り直していたため、パネルを開き直すと書体も大きさも
+             既定に戻っていた（TitleTemplate.applyLook の注意書き）。
+        */
+        let stored = TitleTemplate.load()
         return [
             "videoUrl": NSNull(),
             "durationSec": duration > 0 ? duration : 60,
             "waveform": [Double](),
             "cuts": [[String: Any]](),
             "telops": [[String: Any]](),
-            "styles": defaultStyles(),
+            "styles": TitleTemplate.applyLook(to: defaultStyles(), template: stored),
             "fonts": fontFamilies(),
             "host": info,
             // 取り込み済みのテロップ見本（無ければ null）
-            "template": TitleTemplate.load()?.summary ?? NSNull(),
+            "template": stored?.summary ?? NSNull(),
         ]
     }
 

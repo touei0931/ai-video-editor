@@ -138,7 +138,8 @@ enum FCPXMLWriter {
     ///    ここに要るものが揃っていれば、それ以上聞かなくて済む。
     static func stamp(
         meta: [String: Any], width: Int, height: Int, fps: Double,
-        cuts: [[String: Any]], telops: [[String: Any]], approved: Int
+        cuts: [[String: Any]], telops: [[String: Any]], approved: Int,
+        styles: [String: Any] = [:]
     ) -> String {
         var parts: [String] = ["PAC"]
         if let build = meta["build"] as? String, !build.isEmpty { parts.append(build) }
@@ -156,6 +157,19 @@ enum FCPXMLWriter {
         }
         if let speed = meta["speed"] as? Double, speed != 1.0 {
             parts.append("速度 \(String(format: "%g", speed * 100))%")
+        }
+        /*
+          🔴 文字の大きさは、**枠の高さに対する割合**も一緒に書くこと。
+             px だけでは大きいか小さいか分からない。48px は 1080p なら
+             ふつうだが、2160x3840 では高さの 1.25% で豆粒になる。
+             「テロップが小さい」で何往復もしたので、書き出したファイル
+             1つで判断できるようにする（2026-09-09）。
+        */
+        if let normal = styles["normal"] as? [String: Any],
+           let size = (normal["fontSize"] as? Double) ?? (normal["fontSize"] as? NSNumber)?.doubleValue,
+           size > 0 {
+            let ratio = height > 0 ? size / Double(height) * 100 : 0
+            parts.append("文字 \(Int(size.rounded()))px（高さの \(String(format: "%.1f", ratio))%）")
         }
         return parts.joined(separator: " / ")
     }
@@ -299,7 +313,7 @@ enum FCPXMLWriter {
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE fcpxml>
         <fcpxml version="\(version)">
-          <!-- \(escape(stamp(meta: meta, width: w, height: h, fps: fps, cuts: cuts, telops: telops, approved: approvedCuts.count))) -->
+          <!-- \(escape(stamp(meta: meta, width: w, height: h, fps: fps, cuts: cuts, telops: telops, approved: approvedCuts.count, styles: styles))) -->
           <resources>
             <format id="r1" name="\(formatName(width: w, height: h, fps: fps))" frameDuration="\(frameDur)" width="\(w)" height="\(h)" colorSpace="1-1-1 (Rec. 709)"/>
             <effect id="r2" name="\(escape(template?.effectName ?? "Basic Title"))" uid="\(escape(template?.effectUID ?? ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"))"/>

@@ -572,6 +572,79 @@ do {
           記録.range(of: "<!-- [^>]*-->", options: .regularExpression).map { String(記録[$0]) } ?? "?")
 }
 
+/* ================================================ 見本の見た目を覚えているか
+
+  🔴 パネルを開き直しても、見本どおりの書体・大きさで書き出すこと。
+     見本そのものだけを覚えて、スタイルは毎回 48px の既定から
+     作り直していたため、開き直すと既定に戻っていた。
+     しかも「見本が大きさを持っている」ことを理由に、素材の高さからの
+     決め直しも止まるので、2160x3840 の素材に 48px（高さの1.25%）が
+     出ていた（2026-09-09、9月８本目.fcpxml）。
+*/
+do {
+    let 既定: [String: Any] = [
+        "normal": ["fontFamily": "ヒラギノ角ゴシック W6", "fontSize": 48.0, "bold": false],
+        "emphasis": ["fontFamily": "ヒラギノ角ゴシック W8", "fontSize": 60.0, "bold": true],
+    ]
+    func size(_ s: [String: Any], _ name: String) -> Double {
+        ((s[name] as? [String: Any])?["fontSize"] as? Double) ?? -1
+    }
+    func face(_ s: [String: Any], _ name: String) -> String {
+        ((s[name] as? [String: Any])?["fontFamily"] as? String) ?? "?"
+    }
+
+    // 見本が無いときは何も変えない
+    let なし = TitleTemplate.applyLook(to: 既定, template: nil)
+    check("見本が無ければ既定のまま",
+          size(なし, "normal") == size(既定, "normal") && face(なし, "normal") == face(既定, "normal"))
+
+    // 見本が書体と大きさを持っているとき
+    let 有り = TitleTemplate(
+        effectUID: "u", effectName: "基本01_10", params: [],
+        textStyle: ["font": "Hiragino Sans", "fontFace": "W8", "fontSize": "141", "bold": "1"],
+        titleStart: "3600s")
+    let 写した = TitleTemplate.applyLook(to: 既定, template: 有り)
+    check("見本の大きさが載る", size(写した, "normal") == 141, "\(size(写した, "normal"))")
+    check("見本の書体が載る", face(写した, "normal") == "Hiragino Sans W8", face(写した, "normal"))
+    check("強調にも載る", size(写した, "emphasis") == 141, "\(size(写した, "emphasis"))")
+
+    /*
+      🔴 見本が持っていない項目で既定を潰さないこと。
+         本文を入れずに書き出した見本は text-style を1つも持たない。
+    */
+    let 書式なし = TitleTemplate(
+        effectUID: "u", effectName: "基本01_13", params: [], textStyle: [:], titleStart: "3600s")
+    let そのまま = TitleTemplate.applyLook(to: 既定, template: 書式なし)
+    check("書式を持たない見本では既定を潰さない",
+          size(そのまま, "normal") == 48 && face(そのまま, "normal") == "ヒラギノ角ゴシック W6",
+          "\(size(そのまま, "normal")) / \(face(そのまま, "normal"))")
+
+    // 大きさだけ無い見本（書体は写すが、大きさは既定のまま）
+    let 大きさなし = TitleTemplate(
+        effectUID: "u", effectName: "x", params: [],
+        textStyle: ["font": "Klee One", "fontSize": "0"], titleStart: "3600s")
+    let 一部 = TitleTemplate.applyLook(to: 既定, template: 大きさなし)
+    check("大きさを持たない見本では大きさを触らない",
+          size(一部, "normal") == 48 && face(一部, "normal") == "Klee One",
+          "\(size(一部, "normal")) / \(face(一部, "normal"))")
+}
+
+/* ================================================ 由来の1行に文字の大きさ
+
+  🔴 px だけでなく、枠の高さに対する割合も書くこと。
+     48px は 1080p ならふつうだが、2160x3840 では豆粒になる。
+*/
+do {
+    let telops: [[String: Any]] = [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal"]]
+    let 小さい: [String: Any] = ["normal": ["fontFamily": "ヒラギノ角ゴシック W6", "fontSize": 48.0]]
+    let xml = FCPXMLWriter.build(
+        cuts: [], telops: telops, styles: 小さい, mediaPath: "/m/a.mov", fps: 24,
+        mediaDuration: 20, mediaWidth: 2160, mediaHeight: 3840)
+    let 由来 = xml.range(of: "<!-- [^>]*-->", options: .regularExpression).map { String(xml[$0]) } ?? ""
+    check("由来の1行に文字の大きさが入る", 由来.contains("文字 48px"), 由来)
+    check("高さに対する割合も入る", 由来.contains("（高さの 1."), 由来)
+}
+
 /* ================================================ 速度とテロップの位置
 
   🔴 timeMap を付けても、Final Cut は clip にぶら下げたものの offset を
