@@ -187,28 +187,40 @@ class Loudness:
     #
     # 10ms ごとの音量（dB）を一度だけ作って持つ。語ごとに作り直すと
     # 数百語で数百回になり、遅い。
+    #
+    # 🔴 numpy を前提にしないこと。検査の環境には入っていないし、
+    #    無いときに例外で止まると解析ごと落ちる（CI で踏んだ、2026-09-11）。
+    #    あれば速く、無ければ素の Python で同じ値を出す。
     _FRAME = 0.010
 
-    def _frames(self) -> Any:
-        if getattr(self, "_db", None) is not None:
-            return self._db
-        try:
-            import numpy as np
+    def _frames(self) -> list[float]:
+        cached = getattr(self, "_db", None)
+        if cached is not None:
+            return cached
+        import math
 
-            n = int(self._rate * self._FRAME)
-            x = self._samples
-            if not hasattr(x, "dtype"):
-                x = np.asarray(x, dtype="float32")
-            count = len(x) // n
-            if n <= 0 or count <= 0:
-                self._db = np.zeros(0, dtype="float32")
-                return self._db
-            frames = x[: count * n].reshape(count, n).astype("float32")
-            rms = np.sqrt(np.square(frames).mean(axis=1)) + 1e-9
-            self._db = 20 * np.log10(rms / 32768.0)
-        except Exception:  # noqa: BLE001
-            self._db = None
-        return self._db
+        n = int(self._rate * self._FRAME)
+        x = self._samples
+        count = len(x) // n if n > 0 else 0
+        out: list[float] = []
+        if count > 0:
+            try:
+                import numpy as np
+
+                arr = x if hasattr(x, "dtype") else np.asarray(x, dtype="float32")
+                frames = arr[: count * n].reshape(count, n).astype("float32")
+                rms = np.sqrt(np.square(frames).mean(axis=1)) + 1e-9
+                out = (20 * np.log10(rms / 32768.0)).tolist()
+            except Exception:  # noqa: BLE001
+                out = []
+                for i in range(count):
+                    total = 0.0
+                    for v in x[i * n : (i + 1) * n]:
+                        total += float(v) * float(v)
+                    rms = (total / n) ** 0.5 + 1e-9
+                    out.append(20 * math.log10(rms / 32768.0))
+        self._db = out
+        return out
 
     def voiced_span(
         self, start: float, end: float, ceiling_db: float, drop_db: float
@@ -219,7 +231,7 @@ class Loudness:
         とみなす。区間の中に声が無ければ None。
         """
         db = self._frames()
-        if db is None or len(db) == 0:
+        if not db:
             return None
         # 🔴 終わりは含めない。+1 で1コマ足すと、次の語の最初のコマまで
         #    「この語の声」に数えてしまい、息継ぎが消える
@@ -227,12 +239,11 @@ class Loudness:
         b = min(len(db), int(round(end / self._FRAME)))
         if b <= a:
             return None
-        import numpy as np
-
-        voiced = np.where(db[a:b] > ceiling_db - drop_db)[0]
-        if len(voiced) == 0:
+        line = ceiling_db - drop_db
+        voiced = [i for i in range(a, b) if db[i] > line]
+        if not voiced:
             return None
-        return ((a + int(voiced[0])) * self._FRAME, (a + int(voiced[-1]) + 1) * self._FRAME)
+        return (voiced[0] * self._FRAME, (voiced[-1] + 1) * self._FRAME)
 
     def ceiling(self, start: float, end: float, drop_db: float = 20.0) -> float | None:
         """区間の「大きい音」の目安（90 パーセンタイル）。
@@ -242,19 +253,15 @@ class Loudness:
            息継ぎでない所で割れる。
         """
         db = self._frames()
-        if db is None or len(db) == 0:
+        if not db:
             return None
-        # 🔴 終わりは含めない。+1 で1コマ足すと、次の語の最初のコマまで
-        #    「この語の声」に数えてしまい、息継ぎが消える
         a = max(0, int(round(start / self._FRAME)))
         b = min(len(db), int(round(end / self._FRAME)))
         if b - a < 10:
             return None
-        import numpy as np
-
-        chunk = db[a:b]
-        hi = float(np.percentile(chunk, 90))
-        lo = float(np.percentile(chunk, 10))
+        chunk = sorted(db[a:b])
+        hi = chunk[int((len(chunk) - 1) * 0.9)]
+        lo = chunk[int((len(chunk) - 1) * 0.1)]
         # 「止まっている」の線（hi - drop）より地の音が下にないと測れない
         return hi if hi - lo >= drop_db + 6.0 else None
 
