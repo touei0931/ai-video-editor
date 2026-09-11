@@ -78,7 +78,8 @@ declare global {
       saveTimeline: (payload: { data: unknown; defaultName: string }) => Promise<string | null>;
       /** 保存したタイムラインを開く。data が null なら壊れている */
       openTimeline: () => Promise<{ path: string; data: unknown } | null>;
-      uiInfo: () => Promise<{ isMac: boolean }>;
+      /** 画面の作りに要る情報。version は不具合を伝えるときの目印 */
+      uiInfo: () => Promise<{ isMac: boolean; version?: string }>;
       /** Final Cut 用のタイムラインの隣に書体を置く。置いたフォルダを返す */
       exportFonts: (payload: { nextTo: string; files: string[] }) => Promise<string | null>;
       /** 保存してある既定。形は信用できないので sanitizeStyles を通すこと */

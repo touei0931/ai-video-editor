@@ -108,6 +108,23 @@ def main() -> None:
         f"BGMなし {d_plain:.2f}秒 / BGMあり {d_mixed:.2f}秒",
     )
 
+    print("\n=== 書き出す再生速度 1.25倍（BGM あり）===")
+    # 🔴 フィルタの文字列を見るだけでなく、本物の ffmpeg で通す。
+    #    setpts と atempo と BGM の切り詰めが同時に成り立つかは、動かさないと分からない。
+    fast = tmp / "fast.mp4"
+    res = export_cut_video(
+        str(src), str(fast), keeps, fps=30.0, work_dir=str(tmp),
+        music={"path": str(bgm), "volume": 0.5, "loop": True}, speed=1.25,
+    )
+    check("書き出せた", fast.exists() and fast.stat().st_size > 0)
+    d_fast = dur(str(fast))
+    check(
+        "尺が 1/1.25 になる",
+        abs(d_fast - 5.0 / 1.25) < 0.35,
+        f"{d_fast:.2f}秒（期待 {5.0 / 1.25:.2f}秒）",
+    )
+    check("結果の長さも出来上がりの長さ", abs(res["kept_seconds"] - 4.0) < 0.01, str(res["kept_seconds"]))
+
     print()
     if FAILS:
         print("test-music-mix: NG " + " / ".join(FAILS))

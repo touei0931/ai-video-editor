@@ -6,11 +6,18 @@
  *    sidecar/telop.py が返すのは**文の区切り**までで、
  *    1画面に収める量は BudouX の文節境界と Canvas の実測幅でここが決める。
  *
+ * 🔴 割る場所は、幅ではなく**話し手の区切り**から先に選ぶこと。
+ *    幅だけで割ると「俺はサイヤ人になり / たいんだけどやっぱり自信がなくて」の
+ *    ように、喋りと関係ない所で切れる。直すのに手間がかかると言われた
+ *    （FCP プラグイン版で 2026-09-02。fcp-extension/webui/src/lib/splitTelop.ts）。
+ *    優先順は、話し手の間 → 弱い間 → 文節の切れ目と幅。
+ *
  * 時刻の対応:
  *    各画面の表示時刻は、単語のタイムスタンプから引く。
  *    そのため「単語列を連結したもの = 本文」という対応が崩れてはいけない
  *    （sidecar/telop.py の _clean_word を参照）。
  */
+import { japaneseParser } from './budoux-ja';
 import { cssFont, telopFontSize, type FontChoice } from './render';
 import {
   DEFAULT_STYLES,
@@ -158,6 +165,95 @@ function makeTimeLookup(words: TelopWord[]) {
   };
 }
 
+/**
+ * これ以上の間があいたら、話し手がそこで区切ったとみなす。
+ *
+ * 🔴 エンジン（sidecar/telop.py）は 0.5秒を超える間で別のまとまりにする。
+ *    そこまで行かない 0.3〜0.5秒の間が、まとまりの中に残る。人はそこで区切って喋っている。
+ *    値はプラグイン版（splitTelop.ts の SPEECH_PAUSE）と同じ。
+ */
+export const SPEECH_PAUSE = 0.3;
+
+/** 長すぎて割るしかないときに、区切りとして使ってよい最小の間 */
+export const WEAK_PAUSE = 0.12;
+
+/** 語の並びの中で、間が空いている「文字位置」を返す */
+function pausePoints(words: TelopWord[], minPause: number): { at: number; gap: number }[] {
+  const out: { at: number; gap: number }[] = [];
+  let at = 0;
+  for (let i = 0; i < words.length - 1; i++) {
+    at += words[i].text.length;
+    const gap = words[i + 1].srcStart - words[i].srcEnd;
+    if (gap >= minPause) out.push({ at, gap });
+  }
+  return out;
+}
+
+/** 幅で割るしかないときの割り方。maxLines 行ずつまとめて1枚にする */
+function chunkByWidth(
+  measureAt: (text: string, scale: number) => number,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
+  // 🔴 まず「文節途中で切らない」倍率を求めてから折り返す。
+  //    等倍で折り返してから2行ずつ束ねると、束ねる前に文節途中の改行が確定してしまい、
+  //    あとから縮めても直せない（「めちゃくちゃかた / くて」になる）。
+  const all = fitJapanese(measureAt, text, maxWidth);
+  const chunks: string[] = [];
+  for (let i = 0; i < all.lines.length; i += maxLines) {
+    chunks.push(all.lines.slice(i, i + maxLines).join(''));
+  }
+  return chunks.length > 0 ? chunks : [text];
+}
+
+/**
+ * 1つのまとまりを、1画面ぶんに割る。
+ *
+ * 優先順は、話し手の間 → 弱い間 → 文節の切れ目と幅。
+ *   1) はっきりした間（SPEECH_PAUSE 以上）では、長さに関わらず切る
+ *   2) それでも収まらない分は、真ん中に近い弱い間（WEAK_PAUSE 以上）で割る
+ *   3) 間が無いのに収まらないものだけ、文節の切れ目と幅で割る（従来どおり）
+ *
+ * 🔴 「収まる」は、等倍で折り返して maxLines 行以内かで見る。
+ *    文字数では見ない。幅は書体と大きさで変わる。
+ */
+export function chunksByPauses(
+  text: string,
+  words: TelopWord[],
+  fits: (text: string) => boolean,
+  chunkLong: (text: string) => string[],
+): string[] {
+  if (words.length === 0) return fits(text) ? [text] : chunkLong(text);
+
+  // 1) はっきりした間では、長さに関わらず切る（そこが話し手の区切り）
+  let pieces: { text: string; from: number }[] = [];
+  let prev = 0;
+  for (const p of pausePoints(words, SPEECH_PAUSE)) {
+    pieces.push({ text: text.slice(prev, p.at), from: prev });
+    prev = p.at;
+  }
+  pieces.push({ text: text.slice(prev), from: prev });
+  pieces = pieces.filter((p) => p.text.length > 0);
+
+  // 2) それでも長い分は、いちばん真ん中に近い弱い間で割る（端で切ると片方だけ長いまま）
+  const weak = pausePoints(words, WEAK_PAUSE);
+  const byWeakPause = (piece: { text: string; from: number }): typeof pieces => {
+    if (fits(piece.text)) return [piece];
+    const inside = weak.filter((g) => g.at > piece.from && g.at < piece.from + piece.text.length);
+    if (inside.length === 0) return [piece];
+    const mid = piece.from + piece.text.length / 2;
+    const best = inside.reduce((a, b) => (Math.abs(a.at - mid) <= Math.abs(b.at - mid) ? a : b));
+    const left = { text: text.slice(piece.from, best.at), from: piece.from };
+    const right = { text: text.slice(best.at, piece.from + piece.text.length), from: best.at };
+    return [...byWeakPause(left), ...byWeakPause(right)];
+  };
+  pieces = pieces.flatMap(byWeakPause);
+
+  // 3) 間が無いのに長いものだけ、文節の切れ目と幅で割る
+  return pieces.flatMap((p) => (fits(p.text) ? [p.text] : chunkLong(p.text)));
+}
+
 export function splitIntoCards(
   unit: TelopUnit,
   measure: Measure,
@@ -177,17 +273,10 @@ export function splitIntoCards(
   const text = unit.words.map((w) => w.text).join('');
   if (!text.trim()) return [];
 
-  // 🔴 まず「文節途中で切らない」倍率を求めてから折り返す。
-  //    等倍で折り返してから2行ずつ束ねると、束ねる前に文節途中の改行が確定してしまい、
-  //    あとから縮めても直せない（「めちゃくちゃかた / くて」になる）。
-  const all = fitJapanese(measureAt, text, maxWidth);
-
-  // maxLines 行ずつまとめて1枚にする
-  const chunks: string[] = [];
-  for (let i = 0; i < all.lines.length; i += maxLines) {
-    chunks.push(all.lines.slice(i, i + maxLines).join(''));
-  }
-  if (chunks.length === 0) chunks.push(text);
+  const fits = (t: string) => fitJapanese(measureAt, t, maxWidth).lines.length <= maxLines;
+  const chunks = chunksByPauses(text, unit.words, fits, (t) =>
+    chunkByWidth(measureAt, t, maxWidth, maxLines),
+  );
 
   const lookup = makeTimeLookup(unit.words);
   const cards: TelopCard[] = [];
@@ -273,14 +362,90 @@ export function resolveOverlaps(cards: TelopCard[]): TelopCard[] {
   return out;
 }
 
-/** 全ユニットを画面単位に展開する。隣り合うユニット間の重なりもここで解消する。 */
+/**
+ * これ以上間が空いていたら、別の発言としてつながない。
+ *
+ * 🔴 実データから取ること（プラグイン版で実測）。
+ *      無理やり割られた組: 間 -0.03秒 / 0.03秒（＝間が無い）
+ *      本当の切れ目      : 間  0.40秒 / 0.53秒 / 0.60秒
+ *    「間がほぼ無い」ことが、機械的に割られた印になる。
+ *    0.4 にすると本当の切れ目までつないでしまう。
+ */
+export const JOIN_GAP = 0.15;
+
+/**
+ * つないでよい長さの上限。エンジンの保険上限（sidecar/telop.py の hard_max_chars = 40）で
+ * 機械的に切られた組を直すのが目的なので、その2倍。つないだ後に必ず割り直す。
+ */
+const JOIN_MAX_CHARS = 80;
+
+/** つなぎ目が文節の切れ目になっているか */
+function isPhraseBoundary(a: string, b: string): boolean {
+  let at = 0;
+  for (const p of japaneseParser.parse(a + b)) {
+    at += p.length;
+    if (at === a.length) return true;
+    if (at > a.length) return false;
+  }
+  return true;
+}
+
+/**
+ * 語の途中で切れている隣どうしをつなぎ直す。
+ *
+ * 🔴 エンジンは**単語の時刻と文字数**でしか区切れない。
+ *    句読点も間も無いまま喋り続けると 40文字の保険上限に当たり、そこで機械的に切れる。
+ *    プラグイン版の実機で「…しづらさを減 / らすこともあります」と割れた（2026-08-31）。
+ *    同じエンジンなので、こちらでも同じことが起きる。
+ *
+ * 🔴 つなぐのは「つなぎ目が文節の切れ目になっていない」ときだけ。
+ *    切れ目として正しい所までつなぐと、1枚が長くなるだけで良いことがない。
+ *    つないだものは必ず割り直すので（splitIntoCards）、長くなること自体は困らない。
+ */
+export function joinBrokenUnits(units: TelopUnit[]): TelopUnit[] {
+  const out: TelopUnit[] = [];
+  for (const u of units) {
+    const prev = out[out.length - 1];
+    if (
+      prev &&
+      prev.style === u.style &&
+      prev.words.length > 0 &&
+      u.words.length > 0 &&
+      u.srcStart - prev.srcEnd <= JOIN_GAP &&
+      prev.text.length + u.text.length <= JOIN_MAX_CHARS &&
+      !isPhraseBoundary(prev.text, u.text)
+    ) {
+      out[out.length - 1] = {
+        ...prev,
+        text: prev.text + u.text,
+        srcEnd: u.srcEnd,
+        words: [...prev.words, ...u.words],
+        // どちらかが要確認なら、つないだものも要確認
+        needsCheck: prev.needsCheck || u.needsCheck,
+        confidence: Math.min(prev.confidence, u.confidence),
+        lowWords: prev.lowWords + u.lowWords,
+        highlight: prev.highlight ?? u.highlight,
+      };
+      continue;
+    }
+    out.push(u);
+  }
+  return out;
+}
+
+/**
+ * 全ユニットを画面単位に展開する。隣り合うユニット間の重なりもここで解消する。
+ * 🔴 先につなぎ直してから割ること。割るだけでは、すでに割れているものを直せない。
+ */
 export function buildCards(
   units: TelopUnit[],
   measure: Measure,
   frame: Frame,
   options: SplitOptions = {},
 ): TelopCard[] {
-  return resolveOverlaps(units.flatMap((u) => splitIntoCards(u, measure, frame, options)));
+  return resolveOverlaps(
+    joinBrokenUnits(units).flatMap((u) => splitIntoCards(u, measure, frame, options)),
+  );
 }
 
 /** Canvas を使った幅の実測関数を作る。フォントの読み込みは呼び出し側で済ませておくこと。 */

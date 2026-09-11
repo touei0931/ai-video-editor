@@ -20,6 +20,7 @@
 
 import type { ReactNode } from 'react';
 import { Resizer, useLayout } from './Resizer';
+import { useShellInfo } from './ShellInfo';
 import './shell.css';
 
 export type StepId = 'source' | 'cut' | 'telop' | 'framing' | 'export';
@@ -60,6 +61,8 @@ export function EditorShell({
   timeline,
 }: EditorShellProps) {
   const { layout, set, reset } = useLayout();
+  const info = useShellInfo();
+  const fps = info.media ? Math.round(info.media.fps * 100) / 100 : 0;
 
   return (
     <div
@@ -73,6 +76,33 @@ export function EditorShell({
     >
       <header className="fcp-toolbar">
         <span className="fcp-brand">PAC</span>
+        {/*
+          🔴 版・素材・使った設定は必ず出す（ShellInfo.ts の注意書き）。
+             素材の大きさが読めていないときは、そのことを警告として出す。
+        */}
+        {info.version && (
+          <span className="fcp-badge" title="この画面の版（不具合を伝えるときは一緒に教えてください）">
+            v{info.version}
+          </span>
+        )}
+        {info.media !== undefined &&
+          (info.media && info.media.width > 0 && info.media.height > 0 ? (
+            <span className="fcp-badge" title="この大きさ・コマ数で書き出します">
+              {info.media.width}×{info.media.height}
+              {fps > 0 ? ` / ${fps}fps` : ''}
+            </span>
+          ) : (
+            <span className="fcp-badge warn" title="素材の大きさが読めませんでした">
+              素材の大きさが読めません（1920x1080 で書き出します）
+            </span>
+          ))}
+        {info.analysis && (
+          <span className="fcp-badge" title="この設定で候補を出しました">
+            {info.analysis.paceLabel}
+            {info.analysis.detectAside ? ' / 独り言 入' : ' / 独り言 切'}
+            {` / 候補 ${info.analysis.candidates}`}
+          </span>
+        )}
         <nav className="fcp-steps" aria-label="手順">
           {STEPS.map((s, i) => {
             const state = s.id === step ? 'now' : done.includes(s.id) ? 'done' : '';

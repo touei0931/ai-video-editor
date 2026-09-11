@@ -365,6 +365,24 @@ export function CutStage({
 
   const removedSec = approvedCuts.reduce((a, c) => a + (c.srcEnd - c.srcStart), 0);
 
+  /**
+   * 保留をまとめて片づける。
+   *
+   * 🔴 プラグイン版の「全部承認 / 全部却下」と同じ。
+   *    候補が多いときは、一度すべて切る扱いにしてから残したい所だけ
+   *    「残す」に戻すほうが速い（友達は実際にそう使っている）。
+   *    1回の操作として覚えるので、Ctrl+Z で丸ごと戻せる。
+   */
+  const decideAllHeld = useCallback(
+    (next: 'cut' | 'keep') => {
+      if (held.length === 0) return;
+      const n = held.length;
+      for (const c of held) decide(c.id, next);
+      setNotice(`保留 ${n} 件を${next === 'cut' ? '切りました' : '残しました'}（Ctrl+Z で戻せます）`);
+    },
+    [held, decide],
+  );
+
   /* ---------- 再生 ---------- */
 
   /**
@@ -1157,6 +1175,26 @@ export function CutStage({
                 </button>
                 <button onClick={() => goPending(1)} disabled={held.length === 0} title="↓ キー">
                   ↓ 次へ
+                </button>
+              </div>
+              {/*
+                🔴 まとめて片づける口を置く（プラグイン版の「全部承認 / 全部却下」）。
+                   候補が多いときは、いったん全部切ってから残したい所だけ戻すほうが速い。
+              */}
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <button
+                  onClick={() => decideAllHeld('cut')}
+                  disabled={held.length === 0}
+                  title="保留になっている箇所を、まとめて「切る」にします（Ctrl+Z で戻せます）"
+                >
+                  保留をすべて切る
+                </button>
+                <button
+                  onClick={() => decideAllHeld('keep')}
+                  disabled={held.length === 0}
+                  title="保留になっている箇所を、まとめて「残す」にします（Ctrl+Z で戻せます）"
+                >
+                  保留をすべて残す
                 </button>
               </div>
               <dl className="fcp-keys">

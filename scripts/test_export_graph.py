@@ -114,6 +114,60 @@ def main() -> int:
                 total < CMDLINE_LIMIT // 4,
                 f"コマンドライン {total:,} 文字",
             )
+
+            # ── 等倍では速度のフィルタを1つも足さない ──
+            check("等倍では setpts で縮めない", "setpts=PTS/" not in graph)
+            check("等倍では atempo を足さない", "atempo" not in graph)
+            check("等倍では出力のコマ数を固定しない", "-r" not in cmd)
+
+            # ── 書き出す再生速度 ──
+            #
+            # 🔴 テロップを重ねた**あと**に映像を縮める。声は同じ率、BGM は縮めない。
+            short = keeps[:3]
+            track = Path(tmp) / "track-0.txt"
+            track.write_text("ffconcat version 1.0\n", encoding="utf-8")
+            music = Path(tmp) / "bgm.mp3"
+            music.write_bytes(b"0")
+            out2 = str(Path(tmp) / "fast.mp4")
+            res = media.export_cut_video(
+                "dummy.mp4", out2, short, telop_tracks=[str(track)], work_dir=tmp,
+                music={"path": str(music), "volume": 0.2, "loop": True}, speed=1.25,
+            )
+            cmd2 = captured["cmd"]
+            graph2 = Path(cmd2[cmd2.index("-filter_complex_script") + 1]).read_text(encoding="utf-8")
+            check("速度: 映像を setpts で縮める", "setpts=PTS/1.25[vout]" in graph2, graph2[-200:])
+            check(
+                "速度: テロップを重ねたあとで縮める（overlay → setpts の順）",
+                graph2.index("overlay=") < graph2.index("setpts=PTS/1.25"),
+            )
+            check("速度: 声は atempo で同じ率", "atempo=1.25" in graph2)
+            check(
+                "速度: 音量を揃えたあとに速度を掛ける（loudnorm → atempo）",
+                graph2.index("loudnorm") < graph2.index("atempo=1.25"),
+            )
+            kept_src = sum(e - s for s, e in short)
+            check(
+                "速度: BGM は出来上がりの長さで切る",
+                f"atrim=0:{kept_src / 1.25:.3f}" in graph2,
+                f"素材 {kept_src:.3f}秒 / 期待 {kept_src / 1.25:.3f}秒",
+            )
+            check("速度: 出力のコマ数を固定する", "-r" in cmd2 and cmd2[cmd2.index("-r") + 1] == "30")
+            check(
+                "速度: 結果の長さは出来上がりの長さ",
+                abs(res["kept_seconds"] - kept_src / 1.25) < 0.01,
+                f"{res['kept_seconds']} / 期待 {kept_src / 1.25:.2f}",
+            )
+            # 出力ラベルの繋がり（作ったラベルは必ず1回だけ使う）。[vfull] が宙に浮いていないこと
+            check("速度: 作った [vfull] を使っている", graph2.count("[vfull]") == 2, str(graph2.count("[vfull]")))
+
+            # 4倍は atempo を2段に分ける（1段の上限は 2.0）
+            media.export_cut_video("dummy.mp4", out2, short, work_dir=tmp, speed=4.0)
+            cmd4 = captured["cmd"]
+            graph4 = Path(cmd4[cmd4.index("-filter_complex_script") + 1]).read_text(encoding="utf-8")
+            check("速度 4倍: atempo を 2.0 × 2.0 に分ける", "atempo=2.0,atempo=2.0" in graph4)
+            check("速度 4倍: 0.25 倍は 0.5 × 0.5", media.atempo_chain(0.25) == "atempo=0.5,atempo=0.5",
+                  media.atempo_chain(0.25))
+            check("速度 1.5倍: 1段", media.atempo_chain(1.5) == "atempo=1.5", media.atempo_chain(1.5))
     finally:
         media._run_with_progress = original_run
         media.probe_video_info = original_probe

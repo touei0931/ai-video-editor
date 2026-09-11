@@ -443,6 +443,143 @@ const at = (px) => (text, scale) => measure(text, px * scale);
   );
 }
 
+// ── 話し手の間で割る ────────────────────────────────────────
+
+/** 語の並びを作る。gapAfter は次の語までの間（秒） */
+const wordsOf = (parts, start = 10) => {
+  const out = [];
+  let t = start;
+  for (const [text, gapAfter = 0] of parts) {
+    const len = text.length * 0.15;
+    out.push({ text, srcStart: Number(t.toFixed(3)), srcEnd: Number((t + len).toFixed(3)) });
+    t += len + gapAfter;
+  }
+  return out;
+};
+const unitOf = (id, words, style = 'normal') => ({
+  id,
+  unitId: id,
+  srcStart: words[0].srcStart,
+  srcEnd: words[words.length - 1].srcEnd,
+  text: words.map((w) => w.text).join(''),
+  style,
+  reason: '',
+  highlight: null,
+  needsCheck: false,
+  confidence: 1,
+  lowWords: 0,
+  words,
+});
+
+{
+  /*
+    🔴 幅に収まっていても、はっきりした間（0.3秒以上）では切る。
+       そこが話し手の区切り。幅だけで割ると喋りと関係ない所で切れる
+       （プラグイン版で「俺はサイヤ人になり / たいんだけど」と言われた）。
+  */
+  const words = wordsOf([['俺は'], ['サイヤ人に'], ['なりたい', 0.4], ['んだけど'], ['やっぱり'], ['自信が'], ['なくて']]);
+  const text = words.map((w) => w.text).join('');
+  const chunks = split.chunksByPauses(text, words, () => true, (t) => [t]);
+  check('はっきりした間で切る', chunks.length === 2, chunks.join(' / '));
+  check('切れ目は間のあった語の直後', chunks[0] === '俺はサイヤ人になりたい', chunks.join(' / '));
+  check('本文は落ちない', chunks.join('') === text, chunks.join(''));
+}
+
+{
+  // 間が無ければ、幅に収まる限り1枚
+  const words = wordsOf([['今日は'], ['いい'], ['天気'], ['ですね']]);
+  const text = words.map((w) => w.text).join('');
+  const chunks = split.chunksByPauses(text, words, () => true, (t) => [t]);
+  check('間が無く収まるなら1枚', chunks.length === 1, chunks.join(' / '));
+}
+
+{
+  /*
+    収まらないときは、真ん中に近い弱い間（0.12秒以上）で割る。
+    端で切ると片方だけ長いままになる。
+  */
+  const words = wordsOf([
+    ['これが', 0.13], ['めちゃくちゃ'], ['かたくて', 0.14], ['いいな', 0.13], ['と'], ['思います'],
+  ]);
+  const text = words.map((w) => w.text).join('');
+  // 10文字までしか収まらないことにする。弱い間は 3 / 13 / 16 文字目
+  const chunks = split.chunksByPauses(text, words, (t) => t.length <= 10, (t) => [`幅:${t}`]);
+  check('弱い間で割る（幅で割らない）', chunks.every((c) => !c.startsWith('幅:')), chunks.join(' / '));
+  check(
+    '真ん中に近い間から割る（13文字目 → 3文字目）',
+    chunks.join(' / ') === 'これが / めちゃくちゃかたくて / いいなと思います',
+    chunks.join(' / '),
+  );
+  check('全部収まるまで割る', chunks.every((c) => c.length <= 10), chunks.join(' / '));
+  check('本文は落ちない', chunks.join('') === text, chunks.join(''));
+}
+
+{
+  // 間が無いのに収まらないものだけ、幅で割る（従来どおり）
+  const words = wordsOf([['これが'], ['めちゃくちゃ'], ['かたくて'], ['いいなと'], ['思います']]);
+  const text = words.map((w) => w.text).join('');
+  const chunks = split.chunksByPauses(text, words, (t) => t.length <= 10, (t) => [t.slice(0, 10), t.slice(10)]);
+  check('間が無ければ幅で割る', chunks.length === 2 && chunks[0].length === 10, chunks.join(' / '));
+}
+
+{
+  /*
+    🔴 割った先の時刻は語の時刻から出す。長さで按分すると早口の所でずれる。
+  */
+  const words = wordsOf([['俺は'], ['サイヤ人に'], ['なりたい', 0.4], ['んだけど'], ['自信が'], ['なくて']]);
+  const unit = unitOf('u1', words);
+  const frame = { width: 1080, height: 1920 };
+  const cards = split.splitIntoCards(unit, (t, px) => measure(t, px), frame);
+  check('間で2枚になる', cards.length === 2, cards.map((c) => c.text).join(' / '));
+  check(
+    '2枚目の開始は「んだけど」の時刻',
+    cards[1]?.srcStart === words[3].srcStart,
+    `${cards[1]?.srcStart} / 語 ${words[3].srcStart}`,
+  );
+  check('1枚目の終わりは「なりたい」の時刻', cards[0]?.srcEnd === words[2].srcEnd, `${cards[0]?.srcEnd} / 語 ${words[2].srcEnd}`);
+}
+
+// ── 語の途中で割れた組をつなぎ直す ──────────────────────────
+
+{
+  /*
+    🔴 エンジンは 40文字の保険上限で機械的に切る。「…しづらさを減 / らすこともあります」。
+       間がほぼ無く、つなぎ目が文節の切れ目でないものだけつなぐ。
+  */
+  const a = wordsOf([['これは'], ['見づらさを'], ['減']]);
+  const b = wordsOf([['らす'], ['ことも'], ['あります']], a[a.length - 1].srcEnd + 0.03);
+  const joined = split.joinBrokenUnits([unitOf('a', a), unitOf('b', b)]);
+  check('語の途中で切れた組はつなぐ', joined.length === 1, joined.map((u) => u.text).join(' / '));
+  check('つないだ本文', joined[0]?.text === 'これは見づらさを減らすこともあります', joined[0]?.text);
+  check('語の時刻も引き継ぐ', joined[0]?.words.length === 6, String(joined[0]?.words.length));
+  check('終わりは後ろの終わり', joined[0]?.srcEnd === b[b.length - 1].srcEnd);
+}
+
+{
+  // 本当の切れ目（間がある）はつながない
+  const a = wordsOf([['これは'], ['見づらさを'], ['減']]);
+  const b = wordsOf([['らす'], ['ことも'], ['あります']], a[a.length - 1].srcEnd + 0.5);
+  const joined = split.joinBrokenUnits([unitOf('a', a), unitOf('b', b)]);
+  check('間が空いていればつながない', joined.length === 2, joined.map((u) => u.text).join(' / '));
+}
+
+{
+  // 文節の切れ目で分かれているものはつながない（つなぐと1枚が長くなるだけ）
+  // 文節: そうですね / それは / ちょっと / 違います
+  const a = wordsOf([['そう'], ['ですね']]);
+  const b = wordsOf([['それは'], ['ちょっと'], ['違います']], a[a.length - 1].srcEnd + 0.03);
+  const joined = split.joinBrokenUnits([unitOf('a', a), unitOf('b', b)]);
+  check('文節の切れ目ならつながない', joined.length === 2, joined.map((u) => u.text).join(' / '));
+}
+
+{
+  // 見た目が違えばつながない
+  const a = wordsOf([['これは'], ['減']]);
+  const b = wordsOf([['らす']], a[a.length - 1].srcEnd + 0.03);
+  const joined = split.joinBrokenUnits([unitOf('a', a, 'normal'), unitOf('b', b, 'emphasis')]);
+  check('見た目が違えばつながない', joined.length === 2);
+}
+
 // ── 表示時刻の重なり ────────────────────────────────────────
 
 const card = (id, srcStart, srcEnd) => ({

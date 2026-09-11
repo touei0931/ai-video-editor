@@ -90,6 +90,42 @@ function framesToStr(f: number, fps: number): string {
   return f === 0 ? '0s' : `${f * num}/${den}s`;
 }
 
+/** 決まったコマ数の呼び名（Apple の書き方）。29.97 は「p30」ではなく「p2997」 */
+const RATE_NAME: Record<string, string> = {
+  '23.976': '2398',
+  '24': '24',
+  '25': '25',
+  '29.97': '2997',
+  '30': '30',
+  '50': '50',
+  '59.94': '5994',
+  '60': '60',
+};
+
+/**
+ * Final Cut に見せる形式の名前。
+ *
+ * 🔴 決まった名前は「その大きさそのもの」のときだけ使うこと。
+ *    FFVideoFormat1080p / 720p / 4K は、Apple が**横向き**の
+ *    1920x1080 / 1280x720 / 3840x2160 に付けている名前。
+ *    以前は高さだけを見て「FFVideoFormat1920p30」のような
+ *    ありそうな名前を作っていた。名前と中身が食い違うと Final Cut は
+ *    名前の方（16:9）を信じて素材を一度 16:9 に収め、それをまた縦の枠に収める。
+ *    9/16 を2回かけた **0.316倍** で真ん中に小さく出る（プラグイン版で 2026-08-31）。
+ *
+ * 🔴 コマ数の方も「決まった値」でなければ名乗らない。
+ *    当てはまらないときは Apple が「決まった形ではない」の意味で使う名前に倒し、
+ *    大きさは width/height だけで決めさせる。sidecar/fcpxml.py の format_name と同じ。
+ */
+export function formatName(width: number, height: number, fps: number): string {
+  const rate = RATE_NAME[String(Math.round(fps * 1000) / 1000)];
+  if (!rate) return 'FFVideoFormatRateUndefined';
+  if (width === 1920 && height === 1080) return `FFVideoFormat1080p${rate}`;
+  if (width === 1280 && height === 720) return `FFVideoFormat720p${rate}`;
+  if (width === 3840 && height === 2160) return `FFVideoFormat4K${rate}`;
+  return 'FFVideoFormatRateUndefined';
+}
+
 export function buildFCPXML(project: Project, options: ExportOptions = {}): string {
   /*
     🔴 既定はプロジェクトの決めごとから取ること。
@@ -130,7 +166,7 @@ export function buildFCPXML(project: Project, options: ExportOptions = {}): stri
     '<!DOCTYPE fcpxml>',
     `<fcpxml version="${FCPXML_VERSION}">`,
     '  <resources>',
-    `    <format id="r0" name="FFVideoFormat${height}p${Math.round(fps)}"` +
+    `    <format id="r0" name="${formatName(width, height, fps)}"` +
       ` frameDuration="${num}/${den}s" width="${width}" height="${height}"` +
       ' colorSpace="1-1-1 (Rec. 709)"/>',
   ];

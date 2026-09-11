@@ -61,6 +61,15 @@ export interface FinalStageProps {
    */
   options: ExportOptions;
   onOptionsChange(o: ExportOptions): void;
+  /**
+   * 書き出す再生速度（1 = 等倍）。
+   *
+   * 🔴 通し確認はこの速さで流す（プラグイン版と同じ）。
+   *    別の速さで確かめても意味がない。「その速度で見て、テロップがずれて
+   *    いないことを確認できるほうがいい」と友達に言われた。
+   */
+  speed?: number;
+  onSpeedChange?(v: number): void;
 }
 
 export function FinalStage({
@@ -81,6 +90,8 @@ export function FinalStage({
   exporting,
   options,
   onOptionsChange,
+  speed = 1,
+  onSpeedChange,
 }: FinalStageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -98,6 +109,17 @@ export function FinalStage({
     reverseAudioPath: audioPath ? mediaUrl(audioPath) : null,
   });
   const { videoRef, audioRef } = player;
+
+  /*
+    通し確認は書き出す速さで流す。
+    🔴 setRate は参照で呼ぶ。player は毎描画で作り直されるので、依存に入れると
+       速度を触っていないのに毎回 1 倍に戻される。
+  */
+  const setRateRef = useRef(player.setRate);
+  setRateRef.current = player.setRate;
+  useEffect(() => {
+    setRateRef.current(speed > 0 ? speed : 1);
+  }, [speed]);
 
   /** 表示している時刻（出来上がり）→ 元素材の時刻 */
   const srcTime = segments.length ? toSource(segments, player.time) : player.time;
@@ -299,9 +321,12 @@ export function FinalStage({
         <>
           <div className="fcp-field">
             <label>出来上がりの長さ</label>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{clock(player.duration)}</div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>
+              {clock(player.duration / (speed > 0 ? speed : 1))}
+            </div>
             <div className="fcp-dim">
               元の素材 {clock(duration)} から {cutSeconds.toFixed(1)} 秒を切ります
+              {speed !== 1 && <>（{Math.round(speed * 100)}% の速さで書き出します）</>}
             </div>
           </div>
 
@@ -355,6 +380,41 @@ export function FinalStage({
               初回だけ中の書体を入れてください（入れないと別の書体で開きます）。
             </p>
           </div>
+
+          {/*
+            🔴 書き出す速度はここでも変えられるようにする（② 設定と同じ値）。
+               設定画面だけに置くと、確認できるのが書き出したあとになる。
+               通し確認はこの速さで流れる。
+          */}
+          {onSpeedChange && (
+            <div className="fcp-field">
+              <label>書き出す再生速度</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="number"
+                  min={25}
+                  max={400}
+                  step={5}
+                  value={Math.round(speed * 100)}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (!Number.isFinite(n) || n <= 0) return;
+                    onSpeedChange(n / 100);
+                  }}
+                  onBlur={(e) => {
+                    const n = Number(e.target.value);
+                    onSpeedChange(Number.isFinite(n) && n > 0 ? Math.min(400, Math.max(25, n)) / 100 : 1);
+                  }}
+                  style={{ width: 72 }}
+                />
+                <span className="fcp-dim">％（100 で等倍）</span>
+              </div>
+              <p className="fcp-dim">
+                動画・字幕・Final Cut 用のすべてに効きます。テロップも一緒に付いてきます。
+                この通し確認も同じ速さで流れます。
+              </p>
+            </div>
+          )}
 
           <p className="fcp-dim">
             ここで見えているものが、そのまま書き出されます。

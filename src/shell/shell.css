@@ -115,6 +115,27 @@
   border-right: 1px solid var(--line);
 }
 
+/*
+  版・素材の大きさ・使った設定。
+  🔴 消さないこと。無いと「どの版が動いているか」「どの大きさで書き出すか」が
+     画面から分からない（ShellInfo.ts）。
+*/
+.fcp-badge {
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.fcp-badge.warn {
+  color: var(--sel);
+  border-color: var(--sel);
+}
+
 /* 手順の現在地。段階が変わっても場所が動かないことが要点 */
 .fcp-steps {
   display: flex;

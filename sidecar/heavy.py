@@ -423,6 +423,18 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     keeps = keep_ranges(duration, cuts)
     kept_total = sum(e - s for s, e in keeps)
 
+    """
+    書き出す再生速度（1.0 = 等倍）。
+
+    🔴 素材側の時刻（どこを使うか）は割らず、出来上がりの長さと位置だけを割る。
+       動画は最後に setpts / atempo で縮め、字幕と Final Cut 用の時刻も同じ率で割る。
+       テロップの帯（concat）は等倍のまま作る。映像に重ねたあとで縮めるので、
+       帯まで割ると二重に縮む。
+    🔴 範囲で縛る。0 や 100 が来ると ffmpeg が止まる（atempo は 0.5〜100）。
+    """
+    speed = float(params.get("speed") or 1.0)
+    speed = min(4.0, max(0.25, speed)) if speed > 0 else 1.0
+
     work_dir = Path(params.get("work_dir") or default_work_dir(video_path))
 
     # ── テロップを編集後タイムラインへ写す ──
@@ -467,7 +479,14 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
 
         if placed:
             if params.get("write_srt", True):
-                srt_path = write_srt(str(Path(out_path).with_suffix(".srt")), placed)
+                # 🔴 字幕は出来上がりの時刻。速度を変えたら同じ率で割る
+                srt_path = write_srt(
+                    str(Path(out_path).with_suffix(".srt")),
+                    [
+                        {**p, "out_start": p["out_start"] / speed, "out_end": p["out_end"] / speed}
+                        for p in placed
+                    ],
+                )
             if burn:
                 """
                 🔴 段ごとに帯を分ける。
@@ -500,6 +519,7 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
         work_dir=str(work_dir),
         # BGM。{"path": ..., "volume": 0〜1, "loop": true} を想定
         music=params.get("music") or None,
+        speed=speed,
     )
     # ── 編集ソフトへ渡す用のタイムライン ──
     #
@@ -520,8 +540,23 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
             width=info["width"],
             height=info["height"],
             duration=duration,
-            telops=[{"src_start": t["src_start"], "src_end": t["src_end"], "text": t.get("text", "")}
-                    for t in telops],
+            # 🔴 見た目（look）と段（lane）を落とさないこと。
+            #    以前は時刻と本文だけ渡していたので、Final Cut で開くと
+            #    書体も大きさも色も位置も全部既定に戻っていた。画面には
+            #    「書体・色・大きさ・位置もそのまま入ります」と出しているのに。
+            telops=[
+                {
+                    "src_start": t["src_start"],
+                    "src_end": t["src_end"],
+                    "text": t.get("text", ""),
+                    "look": t.get("look"),
+                    "lane": t.get("lane") or 0,
+                }
+                for t in telops
+            ],
+            speed=speed,
+            # 由来の1行に入れるもの（版・設定・件数）。画面側が渡す
+            meta={**(params.get("meta") or {}), "cuts_applied": len(cuts)},
         )
 
     result["cancelled"] = False
@@ -530,6 +565,7 @@ def _export(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     result["telop_count"] = burned
     result["srt_path"] = srt_path
     result["fcpxml_path"] = fcpxml_path
+    result["speed"] = speed
     return result
 
 

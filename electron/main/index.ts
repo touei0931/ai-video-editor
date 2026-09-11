@@ -162,7 +162,9 @@ function createWindow(): void {
   });
 
   buildMenu(win, menuContext);
-  if (isDev) win.webContents.openDevTools({ mode: 'detach' });
+  // デスクトップのアイコンから起動したとき（launch.ps1）は開発ツールを出さない。
+  // 使う側にとってはただの別窓で、閉じ忘れると裏に残る
+  if (isDev && process.env.PAC_NO_DEVTOOLS !== '1') win.webContents.openDevTools({ mode: 'detach' });
 }
 
 ipcMain.handle('sidecar:call', (_e, method: string, params: Record<string, unknown>) =>
@@ -629,7 +631,8 @@ ipcMain.handle('app:confirmResume', async (e, info: { savedAt: string; decided: 
  * 画面に出すキーの表記を決めるための情報。
  * 🔴 OSの判定そのものは paths.ts に置く。レンダラ側へは結果だけ渡す。
  */
-ipcMain.handle('app:uiInfo', () => ({ isMac: needsAppMenu() }));
+// 🔴 版も返す。画面に出しておかないと、直した版を渡しても動いているのがどれか分からない
+ipcMain.handle('app:uiInfo', () => ({ isMac: needsAppMenu(), version: app.getVersion() }));
 
 /**
  * テロップの見た目の既定。

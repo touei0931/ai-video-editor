@@ -259,3 +259,67 @@ ol {
 .fontnote {
   color: var(--sel);
 }
+
+/*
+  ② 設定（解析を始める前に決めること）。
+  🔴 プラグイン版の設定画面と同じ項目を、同じ順で並べる。
+     カードは2列。760px の幅に6項目を縦一列に積むと、下の項目まで届かない。
+*/
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.settings-grid section {
+  margin-bottom: 0;
+}
+
+.settings-value {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+main select,
+main textarea,
+main input[type='number'] {
+  font: inherit;
+  font-size: 15px;
+  color: var(--fg);
+  background: var(--s0);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-height: 40px;
+}
+
+main select {
+  width: 100%;
+}
+
+main textarea {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+main .inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+main .inline input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+}
+
+main .warn {
+  color: var(--sel);
+}
+
+main .faint {
+  color: var(--faint);
+}

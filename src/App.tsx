@@ -25,7 +25,17 @@ import { TelopStage, type MusicTrack } from './shell/TelopStage';
 /** 書き出しの既定。TelopScreen の既定と揃えること */
 const DEFAULT_EXPORT_OPTIONS: ExportOptions = { burn: true, srt: true, fcpxml: false };
 import { loadTelopFonts, macFontOf } from './telop/fonts';
-import { fcpLook, type FcpLook } from './telop/render';
+import { AnalyzeSettingsScreen } from './AnalyzeSettingsScreen';
+import {
+  PACE_LABEL,
+  cutOptionsOf,
+  loadAnalyzeSettings,
+  sanitizeAnalyzeSettings,
+  saveAnalyzeSettings,
+  type AnalyzeSettings,
+} from './analyzeSettings';
+import { ShellInfoContext, type ShellInfo } from './shell/ShellInfo';
+import { fcpLook, telopFontSize, type FcpLook } from './telop/render';
 import { renderBlank, renderTelopPngs } from './telop/rasterize';
 import { telopLanes } from './telop/lanes';
 import { buildSegments } from './shell/editedTime';
@@ -49,6 +59,8 @@ import {
 
 type Phase =
   | 'idle'
+  /** 動画を選んだあと、解析を始める前（言語・精度・詰め具合などを決める） */
+  | 'settings'
   | 'analyzing'
   | 'no-speech'
   | 'review'
@@ -122,6 +134,8 @@ interface ExportResult {
   encoder_fallback: boolean;
   segments: number;
   size_mb: number;
+  /** 書き出した再生速度（1 = 等倍） */
+  speed?: number;
 }
 
 function toCandidate(c: AnalyzeResult['candidates'][number]): CutCandidate {
@@ -178,6 +192,12 @@ interface Draft {
   /** 間の詰め具合 */
   pace?: PacePreset;
   shots?: Shot[];
+  /**
+   * 解析に使った設定（言語・精度・独り言・口ぐせ・書き出す速度）。
+   * 🔴 下書きに残すこと。無いと、続きから開いたときに詰め具合を変えた瞬間、
+   *    口ぐせと独り言の設定が既定へ戻る。
+   */
+  settings?: AnalyzeSettings;
 }
 
 /** SRT の1エントリ内の改行 */
@@ -351,6 +371,22 @@ export function App({ onSendToTimeline }: AppProps = {}) {
   /** 保存済みの下書き。最初の画面から直接開けるようにするために持つ */
   const [drafts, setDrafts] = useState<DraftEntry[]>([]);
   /**
+   * 解析の設定（② 設定）。前回の値から始める。
+   * 🔴 変えたらその場で覚える。次の動画でも同じ言語・同じ口ぐせで始められるように。
+   */
+  const [settings, setSettingsState] = useState<AnalyzeSettings>(() => loadAnalyzeSettings());
+  const updateSettings = useCallback((patch: Partial<AnalyzeSettings>) => {
+    setSettingsState((s) => {
+      const next = { ...s, ...patch };
+      saveAnalyzeSettings(next);
+      return next;
+    });
+  }, []);
+  /** 選んだが、まだ解析していない動画（② 設定の画面で持つ） */
+  const [pendingVideo, setPendingVideo] = useState<string | null>(null);
+  /** アプリの版。ツールバーに出す */
+  const [version, setVersion] = useState<string | null>(null);
+  /**
    * 前回テロップを作ったときのカット。
    * これと同じなら作り直す必要がない（作り直すと手で直した内容が消える）。
    */
@@ -367,6 +403,19 @@ export function App({ onSendToTimeline }: AppProps = {}) {
     if (!hasBridge) return;
     return window.app.onProgress(setProgress);
   }, [hasBridge]);
+
+  useEffect(() => {
+    if (!hasBridge) return;
+    let alive = true;
+    void window.app
+      .uiInfo()
+      .then((info) => alive && setVersion(info.version ?? null))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [hasBridge]);
+
 
   /** 待っている間だけ時計を動かす。終わったら止める。 */
   useEffect(() => {
@@ -484,7 +533,8 @@ export function App({ onSendToTimeline }: AppProps = {}) {
     await window.app.cancel();
     setError(null);
     setPhase((p) => {
-      if (p === 'analyzing') return 'idle';
+      // 解析をやめたら設定へ戻す。動画を選び直すところまで戻すと、設定を打ち直すことになる
+      if (p === 'analyzing') return 'settings';
       if (p === 'exporting') return finalState ? 'fullpreview' : 'telop';
       if (p === 'telops-building') return 'review';
       if (p === 'framing') return 'telop';
@@ -507,6 +557,10 @@ export function App({ onSendToTimeline }: AppProps = {}) {
     const saved = [...(draft.cards ?? [])].sort((a, b) => a.srcStart - b.srcStart);
     setCards(saved);
     setPace(draft.pace ?? 'talk');
+    // 下書きに設定が残っていればそれに合わせる（古い下書きには無いので、今の設定のまま）
+    if (draft.settings) {
+      setSettingsState(sanitizeAnalyzeSettings({ ...draft.settings, pace: draft.pace ?? draft.settings.pace }));
+    }
     setCuts(
       (draft.cuts ?? []).map((c) => ({
         id: '',
@@ -624,17 +678,40 @@ export function App({ onSendToTimeline }: AppProps = {}) {
       }
     }
 
+    /*
+      🔴 すぐ解析を始めないこと。先に「② 設定」を挟む。
+         言語・文字起こしの精度・詰め具合・口ぐせは解析の前にしか効かない。
+         プラグイン版はこの順（①動画 → ②設定 → ③解析）で、友達はそれで覚えている。
+    */
+    setPendingVideo(path);
+    setPhase('settings');
+  }, [openDraft, resumeDraft]);
+
+  /** ② 設定を決めたら解析する */
+  const startAnalyze = useCallback(async () => {
+    const path = pendingVideo;
+    if (!path) return;
+    setError(null);
     setPhase('analyzing');
     setProgress({ value: 0, message: '準備しています' });
     setStartedAt(Date.now());
+    setPace(settings.pace);
 
     try {
-      // モデルは sidecar 側の既定（large-v3-turbo）に任せる。
-      // 精度は文字起こし・カット・テロップのすべてに効くので、ここをケチらない。
-      const result = (await window.app.analyze({ video_path: path })) as AnalyzeResult;
+      /*
+        🔴 設定は全部ここで渡すこと。
+           渡し忘れた項目は sidecar の既定で解析され、
+           「設定したのに効かない」の形でしか現れない。
+      */
+      const result = (await window.app.analyze({
+        video_path: path,
+        model: settings.model,
+        language: settings.language,
+        options: cutOptionsOf(settings),
+      })) as AnalyzeResult;
       // 中断された場合は結果が来ない
       if (!result || (result as unknown as { cancelled?: boolean }).cancelled) {
-        setPhase('idle');
+        setPhase('settings');
         return;
       }
       setAnalysis(result);
@@ -647,9 +724,9 @@ export function App({ onSendToTimeline }: AppProps = {}) {
       setPhase(result.speech.kept === 0 ? 'no-speech' : 'review');
     } catch (e) {
       setError((e as Error).message);
-      setPhase('idle');
+      setPhase('settings');
     }
-  }, [openDraft, resumeDraft]);
+  }, [pendingVideo, settings]);
 
 
   /**
@@ -705,11 +782,16 @@ export function App({ onSendToTimeline }: AppProps = {}) {
           transcript_path: analysis.transcript_path,
           video_path: analysis.video_path,
           work_dir: analysis.work_dir,
-          options: { preset: next },
+          /*
+            🔴 詰め具合だけを渡さないこと。
+               独り言と口ぐせも一緒に渡さないと、ここで既定へ戻る。
+          */
+          options: cutOptionsOf({ ...settings, pace: next }),
         })) as Pick<AnalyzeResult, 'candidates' | 'candidate_count' | 'kinds' | 'review_band'>;
 
         setAnalysis((prev) => (prev ? { ...prev, ...result } : prev));
         setPace(next);
+        updateSettings({ pace: next });
 
         /*
           🔴 手で足したカットは残す。
@@ -736,7 +818,32 @@ export function App({ onSendToTimeline }: AppProps = {}) {
         setRepacing(false);
       }
     },
-    [analysis, pace],
+    [analysis, pace, settings, updateSettings],
+  );
+
+  /**
+   * ツールバーに出す「いま何で作業しているか」（版・素材・使った設定）。
+   * 🔴 素材の大きさは解析結果から取る。0 のときは警告として出る（EditorShell）。
+   */
+  const shellInfo: ShellInfo = useMemo(
+    () => ({
+      version,
+      media: analysis
+        ? {
+            width: analysis.video?.width ?? 0,
+            height: analysis.video?.height ?? 0,
+            fps: analysis.video?.fps ?? 0,
+          }
+        : null,
+      analysis: analysis
+        ? {
+            paceLabel: PACE_LABEL[pace],
+            detectAside: settings.detectAside,
+            candidates: analysis.candidates.length,
+          }
+        : null,
+    }),
+    [version, analysis, pace, settings.detectAside],
   );
 
   /** カットのレビューが終わったら、その結果を踏まえてテロップを作る */
@@ -816,8 +923,8 @@ export function App({ onSendToTimeline }: AppProps = {}) {
       → 書かれたのは**消したあとの13枚**。開き直すと1枚足りない。
     ここで ref を挟むことで、いつ走っても「今の値」を書くようになる。
   */
-  const latest = useRef({ analysis, phase, cuts, cards, finalState, shots, pace });
-  latest.current = { analysis, phase, cuts, cards, finalState, shots, pace };
+  const latest = useRef({ analysis, phase, cuts, cards, finalState, shots, pace, settings });
+  latest.current = { analysis, phase, cuts, cards, finalState, shots, pace, settings };
 
   const saveDraft = useCallback(async () => {
     const now = latest.current;
@@ -835,6 +942,7 @@ export function App({ onSendToTimeline }: AppProps = {}) {
       removed: now.finalState?.removed,
       pace: now.pace,
       shots: now.shots,
+      settings: now.settings,
     };
     await window.app.saveProject({
       workDir: now.analysis.work_dir,
@@ -914,6 +1022,7 @@ export function App({ onSendToTimeline }: AppProps = {}) {
     setExported(null);
     setError(null);
     setStartedAt(0);
+    setPendingVideo(null);
     reviewStateRef.current = null;
     builtForRef.current = null;
     setPhase('idle');
@@ -1167,6 +1276,22 @@ export function App({ onSendToTimeline }: AppProps = {}) {
           music: music
             ? { path: music.path, volume: music.volume, loop: music.loop }
             : null,
+          /*
+            🔴 書き出す速度を必ず渡す。画面で決めただけで出力に乗らないと、
+               「設定したのに等倍で出た」が書き出したあとに分かる。
+          */
+          speed: settings.exportSpeed,
+          /*
+            🔴 何で作ったかを一緒に渡す（Final Cut 用の XML に1行残る）。
+               困ったときに送ってもらうのは XML なので、そこに書いておくのが一番確実。
+          */
+          meta: {
+            version: version ?? '',
+            cut_preset: pace,
+            detect_aside: settings.detectAside,
+            cut_candidates: analysis.candidates.length,
+            font_size: Math.round(telopFontSize(styles.normal, frame)),
+          },
         })) as ExportResult;
         /*
           Final Cut 用のタイムラインを出したなら、使った書体も隣に置く。
@@ -1195,7 +1320,7 @@ export function App({ onSendToTimeline }: AppProps = {}) {
         setPhase('telop');
       }
     },
-    [analysis, cuts, frame, shots],
+    [analysis, cuts, frame, shots, settings.exportSpeed, settings.detectAside, version, pace],
   );
 
   if (!hasBridge) {
@@ -1224,9 +1349,28 @@ export function App({ onSendToTimeline }: AppProps = {}) {
 
   const help = showShortcuts ? <ShortcutHelp onClose={() => setShowShortcuts(false)} /> : null;
 
-  if (phase === 'review' && analysis) {
+  if (phase === 'settings' && pendingVideo) {
     return (
       <>
+        {help}
+        {error && <p className="resumed error">エラー: {error}</p>}
+        <AnalyzeSettingsScreen
+          videoPath={pendingVideo}
+          settings={settings}
+          onChange={updateSettings}
+          onBack={() => {
+            setPendingVideo(null);
+            setPhase('idle');
+          }}
+          onStart={() => void startAnalyze()}
+        />
+      </>
+    );
+  }
+
+  if (phase === 'review' && analysis) {
+    return (
+      <ShellInfoContext.Provider value={shellInfo}>
         {help}
         {resumed && (
           <p className="resumed">前回の続きから再開しました（判定済みの内容を復元しています）</p>
@@ -1249,13 +1393,13 @@ export function App({ onSendToTimeline }: AppProps = {}) {
           onExport={buildTelops}
           exporting={false}
         />
-      </>
+      </ShellInfoContext.Provider>
     );
   }
 
   if (phase === 'telop' && analysis) {
     return (
-      <>
+      <ShellInfoContext.Provider value={shellInfo}>
         {help}
         <TelopStage
           cards={cards}
@@ -1319,13 +1463,13 @@ export function App({ onSendToTimeline }: AppProps = {}) {
           }}
           exporting={false}
         />
-      </>
+      </ShellInfoContext.Provider>
     );
   }
 
   if (phase === 'fullpreview' && analysis && finalState) {
     return (
-      <>
+      <ShellInfoContext.Provider value={shellInfo}>
         {help}
         <FinalStage
           onSendToTimeline={
@@ -1385,6 +1529,8 @@ export function App({ onSendToTimeline }: AppProps = {}) {
           onQuit={() => void quitEditing()}
           options={finalState.options ?? DEFAULT_EXPORT_OPTIONS}
           onOptionsChange={(o) => setFinalState((f) => (f ? { ...f, options: o } : f))}
+          speed={settings.exportSpeed}
+          onSpeedChange={(v) => updateSettings({ exportSpeed: v })}
           onExport={() =>
             void runExport(
               finalState.cards,
@@ -1393,7 +1539,7 @@ export function App({ onSendToTimeline }: AppProps = {}) {
             )
           }
         />
-      </>
+      </ShellInfoContext.Provider>
     );
   }
 
@@ -1583,7 +1729,11 @@ export function App({ onSendToTimeline }: AppProps = {}) {
               {formatDuration(exported.kept_seconds)}
               <span className="muted">
                 {' '}
-                （{Math.round((1 - exported.kept_seconds / exported.original_seconds) * 100)}% 短縮）
+                （{Math.round((1 - exported.kept_seconds / exported.original_seconds) * 100)}% 短縮
+                {exported.speed && exported.speed !== 1
+                  ? `・${Math.round(exported.speed * 100)}% の速さ`
+                  : ''}
+                ）
               </span>
             </dd>
             <dt>適用したカット</dt>

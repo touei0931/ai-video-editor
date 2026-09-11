@@ -523,6 +523,25 @@ def _split_by_framing(
     return pieces or [(s, e, None) for s, e in keeps]
 
 
+def atempo_chain(speed: float) -> str:
+    """速度を音に掛けるフィルタ。
+
+    🔴 atempo は 1 段で 0.5〜2.0 倍まで（古い ffmpeg の上限）。
+       それを超える速さは段を重ねる。4倍なら 2.0 → 2.0。
+    """
+    parts: list[str] = []
+    rest = speed
+    while rest > 2.0 + 1e-9:
+        parts.append("atempo=2.0")
+        rest /= 2.0
+    while rest < 0.5 - 1e-9:
+        parts.append("atempo=0.5")
+        rest /= 0.5
+    if abs(rest - 1.0) > 1e-9:
+        parts.append(f"atempo={round(rest, 6)}")
+    return ",".join(parts)
+
+
 def export_cut_video(
     video_path: str,
     out_path: str,
@@ -533,6 +552,7 @@ def export_cut_video(
     on_progress: ProgressFn | None = None,
     work_dir: str | None = None,
     music: dict[str, Any] | None = None,
+    speed: float = 1.0,
 ) -> dict[str, Any]:
     """残す区間だけを繋いで書き出す。テロップがあれば同じパスで焼き込む。
 
@@ -540,9 +560,18 @@ def export_cut_video(
     区間ごとに一時ファイルを作って結合する方式は、
     区間数が増えるとファイル I/O とコンテナのオーバーヘッドで遅くなるうえ、
     境界でフレームがずれやすい。
+
+    speed は書き出す再生速度（1.0 = 等倍）。
+    🔴 テロップを重ねた**あと**に映像ごと縮めること（setpts）。
+       テロップの帯は等倍で作ってあるので、先に縮めると帯とずれる。
+       声は atempo で同じ率。BGM は縮めない（曲の速さまで変わると別の曲になる）ので、
+       出来上がりの長さに合わせて切る。
     """
     if not keeps:
         raise ValueError("残す区間がありません（全部カットされています）")
+    if not (speed and speed > 0):
+        speed = 1.0
+    retimed = abs(speed - 1.0) > 1e-9
 
     # 空文字や None を落として、段の順に重ねる
     tracks = [t for t in (telop_tracks or []) if t]
@@ -608,10 +637,13 @@ def export_cut_video(
     loudnorm = "loudnorm=I=-14:TP=-1.5:LRA=11"
 
     # 映像と音声を別々に繋ぐ。分割数が違うので、まとめて concat できない。
+    # 🔴 速度は音量を揃えた**あと**に掛ける。loudnorm は長さを見て働くので、
+    #    縮めた後に掛けると測り方が変わる。
+    tempo = f",{atempo_chain(speed)}" if retimed else ""
     joined = (
         f"{video_inputs}concat=n={len(pieces)}:v=1:a=0[vcat];"
         f"{audio_inputs}concat=n={len(keeps)}:v=0:a=1[acat];"
-        f"[acat]{loudnorm}[avoice];"
+        f"[acat]{loudnorm}{tempo}[avoice];"
     )
 
     decode = available_decode_args(ffmpeg)
@@ -630,7 +662,8 @@ def export_cut_video(
     music_index = None
     if music and music.get("path"):
         music_index = 1 + len(tracks)
-        kept_total = sum(e - s for s, e in keeps)
+        # 🔴 BGM は出来上がりの長さに合わせる。速度を変えたら短くなる
+        kept_total = sum(e - s for s, e in keeps) / speed
         gain = float(music.get("volume", 0.18))
         fade = min(3.0, max(0.5, kept_total * 0.05))
         loop = "aloop=loop=-1:size=2147483647," if music.get("loop", True) else ""
@@ -657,14 +690,19 @@ def export_cut_video(
             # 静止画のままだとタイムスタンプが疎なので、動画と同じ fps に揃える
             steps.append(f"[{i + 1}:v]format=rgba,fps={fps:.5g},setpts=PTS-STARTPTS[ov{i}]")
         src = "[vcat]"
+        # 速度を変えるなら、重ね終わった絵をもう1段通して縮める
+        last = "[vfull]" if retimed else "[vout]"
         for i in range(len(tracks)):
-            dst = "[vout]" if i == len(tracks) - 1 else f"[vmix{i}]"
+            dst = last if i == len(tracks) - 1 else f"[vmix{i}]"
             # repeatlast=0 にしないと、テロップ列が尽きた後も最後の1枚が残り続ける
             steps.append(f"{src}[ov{i}]overlay=0:0:eof_action=pass:repeatlast=0{dst}")
             src = dst
+        if retimed:
+            steps.append(f"[vfull]setpts=PTS/{speed:.6g}[vout]")
         filter_complex = "".join(parts) + joined + music_graph + ";".join(steps)
     else:
-        filter_complex = "".join(parts) + joined + music_graph + "[vcat]null[vout]"
+        tail = f"[vcat]setpts=PTS/{speed:.6g}[vout]" if retimed else "[vcat]null[vout]"
+        filter_complex = "".join(parts) + joined + music_graph + tail
 
     # 🔴 BGM の入力は、テロップ列より**後**に足すこと。
     #    上で決めた music_index（1 + テロップの有無）と順番が合わなくなると、
@@ -693,13 +731,19 @@ def export_cut_video(
     graph_path = graph_dir / "filter_graph.txt"
     graph_path.write_text(filter_complex, encoding="utf-8")
 
-    kept = sum(e - s for s, e in keeps)
+    # 出来上がりの長さ。進み具合の分母にも、結果の「カット後」にも使う
+    kept = sum(e - s for s, e in keeps) / speed
     _run_with_progress(
         [
             ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
             *inputs,
             "-filter_complex_script", str(graph_path),
             "-map", "[vout]", "-map", "[aout]",
+            # 🔴 速度を変えたときは出力のコマ数を素材と同じに固定する。
+            #    setpts で詰まったタイムスタンプをそのまま可変コマ数で書くと、
+            #    再生ソフトによってはカクつく。-r で出力のコマ数を決めると、
+            #    ffmpeg がコマを間引いて（遅くしたときは複製して）一定にする
+            *(["-r", f"{fps:.5g}"] if retimed else []),
             *vargs,
             "-c:a", "aac", "-b:a", "192k",
             # 🔴 これが無いと、Web にそのまま上げたとき頭出しに時間がかかる。
@@ -725,7 +769,9 @@ def export_cut_video(
         #    IT知識のない人がエンコーダ名を見て異常だと気づくのは無理。
         "encoder_fallback": encoder in ("libopenh264", "mpeg4"),
         "quality": quality,
+        # 出来上がりの長さ（速度を変えていればそのぶん短い）
         "kept_seconds": round(kept, 2),
+        "speed": speed,
         "segments": len(keeps),
         "video_pieces": len(pieces),
         "closeups": sum(1 for _, _, r in pieces if r is not None),

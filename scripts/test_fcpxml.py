@@ -114,6 +114,41 @@ def main() -> int:
             f"分母はすべて {num}",
         )
 
+        # ── 作り（プラグイン版と揃えた所）──────────────
+        #
+        # 🔴 sequence の尺は残したクリップの合計。素材の長さのままだと終わりに黒みが残る
+        seq = root.find(".//sequence")
+        check(
+            "シーケンスの尺は残したクリップの合計",
+            abs(as_seconds(seq.get("duration")) - offset) < 1e-6,
+            f"{as_seconds(seq.get('duration')):.4f} / 合計 {offset:.4f}",
+        )
+        # 🔴 asset に format を書かない（読みが食い違うと映像が半分の大きさで出る）
+        check("asset に format を書かない", root.find(".//asset").get("format") is None)
+        check(
+            "プロジェクト名は【PAC】素材名_日時",
+            root.find(".//project").get("name").startswith("【PAC】素材 テスト_"),
+            root.find(".//project").get("name"),
+        )
+        # 🔴 何で作ったかの1行がコメントで入る（困ったときに送ってもらうのは XML）
+        head = Path(out).read_text(encoding="utf-8").splitlines()[:5]
+        check("由来の1行がコメントで入る", any("<!-- PAC" in ln for ln in head), "\n".join(head))
+        check(
+            "由来の1行に素材の大きさとコマ数が入る",
+            any("素材 1080x1920 29.97fps" in ln for ln in head),
+            "\n".join(head),
+        )
+        # 🔴 縦の素材に「ありそうな名前」を付けない（0.316 倍で真ん中に出る）
+        check(
+            "縦の素材の形式名は RateUndefined",
+            root.find(".//format").get("name") == "FFVideoFormatRateUndefined",
+            root.find(".//format").get("name"),
+        )
+        check(
+            "クリップに adjust-conform が入る",
+            all(c.find("adjust-conform") is not None for c in clips),
+        )
+
         # ── テロップ ──────────────────────────────────
         titles = root.findall(".//title")
         check("カットに入ったテロップは出ない", len(titles) == 2, f"{len(titles)} 枚")
@@ -121,27 +156,148 @@ def main() -> int:
         texts = [t.find(".//text-style").text for t in titles]
         check("記号がエスケープされて元に戻る", "記号 < > & のテスト" in texts, str(texts))
 
-        # 25.0秒のテロップは、5.0-6.2 と 20.0-22.5 が切られているので 21.3秒あたり。
-        # 🔴 完全一致は求めない。区間ごとにフレーム境界へ載せるので、
-        #    「秒で計算した理想値」とは最大1フレームずれる。
-        #    ずれてよいのは1フレームまで、が守りたい条件。
-        one_frame = den / num
-        got = as_seconds(titles[1].get("offset"))
+        # 🔴 テロップはクリップの**中**にぶら下げる（spine に直接置かない）。
+        #    offset の原点はそのクリップの start（素材の時刻）。
         check(
-            "テロップの位置がカット後の時刻に写っている（1フレーム以内）",
-            abs(got - 21.3) <= one_frame,
-            f"{got:.4f}秒（理想 21.3000秒 / 1フレーム = {one_frame:.4f}秒）",
+            "テロップはクリップの中にある",
+            all(t in list(c) for t in titles for c in clips if t in list(c))
+            and root.find(".//spine/title") is None,
+        )
+        one_frame = den / num
+        title2 = titles[1]
+        parent = next(c for c in clips if title2 in list(c))
+        got = as_seconds(title2.get("offset"))
+        check(
+            "25.0秒のテロップは 22.5〜40.0 のクリップにぶら下がる",
+            as_seconds(parent.get("start")) == as_seconds(clips[2].get("start")),
+            f"親クリップ start {as_seconds(parent.get('start')):.3f}",
+        )
+        check(
+            "offset は素材の時刻（1フレーム以内）",
+            abs(got - 25.0) <= one_frame,
+            f"{got:.4f}秒（理想 25.0000秒 / 1フレーム = {one_frame:.4f}秒）",
+        )
+        p_start = as_seconds(parent.get("start"))
+        p_end = p_start + as_seconds(parent.get("duration"))
+        check(
+            "テロップが親クリップの中に収まる",
+            p_start <= got and got + as_seconds(title2.get("duration")) <= p_end + 1e-6,
+            f"テロップ {got:.3f}〜{got + as_seconds(title2.get('duration')):.3f} / クリップ {p_start:.3f}〜{p_end:.3f}",
+        )
+        check("title の start は 0s", title2.get("start") == "0s", str(title2.get("start")))
+
+        # ── またがったテロップは「いちばん長く乗っているクリップ」に1枚だけ ──
+        out_s = str(Path(tmp) / "straddle.fcpxml")
+        write_fcpxml(out_s, str(video), keeps, fps=30, width=1920, height=1080, duration=duration,
+                     telops=[
+                         # 19.0〜20.4: 前のクリップ（6.2〜20.0）に 1.0秒、カット（20.0〜22.5）に 0.4秒
+                         {"src_start": 19.0, "src_end": 20.4, "text": "またがる"},
+                         # 19.9〜24.0: 前に 0.1秒、後ろのクリップ（22.5〜）に 1.5秒 → 後ろに付く
+                         {"src_start": 19.9, "src_end": 24.0, "text": "後ろが長い"},
+                     ])
+        root_s = ET.parse(out_s).getroot()
+        clips_s = root_s.findall(".//asset-clip")
+        titles_s = root_s.findall(".//title")
+        check("またがっても1枚ずつ", len(titles_s) == 2, f"{len(titles_s)} 枚")
+        first = next(c for c in clips_s if titles_s[0] in list(c))
+        second = next(c for c in clips_s if titles_s[1] in list(c))
+        check(
+            "長く乗っている側に付く（前）",
+            as_seconds(first.get("start")) == 6.2,
+            f"start {as_seconds(first.get('start'))}",
+        )
+        check(
+            "長く乗っている側に付く（後ろ）",
+            as_seconds(second.get("start")) == 22.5,
+            f"start {as_seconds(second.get('start'))}",
+        )
+        # 後ろに付いたものは、クリップの頭（22.5）で切られる
+        check(
+            "食い込んだ分はクリップの頭で切る",
+            abs(as_seconds(titles_s[1].get("offset")) - 22.5) < 1e-6,
+            str(titles_s[1].get("offset")),
+        )
+        check(
+            "横 1920x1080 の 30fps は決まった名前",
+            root_s.find(".//format").get("name") == "FFVideoFormat1080p30",
+            root_s.find(".//format").get("name"),
         )
 
-        # そのテロップが、対応するクリップの中に収まっていること
-        clip3 = clips[2]
-        c_start = as_seconds(clip3.get("offset"))
-        c_end = c_start + as_seconds(clip3.get("duration"))
-        check(
-            "テロップが対応するクリップの中にある",
-            c_start <= got < c_end,
-            f"テロップ {got:.3f}秒 / クリップ {c_start:.3f}〜{c_end:.3f}秒",
-        )
+        # ── 速度（timeMap）──────────────────────────────
+        #
+        # 🔴 数を決め打ちせず、等倍と比べて「速度との関係」で見る。
+        for sp in (1.25, 2.0):
+            out_v = str(Path(tmp) / f"speed{sp}.fcpxml")
+            write_fcpxml(out_v, str(video), keeps, fps=30, width=1920, height=1080,
+                         duration=duration, speed=sp,
+                         telops=[{"src_start": 25.0, "src_end": 27.0, "text": "速い"}])
+            root_v = ET.parse(out_v).getroot()
+            clips_v = root_v.findall(".//asset-clip")
+            base_v = ET.parse(out_s).getroot().findall(".//asset-clip")
+            ok_len = all(
+                abs(as_seconds(c.get("duration")) - as_seconds(b.get("duration")) / sp) <= 1 / 30 + 1e-6
+                for c, b in zip(clips_v, base_v)
+            )
+            check(f"速度 {sp}: クリップの長さが 1/{sp}", ok_len)
+            check(
+                f"速度 {sp}: 素材側の時刻（start）は割らない",
+                all(c.get("start") == b.get("start") for c, b in zip(clips_v, base_v)),
+            )
+            gapless_v = True
+            off_v = 0.0
+            for c in clips_v:
+                if abs(as_seconds(c.get("offset")) - off_v) > 1e-9:
+                    gapless_v = False
+                off_v += as_seconds(c.get("duration"))
+            check(f"速度 {sp}: クリップが1フレームの狂いもなく並ぶ", gapless_v)
+            check(
+                f"速度 {sp}: シーケンスの尺はクリップの合計",
+                abs(as_seconds(root_v.find('.//sequence').get('duration')) - off_v) < 1e-9,
+            )
+            tm = [c.find("timeMap") for c in clips_v]
+            check(f"速度 {sp}: 全クリップに timeMap が入る", all(x is not None for x in tm))
+            check(
+                f"速度 {sp}: timeMap は adjust-conform より前（DTD の並び）",
+                all(list(c)[0].tag == "timeMap" for c in clips_v),
+            )
+            pts = tm[0].findall("timept")
+            check(
+                f"速度 {sp}: timeMap の値は素材の始まり〜終わり",
+                as_seconds(pts[0].get("value")) == as_seconds(clips_v[0].get("start"))
+                and abs(as_seconds(pts[1].get("time")) - as_seconds(clips_v[0].get("duration"))) < 1e-9,
+            )
+            t_v = root_v.find(".//title")
+            parent_v = next(c for c in clips_v if t_v in list(c))
+            ps = as_seconds(parent_v.get("start"))
+            pe = ps + as_seconds(parent_v.get("duration"))
+            to = as_seconds(t_v.get("offset"))
+            check(
+                f"速度 {sp}: テロップは出来上がりの時刻で置く（clip の start から (25-22.5)/{sp}）",
+                abs(to - (22.5 + 2.5 / sp)) <= 1 / 30 + 1e-6,
+                f"{to:.4f}（理想 {22.5 + 2.5 / sp:.4f}）",
+            )
+            check(
+                f"速度 {sp}: テロップは clip の外に出ない",
+                ps <= to and to + as_seconds(t_v.get("duration")) <= pe + 1e-9,
+                f"{to:.3f}〜{to + as_seconds(t_v.get('duration')):.3f} / {ps:.3f}〜{pe:.3f}",
+            )
+            head_v = Path(out_v).read_text(encoding="utf-8").splitlines()[:5]
+            check(f"速度 {sp}: 由来の1行に速度が入る", any(f"速度 {sp * 100:g}%" in ln for ln in head_v))
+
+        # 等倍のときは速度の指定を1行も書かない（使わない人の書き出しは今までと同じ）
+        check("等倍では timeMap を書かない", root.find(".//timeMap") is None)
+
+        # ── コマ数を標準に寄せる ──────────────────────────
+        from sidecar.fcpxml import format_name, snap_fps  # noqa: E402
+
+        check("59.99 は 60 に寄せる", snap_fps(59.99) == 60.0, str(snap_fps(59.99)))
+        check("29.98 は 29.97 に寄せる", snap_fps(29.98) == 29.97, str(snap_fps(29.98)))
+        check("48 は寄せない（1% を超えて離れている）", snap_fps(48.0) == 48.0, str(snap_fps(48.0)))
+        check("59.99 の形式名は 60", format_name(1920, 1080, 59.99) == "FFVideoFormat1080p60")
+        check("29.97 の呼び名は p2997", format_name(1920, 1080, 29.97) == "FFVideoFormat1080p2997")
+        check("4K は 3840x2160 だけ", format_name(3840, 2160, 30) == "FFVideoFormat4K30"
+              and format_name(2160, 3840, 30) == "FFVideoFormatRateUndefined")
+        check("半端なコマ数は名乗らない", format_name(1920, 1080, 48) == "FFVideoFormatRateUndefined")
 
         # ── 見た目（書体・太さ・色・縁・位置）────────────
         #

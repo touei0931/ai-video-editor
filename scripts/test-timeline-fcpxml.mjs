@@ -14,7 +14,7 @@ const P = await import(pathToFileURL(join(root, 'src/timeline/project.ts')).href
 const X = await import(pathToFileURL(join(root, 'src/timeline/fcpxml.ts')).href);
 
 const { emptyProject, addAsset, addLane, appendToMain, placeOnLane, importCutResult } = P;
-const { buildFCPXML, timeStr, fileUrl, frameDuration } = X;
+const { buildFCPXML, timeStr, fileUrl, frameDuration, formatName } = X;
 
 let failed = 0;
 const check = (label, ok, detail = '') => {
@@ -244,8 +244,22 @@ function base() {
   */
   check('プロジェクトの大きさが使われる', xml.includes('width="1080" height="1920"'),
         (xml.match(/width="\d+" height="\d+"/) || ['無し'])[0]);
-  check('プロジェクトのコマ数が使われる', xml.includes('FFVideoFormat1920p24'),
+  check('プロジェクトのコマ数が使われる', xml.includes('frameDuration="100/2400s"'),
+        (xml.match(/frameDuration="[^"]*"/) || ['無し'])[0]);
+  /*
+    🔴 縦の素材に「FFVideoFormat1920p24」のような、ありそうな名前を付けないこと。
+       Apple の決まった名前は横向きの 1920x1080 / 1280x720 / 3840x2160 だけ。
+       名前と中身が食い違うと、Final Cut は名前（16:9）を信じて素材を 0.316 倍に縮める
+       （プラグイン版の実機で 2026-08-31）。
+  */
+  check('縦の素材には決まった名前を名乗らない', xml.includes('name="FFVideoFormatRateUndefined"'),
         (xml.match(/name="FFVideoFormat[^"]*"/) || ['無し'])[0]);
+  check('横 1920x1080 30fps は決まった名前', formatName(1920, 1080, 30) === 'FFVideoFormat1080p30',
+        formatName(1920, 1080, 30));
+  check('29.97 の呼び名は p2997', formatName(1920, 1080, 29.97) === 'FFVideoFormat1080p2997',
+        formatName(1920, 1080, 29.97));
+  check('4K は 3840x2160 だけ', formatName(2160, 3840, 30) === 'FFVideoFormatRateUndefined');
+  check('半端なコマ数は名乗らない', formatName(1920, 1080, 48) === 'FFVideoFormatRateUndefined');
 }
 
 /* ------------------------------------------------------------ 穴（隙間） */

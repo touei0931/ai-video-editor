@@ -12,6 +12,9 @@ import { TimelineE2E } from './timeline/TimelineE2E';
 import { CutStage } from './shell/CutStage';
 import { TelopStage } from './shell/TelopStage';
 import { generateMockCandidates } from './review/mockCandidates';
+import { AnalyzeSettingsScreen } from './AnalyzeSettingsScreen';
+import { DEFAULT_ANALYZE_SETTINGS, type AnalyzeSettings } from './analyzeSettings';
+import { ShellInfoContext } from './shell/ShellInfo';
 import './index.css';
 
 // 検証用モードは同じバンドルに同居させる。
@@ -62,6 +65,20 @@ function TelopDemo() {
   );
 }
 
+/** ② 設定の確認用。保存はしない */
+function SettingsDemo() {
+  const [settings, setSettings] = useState<AnalyzeSettings>({ ...DEFAULT_ANALYZE_SETTINGS });
+  return (
+    <AnalyzeSettingsScreen
+      videoPath="D:\\素材\\2026-09-11 撮影.mp4"
+      settings={settings}
+      onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
+      onBack={() => console.log('戻る')}
+      onStart={() => console.log('解析を始める', settings)}
+    />
+  );
+}
+
 function Root() {
   if (mode === 't1') return <T1Wysiwyg />;
   if (mode === 't2') return <T2Budoux />;
@@ -80,16 +97,26 @@ function Root() {
   if (mode === 'classic') return <App />;
   if (mode === 'telop') return <TelopDemo />;
 
-  // 作り直したカット画面を、モックの候補で触る
+  // 作り直したカット画面を、モックの候補で触る（ツールバーの版・素材・設定の印も見る）
   if (mode === 'cut') {
     return (
-      <CutStage
-        candidates={generateMockCandidates(118)}
-        videoDuration={720}
-        onExport={(cuts) => console.log('カット', cuts.length, cuts)}
-      />
+      <ShellInfoContext.Provider
+        value={{
+          version: '0.0.0-demo',
+          media: { width: 1080, height: 1920, fps: 29.97 },
+          analysis: { paceLabel: 'ふつう', detectAside: true, candidates: 118 },
+        }}
+      >
+        <CutStage
+          candidates={generateMockCandidates(118)}
+          videoDuration={720}
+          onExport={(cuts) => console.log('カット', cuts.length, cuts)}
+        />
+      </ShellInfoContext.Provider>
     );
   }
+  // 解析前の「② 設定」の見た目を、動画を選ばずに確かめる
+  if (mode === 'settings') return <SettingsDemo />;
   // モックデータでレビューUIの操作感だけ見たいとき。
   // 「結局何箇所カットされるのか」はこの画面が出す唯一の数字なので、
   // 書き出しへ進むボタンごと出す（押しても書き出しはしない）。
