@@ -12,6 +12,10 @@ on:
   push:
     paths:
       - 'fcp-extension/**'
+      # 🔴 sidecar も入れること。プラグインの解析エンジンは sidecar のコードを
+      #    同梱している。ここに無いと、sidecar だけ直したときに古いままの
+      #    プラグインが最新の顔をして残る（2026-09-11 に踏んだ）
+      - 'sidecar/**'
       - '.github/workflows/build-fcp-extension.yml'
 
 jobs:
