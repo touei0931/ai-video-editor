@@ -18,6 +18,95 @@ from typing import Callable
 # 単語レベルのタイムスタンプは①カットに必須（無音・フィラーの境界を出すため）
 WORD_TIMESTAMPS = True
 
+# ── 日本語特化モデル ──
+#
+# kotoba-whisper は日本語の話し言葉で large-v3 より良い（ReazonSpeech test で
+# CER 11.6 vs 14.9）。朗読のようなきれいな音声では少し劣る（CommonVoice 9.2 vs 8.5）。
+# デコーダが2層しかないので、速さは turbo 並み。Apache-2.0 / MIT。
+#
+# 🔴 配布されている faster-whisper 版は、**そのままだと語の時刻を出せない**。
+#    config.json の alignment_heads が教師（large-v3、デコーダ32層）のもの
+#    （層 7, 10, 12, …, 25）をそのまま持っていて、2層しかないデコーダから
+#    存在しない層の注意を読みに行き、Segmentation fault で落ちる
+#    （2026-09-11 に実測。同じ作りの distil-large-v3 は層1の20ヘッドを使う）。
+#    PAC はカット検出もテロップの時刻も語の時刻に依存しているので、
+#    alignment_heads を差し替えた自前の置き場所から読む。
+#
+# 🔴 日本語専用。言語の設定に関わらず日本語として文字起こしする。
+KOTOBA_NAME = "kotoba-whisper-v2.0"
+KOTOBA_REPO = "kotoba-tech/kotoba-whisper-v2.0-faster"
+# デコーダの最後の層（index 1）の全20ヘッド。distil-large-v3 と同じ
+KOTOBA_ALIGNMENT_HEADS = [[1, h] for h in range(20)]
+
+SPECIAL_MODELS = {KOTOBA_NAME: KOTOBA_REPO}
+
+
+def pac_model_root() -> "Path":
+    """PAC が手を入れたモデルの置き場所。
+
+    HF のキャッシュ（~/.cache/huggingface）と同じ場所に置くこと。
+    - 手順書の「消したいときは ~/.cache/huggingface を消す」がそのまま効く
+    - 同じボリュームなので、1.5GB の本体をハードリンクで共有できる
+    """
+    from pathlib import Path
+
+    env = os.environ.get("PAC_MODEL_ROOT")
+    if env:
+        return Path(env)
+    hf = os.environ.get("HF_HOME")
+    base = Path(hf) if hf else Path.home() / ".cache" / "huggingface"
+    return base / "pac-models"
+
+
+def prepare_patched_model(snapshot: "Path", dest: "Path", alignment_heads: list[list[int]]) -> "Path":
+    """snapshot の中身を dest に揃え、config.json の alignment_heads だけ差し替える。
+
+    本体（model.bin）は 1.5GB あるのでコピーせず、ハードリンクで共有する。
+    リンクできなければコピーする。config.json だけは書き直すので必ず実体を作る。
+    """
+    import json
+    import shutil
+    from pathlib import Path
+
+    snapshot = Path(snapshot)
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    cfg_path = snapshot / "config.json"
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+    cfg["alignment_heads"] = alignment_heads
+    (dest / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    for src in snapshot.iterdir():
+        if src.name == "config.json" or src.is_dir():
+            continue
+        real = src.resolve()  # HF のキャッシュはシンボリックリンク
+        out = dest / src.name
+        if out.exists() and out.stat().st_size == real.stat().st_size:
+            continue
+        if out.exists():
+            out.unlink()
+        try:
+            os.link(real, out)
+        except OSError:
+            shutil.copyfile(real, out)
+    return dest
+
+
+def resolve_model(model_name: str) -> str:
+    """faster-whisper に渡す名前（または置き場所）を決める。
+
+    ふつうのモデルはそのまま。手を入れる必要のあるものだけ、
+    取り寄せて差し替えた置き場所を返す。
+    """
+    if model_name != KOTOBA_NAME:
+        return model_name
+    from huggingface_hub import snapshot_download
+
+    snap = snapshot_download(KOTOBA_REPO)
+    dest = pac_model_root() / "kotoba-whisper-v2.0-faster"
+    return str(prepare_patched_model(snap, dest, KOTOBA_ALIGNMENT_HEADS))
+
 ProgressFn = Callable[[float, str], None]
 CancelFn = Callable[[], bool]
 
@@ -46,7 +135,7 @@ class FasterWhisperAsr:
         from faster_whisper import WhisperModel
 
         compute = self.compute_type or ("float16" if device == "cuda" else "int8")
-        model = WhisperModel(model_name, device=device, compute_type=compute)
+        model = WhisperModel(resolve_model(model_name), device=device, compute_type=compute)
         self._model = model
         self._model_name = model_name
         self.device = device
@@ -92,6 +181,10 @@ class FasterWhisperAsr:
 
         if on_progress:
             on_progress(0.05, "文字起こし中")
+
+        # 日本語専用のモデルは、言語の設定に関わらず日本語で起こす
+        if model == KOTOBA_NAME:
+            language = "ja"
 
         def start(model_obj):
             return model_obj.transcribe(
