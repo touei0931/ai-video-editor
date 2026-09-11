@@ -36,7 +36,15 @@ import wave
 from pathlib import Path
 from typing import Any
 
-import numpy as np
+# 🔴 numpy を読み込み時に要求しないこと。
+#    このモジュールは rpc の env（環境の診断）からも読まれる。
+#    検査の環境には numpy が無く、import の時点で落ちると
+#    診断そのものが出せなくなる（CI の煙テストで踏んだ、2026-09-11）。
+#    実際に声を見比べる所（embed / match）でだけ要る。
+try:
+    import numpy as np
+except ImportError:  # noqa: F401
+    np = None  # type: ignore[assignment]
 
 #: 同梱モデルの名前。scripts/fetch_models.py が vendor/models/ に置く
 MODEL_NAME = "speaker_eres2net.onnx"
