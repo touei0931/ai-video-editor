@@ -264,7 +264,14 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     #
     # 作るのは**人間が実際に見る候補だけ**。自動承認・自動却下される分まで作ると、
     # 候補118件のうち約25件しか使わないクリップを118件ぶん作ることになる。
-    failed = _make_review_clips(video_path, work_dir, analysis, on_progress, 0.86, 0.13)
+    #
+    # skip_review_clips: UI を使わない呼び出し（clip-factory のヘッドレス経路）向け。
+    # 誰も再生しないのに 227 分の配信で 1481 本 / 2.0GB を作り、解析時間の大半を
+    # 占めていた。UI からは渡さないので、画面の動きは変わらない。
+    if params.get("skip_review_clips"):
+        failed: list[dict[str, Any]] = []
+    else:
+        failed = _make_review_clips(video_path, work_dir, analysis, on_progress, 0.86, 0.13)
     analysis["clip_failures"] = failed
     analysis["video_path"] = video_path
     analysis["transcript"] = {
