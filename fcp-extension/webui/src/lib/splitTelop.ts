@@ -150,6 +150,22 @@ const JOIN_MAX_CHARS = ENGINE_HARD_MAX * 2
  * 🔴 つなぐのは「つなぎ目が文節の切れ目になっていない」ときだけ。
  *    切れ目として正しい所までつなぐと、1枚が長くなるだけで良いことがない。
  */
+
+/**
+ * その組の終わりが「意図した区切り」か。
+ *
+ * 🔴 ここを跨いで繋がないこと。繋ぎ直しは 40文字の保険で機械的に切られた組を
+ *    直すためのもので、文の終わり（！？。）や息継ぎ（エンジンが音で確かめた印）は
+ *    直す対象ではない。「行くぞ！」の直後にはっきり間があったのに、Whisper の時刻に
+ *    間が吸われて 0 に見え、「行くぞ！やばいこれ」と繋がった（2026-09-12）。
+ */
+const SENTENCE_END = /[！!？?。]$/
+function endsDeliberately(text: string, words: TelopWord[] | undefined): boolean {
+  if (SENTENCE_END.test(text.trim())) return true
+  const last = words?.[words.length - 1]
+  return !!last?.breakAfter
+}
+
 export function joinBrokenTelops(telops: Telop[], maxChars: number): Telop[] {
   const out: Telop[] = []
   for (const t of telops) {
@@ -160,6 +176,7 @@ export function joinBrokenTelops(telops: Telop[], maxChars: number): Telop[] {
       prev &&
       prev.style === t.style &&
       t.start - prev.end <= JOIN_GAP &&
+      !endsDeliberately(prev.text, prev.words) &&
       !isPhraseBoundary(prev.text, t.text) &&
       // 🔴 語の時刻が無いものをつなぐのは、割り直せるときだけ。
       //    つないだ結果が上限を超えても割れず、長すぎるテロップが残る。

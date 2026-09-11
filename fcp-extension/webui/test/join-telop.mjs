@@ -36,6 +36,33 @@ const telop = (id, text, start, end, style = 'normal') => ({
   id, text, start, end, style, words: withWords(text, start, end),
 })
 
+/* ------------------------------------------------ 意図した区切りは跨がない */
+
+{
+  /*
+    🔴 「行くぞ！」の直後にはっきり間があったのに、「行くぞ！やばいこれ」と1枚になった
+       （2026-09-12、切り抜き動画）。エンジンは「！」で分けているのに、
+       Whisper の時刻に間が吸われて 0 に見え、こちらが繋ぎ直していた。
+  */
+  const src = [
+    telop('t1', '行くぞ!', 69.0, 69.6),
+    telop('t2', 'やばいこれ', 69.6, 70.4),
+  ]
+  const joined = joinBrokenTelops(src, DEFAULT_TELOP_MAX_CHARS)
+  check('文の終わり（！）は、間が無く見えても繋がない', joined.length === 2,
+        joined.map((t) => t.text).join(' / '))
+}
+
+{
+  // エンジンが「意図して区切った」印（最後の語の breakAfter）も跨がない
+  const a = telop('t1', '今日は', 0, 0.5)
+  a.words[a.words.length - 1].breakAfter = true
+  const src = [a, telop('t2', '勉強しようと', 0.5, 1.2)]
+  const joined = joinBrokenTelops(src, DEFAULT_TELOP_MAX_CHARS)
+  check('息継ぎの印がある区切りは繋がない', joined.length === 2,
+        joined.map((t) => t.text).join(' / '))
+}
+
 /* ------------------------------------------------ 実機で割れた組 */
 
 {

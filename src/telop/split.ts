@@ -423,6 +423,22 @@ function isPhraseBoundary(a: string, b: string): boolean {
  *    切れ目として正しい所までつなぐと、1枚が長くなるだけで良いことがない。
  *    つないだものは必ず割り直すので（splitIntoCards）、長くなること自体は困らない。
  */
+
+/**
+ * その組の終わりが「意図した区切り」か。
+ *
+ * 🔴 ここを跨いで繋がないこと。繋ぎ直しは 40文字の保険で機械的に切られた組を
+ *    直すためのもので、文の終わり（！？。）や息継ぎ（エンジンが音で確かめた印）は
+ *    直す対象ではない。「行くぞ！」の直後にはっきり間があったのに、Whisper の時刻に
+ *    間が吸われて 0 に見え、「行くぞ！やばいこれ」と繋がった（2026-09-12）。
+ */
+const SENTENCE_END = /[！!？?。]$/;
+function endsDeliberately(text: string, words: TelopWord[] | undefined): boolean {
+  if (SENTENCE_END.test(text.trim())) return true;
+  const last = words?.[words.length - 1]
+  return !!last?.breakAfter;
+}
+
 export function joinBrokenUnits(units: TelopUnit[]): TelopUnit[] {
   const out: TelopUnit[] = [];
   for (const u of units) {
@@ -433,6 +449,7 @@ export function joinBrokenUnits(units: TelopUnit[]): TelopUnit[] {
       prev.words.length > 0 &&
       u.words.length > 0 &&
       u.srcStart - prev.srcEnd <= JOIN_GAP &&
+      !endsDeliberately(prev.text, prev.words) &&
       prev.text.length + u.text.length <= JOIN_MAX_CHARS &&
       !isPhraseBoundary(prev.text, u.text)
     ) {

@@ -98,6 +98,21 @@ class Breath(unittest.TestCase):
         ws = self.units(tr, wav)[0]["words"]
         self.assertFalse(any(w.get("break_after") for w in ws), ws)
 
+    def test_文の終わりで分けた組の最後の語に印が付く(self):
+        # 「行くぞ！」「やばいこれ」は別の組になる。画面側が繋ぎ直さないよう、
+        # 前の組の最後の語に印を付けて渡す（時刻に間が無くても）
+        tr = transcript([word("行くぞ！", 0.0, 0.6), word("やばい", 0.6, 1.0), word("これ", 1.0, 1.4)])
+        units = self.units(tr)
+        self.assertEqual([u["text"] for u in units], ["行くぞ！", "やばいこれ"], units)
+        self.assertTrue(units[0]["words"][-1].get("break_after"), units[0]["words"])
+        self.assertFalse(units[1]["words"][-1].get("break_after"), units[1]["words"])
+
+    def test_40文字で切れた組の最後には印を付けない(self):
+        ws = [word("あ", i * 0.1, (i + 1) * 0.1) for i in range(45)]
+        units = self.units(transcript(ws))
+        self.assertGreater(len(units), 1)
+        self.assertFalse(units[0]["words"][-1].get("break_after"), units[0]["words"][-1])
+
     def test_時刻に隙間があればそれだけで付く(self):
         # Whisper がはっきり空けた場合（きれいな素材ではこうなる）
         tr = transcript([word("今日は", 0.0, 0.5), word("勉強しよう", 0.9, 1.8)])

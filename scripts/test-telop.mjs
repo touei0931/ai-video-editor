@@ -533,6 +533,26 @@ const unitOf = (id, words, style = 'normal') => ({
 
 {
   /*
+    🔴 繋ぎ直しは、文の終わり（！？。）と息継ぎの印を跨がない。
+       「行くぞ！」の直後にはっきり間があったのに「行くぞ！やばいこれ」と1枚になった
+       （2026-09-12、切り抜き動画）。Whisper の時刻に間が吸われて 0 に見えていた。
+  */
+  const unit = (id, text, a, b) => {
+    const words = wordsOf([...text].map((ch) => [ch]));
+    const step = (b - a) / words.length;
+    words.forEach((w, i) => { w.srcStart = a + i * step; w.srcEnd = a + (i + 1) * step; });
+    return { id, srcStart: a, srcEnd: b, text, style: 'normal', reason: '', needsCheck: false, confidence: 1, lowWords: 0, words };
+  };
+  const joined = split.joinBrokenUnits([unit('a', '行くぞ!', 69.0, 69.6), unit('b', 'やばいこれ', 69.6, 70.4)]);
+  check('文の終わり（！）は、間が無く見えても繋がない', joined.length === 2, joined.map((u) => u.text).join(' / '));
+  const c = unit('c', '今日は', 0, 0.5);
+  c.words[c.words.length - 1].breakAfter = true;
+  const joined2 = split.joinBrokenUnits([c, unit('d', '勉強しようと', 0.5, 1.2)]);
+  check('息継ぎの印がある区切りは繋がない', joined2.length === 2, joined2.map((u) => u.text).join(' / '));
+}
+
+{
+  /*
     🔴 語の時刻に間が無くても、エンジンが音で確かめた息継ぎ（breakAfter）では切る。
        Whisper の語の時刻は隣と隙間なく繋がるので、実素材では間が時刻に現れない
        （2026-09-11）。言われた例: 「今日は、(息継ぎ)勉強しようと思います」

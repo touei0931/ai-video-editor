@@ -418,6 +418,11 @@ def build_units(
     # 切ってよいのは「句読点」「間が空いた」「長すぎる」の3つだけ。
     # ここで作るのは意味のまとまりで、1画面に出す量ではない。
     groups: list[list[dict[str, Any]]] = []
+    #: その組が「意図して」区切られたか（文末・読点・間）。40文字の保険で切れたものは False。
+    #: 🔴 画面側は 40文字で切れた組を繋ぎ直す。意図した区切りまで繋ぎ直されないよう、
+    #:    最後の語に印（break_after）を付けて渡す。「行くぞ！」の直後の間が Whisper の
+    #:    時刻に吸われて 0 に見え、「行くぞ！やばいこれ」と繋がった（2026-09-12）。
+    deliberate: list[bool] = []
     buf: list[dict[str, Any]] = []
 
     for i, w in enumerate(words):
@@ -433,13 +438,16 @@ def build_units(
 
         if ends_sentence or soft or gap > opts["split_gap"] or nxt is None:
             groups.append(buf)
+            deliberate.append(nxt is not None)
             buf = []
         elif length >= opts["hard_max_chars"]:
             groups.append(buf)
+            deliberate.append(False)
             buf = []
 
     if buf:
         groups.append(buf)
+        deliberate.append(False)
 
     loudness = Loudness.from_wav(wav_path) if wav_path else None
 
@@ -466,6 +474,9 @@ def build_units(
         # 息継ぎの印。掃除前の語（「、」つき）と並びを揃えて渡す
         raw_words = [w for w in g if _clean_word(w["text"]).strip()]
         _mark_breaths(unit_words, raw_words, loudness, opts)
+        # この組の終わりが意図した区切りなら、最後の語にも印を付ける
+        if unit_words and deliberate[i]:
+            unit_words[-1]["break_after"] = True
         # 🔴 本文は単語列の連結そのもの。加工してはいけない（_clean_word 参照）。
         text = "".join(w["text"] for w in unit_words)
         if not text.strip():
