@@ -50,10 +50,15 @@ body {
   line-height: 1.75;
 }
 
+/*
+  🔴 幅を絞らないこと。以前は 760px で中央寄せにしていたが、
+     1920px の画面で左右が空くだけだった（「余白が勿体ない」2026-09-11）。
+     カードの段組（.settings-grid）が幅に応じて列を増やす。
+*/
 main {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 56px 24px 72px;
+  max-width: none;
+  margin: 0;
+  padding: 40px 32px 56px;
 }
 
 h1 {
@@ -267,7 +272,8 @@ ol {
 */
 .settings-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* 幅に応じて列が増える。1920px なら3列（3+3）、1280px なら2列。4列だと 4+2 で半端になる */
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }

@@ -41,14 +41,14 @@ export function AnalyzeSettingsScreen({ videoPath, settings, onChange, onBack, o
   return (
     <main>
       <h1>PAC</h1>
-      <p className="phase">② 設定 — 解析を始める前に決めることです。迷ったら初期値のままで大丈夫です</p>
-
-      <section>
-        <h2>素材</h2>
-        <div className="settings-value" title={videoPath}>
+      <p className="phase">
+        ② 設定 — 解析を始める前に決めることです。迷ったら初期値のままで大丈夫です
+        <br />
+        素材：
+        <strong className="settings-value" title={videoPath}>
           {fileName(videoPath)}
-        </div>
-      </section>
+        </strong>
+      </p>
 
       <div className="settings-grid">
         <section>

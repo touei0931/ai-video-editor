@@ -457,14 +457,6 @@
 */
 .pac-child-body > main {
   overflow-y: auto;
-  /*
-    スクロールの受け口は枠いっぱいにする。
-    index.css の main は 760px で中央寄せなので、そのままだと
-    左右の余白の上でホイールを回しても動かない。幅は左右の余白で作る。
-  */
-  max-width: none;
-  padding-left: max(24px, calc(50% - 380px));
-  padding-right: max(24px, calc(50% - 380px));
 }
 
 /*
