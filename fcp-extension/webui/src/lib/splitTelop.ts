@@ -191,14 +191,20 @@ const SPEECH_PAUSE = 0.3
 /** 長すぎて割るしかないときに、区切りとして使ってよい最小の間 */
 const WEAK_PAUSE = 0.12
 
-/** 語の並びの中で、間が空いている「文字位置」を返す */
+/**
+ * 語の並びの中で、間が空いている「文字位置」を返す。
+ *
+ * 🔴 時刻の隙間だけで見ないこと。Whisper の語の時刻は隣と隙間なく繋がるので、
+ *    息継ぎは時刻に現れない（実素材で全語 0.00秒）。エンジンが音で確かめた
+ *    印（breakAfter）を、間の長さに関わらず区切りとして扱う。
+ */
 function pausePoints(words: TelopWord[], minPause: number): { at: number; gap: number }[] {
   const out: { at: number; gap: number }[] = []
   let at = 0
   for (let i = 0; i < words.length - 1; i++) {
     at += words[i].text.length
     const gap = words[i + 1].srcStart - words[i].srcEnd
-    if (gap >= minPause) out.push({ at, gap })
+    if (gap >= minPause || words[i].breakAfter) out.push({ at, gap })
   }
   return out
 }

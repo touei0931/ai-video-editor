@@ -63,6 +63,8 @@ export interface TelopWord {
   text: string
   srcStart: number
   srcEnd: number
+  /** この語のあとに息継ぎがある（エンジンが音で確かめた）。長さに関わらずここで割る */
+  breakAfter?: boolean
 }
 
 export interface Telop {

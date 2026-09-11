@@ -94,6 +94,9 @@ def map_telops(
                     "text": w.get("text", ""),
                     "srcStart": float(w.get("src_start", 0)),
                     "srcEnd": float(w.get("src_end", 0)),
+                    # 🔴 息継ぎの印を落とさないこと。語の時刻には間が出ないので、
+                    #    これが無いと画面側は「今日は、勉強しよう」を1枚にする
+                    "breakAfter": bool(w.get("break_after", False)),
                 }
                 for w in (t.get("words") or [])
                 if (w.get("text") or "").strip()

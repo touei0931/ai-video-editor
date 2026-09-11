@@ -532,6 +532,20 @@ const unitOf = (id, words, style = 'normal') => ({
 }
 
 {
+  /*
+    🔴 語の時刻に間が無くても、エンジンが音で確かめた息継ぎ（breakAfter）では切る。
+       Whisper の語の時刻は隣と隙間なく繋がるので、実素材では間が時刻に現れない
+       （2026-09-11）。言われた例: 「今日は、(息継ぎ)勉強しようと思います」
+  */
+  const words = wordsOf([['今日は'], ['勉強しよう'], ['と思います']]);
+  words[0].breakAfter = true;
+  const text = words.map((w) => w.text).join('');
+  const chunks = split.chunksByPauses(text, words, () => true, (t) => [t]);
+  check('時刻に間が無くても息継ぎの印で切る', chunks.length === 2, chunks.join(' / '));
+  check('切れ目は印のある語の直後', chunks[0] === '今日は' && chunks[1] === '勉強しようと思います', chunks.join(' / '));
+}
+
+{
   // 間が無ければ、幅に収まる限り1枚
   const words = wordsOf([['今日は'], ['いい'], ['天気'], ['ですね']]);
   const text = words.map((w) => w.text).join('');

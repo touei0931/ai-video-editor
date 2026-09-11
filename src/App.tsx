@@ -117,7 +117,7 @@ interface TelopResult {
     needs_check: boolean;
     confidence: number;
     low_words: number;
-    words: { text: string; src_start: number; src_end: number }[];
+    words: { text: string; src_start: number; src_end: number; break_after?: boolean }[];
   }[];
 }
 
@@ -167,7 +167,12 @@ function toUnit(t: TelopResult['telops'][number]): TelopUnit {
     needsCheck: t.needs_check,
     confidence: t.confidence,
     lowWords: t.low_words ?? 0,
-    words: t.words.map((w) => ({ text: w.text, srcStart: w.src_start, srcEnd: w.src_end })),
+    words: t.words.map((w) => ({
+      text: w.text,
+      srcStart: w.src_start,
+      srcEnd: w.src_end,
+      breakAfter: !!w.break_after,
+    })),
   };
 }
 

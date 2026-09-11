@@ -37,6 +37,28 @@ DEFAULTS = {
     # 平均よりこれ以上大きい声なら「強調」とみなす
     "loud_db": 4.0,
 
+    # ── 息継ぎ ──
+    #
+    # 🔴 語の時刻の隙間で息継ぎを見ないこと。
+    #    Whisper の語の時刻は**隣の語と隙間なく繋がる**。間は前の語の
+    #    終わりに吸われるので、時刻だけ見ると間は「無い」ことになる
+    #    （実素材で全語 0.00秒だった、2026-09-11）。
+    #    音そのものを見て「声が止まっていた長さ」で決める。
+    #
+    # 息継ぎがあれば、そこは話し手が区切った所。長さに関わらず
+    # 別の1枚にする（「今日は」「勉強しようと思います」）。
+    # 🔴 0.2 では短すぎる。「使います」の「か」（無声子音）の落ち込みが
+    #    0.18〜0.2秒あり、語の途中で割れた（実音声で確認、2026-09-11）。
+    #    息継ぎは 0.3秒前後で、地の音まで落ちる。
+    "breath_gap": 0.25,        # 声がこれだけ止まっていたら息継ぎ
+    # Whisper が「、」を打った所は、それより短い止まりでも息継ぎとみなす。
+    # 「、」は Whisper が間を聞いて打っているので、それ自体が手がかり。
+    "breath_gap_soft": 0.08,
+    # 声があるかどうかの線。区間の大きい音からこれだけ下がったら「止まっている」。
+    # 🔴 浅くしないこと。12dB だと子音や語尾の弱い所まで「止まっている」に
+    #    入る。息継ぎは地の音まで落ちるので、深めに取っても取りこぼさない
+    "voice_drop_db": 20.0,
+
     # ── 「要確認」の判定 ──
     #
     # 🔴 単語確度の**最小値**で判定してはいけない。
@@ -161,6 +183,81 @@ class Loudness:
 
         return 20 * math.log10(rms / 32768.0)
 
+    # ── 声の有無 ──
+    #
+    # 10ms ごとの音量（dB）を一度だけ作って持つ。語ごとに作り直すと
+    # 数百語で数百回になり、遅い。
+    _FRAME = 0.010
+
+    def _frames(self) -> Any:
+        if getattr(self, "_db", None) is not None:
+            return self._db
+        try:
+            import numpy as np
+
+            n = int(self._rate * self._FRAME)
+            x = self._samples
+            if not hasattr(x, "dtype"):
+                x = np.asarray(x, dtype="float32")
+            count = len(x) // n
+            if n <= 0 or count <= 0:
+                self._db = np.zeros(0, dtype="float32")
+                return self._db
+            frames = x[: count * n].reshape(count, n).astype("float32")
+            rms = np.sqrt(np.square(frames).mean(axis=1)) + 1e-9
+            self._db = 20 * np.log10(rms / 32768.0)
+        except Exception:  # noqa: BLE001
+            self._db = None
+        return self._db
+
+    def voiced_span(
+        self, start: float, end: float, ceiling_db: float, drop_db: float
+    ) -> tuple[float, float] | None:
+        """区間の中で、声が出ている最初と最後の時刻。
+
+        ceiling_db（まわりの大きい音）から drop_db 下がったら「声が止まっている」
+        とみなす。区間の中に声が無ければ None。
+        """
+        db = self._frames()
+        if db is None or len(db) == 0:
+            return None
+        # 🔴 終わりは含めない。+1 で1コマ足すと、次の語の最初のコマまで
+        #    「この語の声」に数えてしまい、息継ぎが消える
+        a = max(0, int(round(start / self._FRAME)))
+        b = min(len(db), int(round(end / self._FRAME)))
+        if b <= a:
+            return None
+        import numpy as np
+
+        voiced = np.where(db[a:b] > ceiling_db - drop_db)[0]
+        if len(voiced) == 0:
+            return None
+        return ((a + int(voiced[0])) * self._FRAME, (a + int(voiced[-1]) + 1) * self._FRAME)
+
+    def ceiling(self, start: float, end: float, drop_db: float = 20.0) -> float | None:
+        """区間の「大きい音」の目安（90 パーセンタイル）。
+
+        🔴 区間の音量差が小さいとき（波の音など、常に鳴っている素材）は
+           None を返す。声と地の音を分けられないので、無理に線を引くと
+           息継ぎでない所で割れる。
+        """
+        db = self._frames()
+        if db is None or len(db) == 0:
+            return None
+        # 🔴 終わりは含めない。+1 で1コマ足すと、次の語の最初のコマまで
+        #    「この語の声」に数えてしまい、息継ぎが消える
+        a = max(0, int(round(start / self._FRAME)))
+        b = min(len(db), int(round(end / self._FRAME)))
+        if b - a < 10:
+            return None
+        import numpy as np
+
+        chunk = db[a:b]
+        hi = float(np.percentile(chunk, 90))
+        lo = float(np.percentile(chunk, 10))
+        # 「止まっている」の線（hi - drop）より地の音が下にないと測れない
+        return hi if hi - lo >= drop_db + 6.0 else None
+
 
 # ── カット区間の適用 ──────────────────────────────────────
 
@@ -235,6 +332,51 @@ def classify(
         return "normal", f"強調語「{word}」", word
 
     return "normal", "", None
+
+
+def _mark_breaths(
+    words: list[dict[str, Any]],
+    raw_words: list[dict[str, Any]],
+    loudness: "Loudness | None",
+    opts: dict[str, Any],
+) -> None:
+    """語のあとに息継ぎがあるか調べ、`break_after` を立てる。
+
+    words は掃除済み（句読点なし）、raw_words は掃除前（「、」が残っている）。
+    同じ並びで渡すこと。
+
+    🔴 語の時刻の隙間だけで決めないこと（DEFAULTS の "breath_gap" 参照）。
+       音が使えるなら、音で「声が止まっていた長さ」を測る。
+       音が使えない（wav が無い、地の音が大きくて声と分けられない）ときは
+       Whisper の「、」と、時刻の隙間があればそれを使う。
+    """
+    if len(words) < 2:
+        return
+    gap_hard = float(opts["breath_gap"])
+    gap_soft = float(opts["breath_gap_soft"])
+    drop = float(opts["voice_drop_db"])
+
+    ceiling = None
+    if loudness is not None:
+        ceiling = loudness.ceiling(words[0]["src_start"], words[-1]["src_end"], drop)
+
+    for i in range(len(words) - 1):
+        w, nxt = words[i], words[i + 1]
+        raw = (raw_words[i].get("text") or "").rstrip()
+        has_comma = raw[-1:] in SOFT_BREAK
+
+        # 時刻の隙間（Whisper がはっきり空けていればここに出る）
+        gap = float(nxt["src_start"]) - float(w["src_end"])
+
+        # 音で測った隙間。語の終わりから次の語の声が始まるまで
+        if ceiling is not None:
+            here = loudness.voiced_span(w["src_start"], w["src_end"], ceiling, drop)
+            there = loudness.voiced_span(nxt["src_start"], nxt["src_end"], ceiling, drop)
+            if here is not None and there is not None:
+                gap = max(gap, there[0] - here[1])
+
+        if gap >= gap_hard or (has_comma and (gap >= gap_soft or ceiling is None)):
+            w["break_after"] = True
 
 
 # ── 本体 ─────────────────────────────────────────────────
@@ -314,6 +456,9 @@ def build_units(
             for w in g
         ]
         unit_words = [w for w in unit_words if w["text"].strip()]
+        # 息継ぎの印。掃除前の語（「、」つき）と並びを揃えて渡す
+        raw_words = [w for w in g if _clean_word(w["text"]).strip()]
+        _mark_breaths(unit_words, raw_words, loudness, opts)
         # 🔴 本文は単語列の連結そのもの。加工してはいけない（_clean_word 参照）。
         text = "".join(w["text"] for w in unit_words)
         if not text.strip():
