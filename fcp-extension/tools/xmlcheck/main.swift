@@ -645,6 +645,52 @@ do {
     check("高さに対する割合も入る", 由来.contains("（高さの 1."), 由来)
 }
 
+/* ================================================ timeMap の座標
+
+  🔴 timept の time は clip の start から始まること。0s からではない。
+     time の座標は clip の local timeline（原点 = start）。0s から書くと
+     「詰めたあとの範囲」が clip の占める範囲と重ならず、Final Cut が
+     その clip を捨てる。start が 0 の clip1 だけ偶然通るので、毎回
+     clip1 だけ残る（2026-09-11、9月１０本目.fcpxml）。
+
+  🔴 これまでの試験は全部通っていた。timeMap の中身を見ていなかったから。
+     「読める」「並ぶ」「外に出ない」だけでは、この間違いは見つからない。
+*/
+do {
+    let cuts: [[String: Any]] = [["decision": "approved", "start": 3.5, "end": 4.0]]
+    let telops: [[String: Any]] = [["start": 5.0, "end": 6.0, "text": "あ", "style": "normal"]]
+    let xml = FCPXMLWriter.build(
+        cuts: cuts, telops: telops, styles: [:], mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 20, mediaWidth: 1080, mediaHeight: 1920, speed: 1.15)
+    guard
+        let doc = try? XMLDocument(xmlString: xml, options: []),
+        let clips = (try? doc.nodes(forXPath: "//asset-clip")) as? [XMLElement],
+        clips.count >= 2
+    else {
+        check("timeMap の座標: XML が読める", false)
+        exit(1)
+    }
+    func attr(_ e: XMLElement, _ n: String) -> Double {
+        seconds(e.attribute(forName: n)?.stringValue ?? "0s")
+    }
+    var ずれ: [String] = []
+    for c in clips {
+        let st = attr(c, "start"), du = attr(c, "duration")
+        let pts = ((try? c.nodes(forXPath: "timeMap/timept")) as? [XMLElement]) ?? []
+        guard let first = pts.first, let last = pts.last else {
+            ずれ.append("\(c.attribute(forName: "name")?.stringValue ?? "?"): timeMap が無い"); continue
+        }
+        let t0 = attr(first, "time"), v0 = attr(first, "value")
+        let t1 = attr(last, "time")
+        if !near(t0, st, 0.0005) || !near(v0, st, 0.0005) || !near(t1, st + du, 0.0005) {
+            ずれ.append("\(c.attribute(forName: "name")?.stringValue ?? "?"): time \(t0)→\(t1) / start \(st) 長さ \(du)")
+        }
+    }
+    check("timept の time は clip の start から始まり start+長さ で終わる", ずれ.isEmpty, ずれ.joined(separator: " / "))
+    // 2つ目の clip は start が 0 ではない。そこで確かめないと clip1 だけで通ってしまう
+    check("start が 0 でない clip で確かめている", attr(clips[1], "start") > 0, "\(attr(clips[1], "start"))")
+}
+
 /* ================================================ 速度とテロップの位置
 
   🔴 timeMap を付けても、Final Cut は clip にぶら下げたものの offset を

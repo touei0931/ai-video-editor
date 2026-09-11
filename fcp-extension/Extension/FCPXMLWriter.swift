@@ -382,11 +382,23 @@ enum FCPXMLWriter {
                      読み込みが丸ごと失敗し、「DTD の検証でエラー」としか出ない。
                      adjust-conform と title の順番でも一度踏んでいる。
                 */
+                /*
+                  🔴 timept の time は **clip の start から**書くこと。0s からではない。
+
+                     time は「詰めたあとの clip の時刻」だが、その座標は clip の
+                     local timeline（原点 = start）。DTD の例も「元が 0〜5秒の clip を
+                     0〜20秒に」と同じ座標で書いている。
+                     0s から書くと、詰めたあとの範囲が 0〜長さ になり、clip が占める
+                     start〜start+長さ と重ならない。Final Cut はそれを
+                     「対応するメディアがない不正な編集です」と言って捨てる。
+                     start が 0 の clip1 だけ偶然合うので、毎回 clip1 だけ残っていた
+                     （4本目で clip2 まで、10本目で clip1 だけ。2026-09-11 に確定）。
+                */
                 if rate != 1.0 {
                     xml += """
                                   <timeMap>
-                                    <timept time="0s" value="\(timeFrames(startF, fps: fps))" interp="linear"/>
-                                    <timept time="\(timeFrames(outDurF, fps: fps))" value="\(timeFrames(endF, fps: fps))" interp="linear"/>
+                                    <timept time="\(timeFrames(startF, fps: fps))" value="\(timeFrames(startF, fps: fps))" interp="linear"/>
+                                    <timept time="\(timeFrames(startF + outDurF, fps: fps))" value="\(timeFrames(endF, fps: fps))" interp="linear"/>
                                   </timeMap>
 
                     """
