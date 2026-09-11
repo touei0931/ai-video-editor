@@ -86,6 +86,10 @@ jobs:
       #    「見つかること」より「本編を巻き込まないこと」を先に縛る
       - name: 独り言・話が逸れた所
         run: python scripts/test_aside.py
+      # 🔴 幻聴の除去。少しずつ変わる繰り返し（島上栗／島下通）と復号に失敗した窓を落とし、
+      #    本物の連呼と確度の低い「はい」は残す
+      - name: 幻聴の除去
+        run: python scripts/test_clean.py
       # Final Cut へ渡すタイムライン。フレーム境界と file:// URL が要点
       - name: FCPXML の書き出し
         run: python scripts/test_fcpxml.py

@@ -40,6 +40,27 @@ DEFAULTS = {
     # 日本語を含まない短い出力は、これ未満の確度なら捨てる
     "non_ja_min_prob": 0.5,
     "non_ja_max_len": 4,
+    # ── 復号に失敗した区間 ──
+    #
+    # 🔴 Whisper は avg_logprob が -1.0 を下回ると温度を上げてやり直すが、
+    #    全部失敗しても**最後の結果をそのまま返す**。そのとき avg_logprob は
+    #    -2 を大きく下回る（実例 -2.75）。人の声を普通に聞き取れた区間は
+    #    悪くても -1.0 前後なので、ここまで低いのは「聞き取れなかった」の印。
+    #    ゲーム音と歓声だけの 25 秒に「島上栗／島下通／島 上手」が並んだ
+    #    （2026-09-11、VTuber のコラボ配信の切り抜き）。
+    "decode_failed_logprob": -2.0,
+    # 復号に失敗した区間でも、単語確度がこれ以上なら人の声とみなして残す
+    "decode_failed_min_prob": 0.5,
+    # 1文字あたりの秒数がこれ以上なら「声がまばら」。人の日本語は 0.1〜0.3 秒/文字。
+    # 8秒の区間に3文字（2.7秒/文字）は、喋っていない時間に文字を当てはめた形
+    "sparse_seconds_per_char": 1.0,
+    # ── 似た出力の繰り返し ──
+    #
+    # 🔴 完全一致だけでは捕まらない。「島上栗 / 島下通 / 島 上手 / 島上栗」のように
+    #    少しずつ変わりながら同じ文字を使い回す。文字の集合の重なりで見る。
+    "similar_run": 3,
+    "similar_overlap": 0.5,
+    "similar_max_prob": 0.5,
 }
 
 
@@ -51,6 +72,23 @@ def _mean_prob(segment: dict[str, Any]) -> float:
     probs = [w.get("probability", 0.0) for w in segment.get("words", [])]
     probs = [p for p in probs if p > 0]
     return sum(probs) / len(probs) if probs else 0.0
+
+
+def _seconds_per_char(segment: dict[str, Any]) -> float:
+    """1文字あたりの秒数。文字が無ければ 0（別の規則で落ちる）。"""
+    chars = len(_normalize(segment.get("text", "")))
+    if chars == 0:
+        return 0.0
+    length = float(segment.get("src_end", 0)) - float(segment.get("src_start", 0))
+    return max(0.0, length) / chars
+
+
+def _char_overlap(a: str, b: str) -> float:
+    """2つの文字列が使っている文字の重なり（Jaccard）。"""
+    sa, sb = set(a), set(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
 
 
 def clean_transcript(
@@ -91,6 +129,29 @@ def clean_transcript(
                 mark(j, "同じ出力の繰り返し")
         start = i
 
+    # ── 似た出力の繰り返し ──
+    #
+    # 「島上栗 / 島下通 / 島 上手 / 島上栗 / 島上栗」のように、少しずつ変わりながら
+    # 同じ文字を使い回す。隣どうしの文字の重なりで連なりを取り、
+    # 連なり全体の確度が低ければ幻聴とみなす。
+    # 🔴 確度で縛ること。「待て待て待て」×3 のような本物の連呼は確度が高い。
+    start = 0
+    for i in range(1, len(segments) + 1):
+        similar = (
+            i < len(segments)
+            and _char_overlap(_normalize(segments[i]["text"]), _normalize(segments[i - 1]["text"]))
+            >= opts["similar_overlap"]
+        )
+        if similar:
+            continue
+        run = i - start
+        if run >= opts["similar_run"]:
+            probs = [_mean_prob(segments[j]) for j in range(start, i)]
+            if sum(probs) / len(probs) < opts["similar_max_prob"]:
+                for j in range(start, i):
+                    mark(j, "似た出力の繰り返し")
+        start = i
+
     # ── 単体で見て明らかに怪しいもの ──
     for i, seg in enumerate(segments):
         text = _normalize(seg["text"])
@@ -102,6 +163,15 @@ def clean_transcript(
         if mean and mean < opts["min_mean_prob"]:
             mark(i, "確度が極端に低い")
             continue
+
+        # 復号に失敗した区間（Whisper が温度を上げてもだめだった30秒窓）。
+        # 単語確度が高ければ声とみなして残し、低いか声がまばらなら落とす。
+        logprob = seg.get("avg_logprob")
+        if isinstance(logprob, (int, float)) and logprob <= opts["decode_failed_logprob"]:
+            sparse = _seconds_per_char(seg) >= opts["sparse_seconds_per_char"]
+            if mean < opts["decode_failed_min_prob"] or sparse:
+                mark(i, "復号に失敗した区間")
+                continue
 
         # 日本語として文字起こししたのに日本語が1文字も無い短い出力。
         # "OK" のように正当な場合もあるので、確度が低いものだけ落とす。

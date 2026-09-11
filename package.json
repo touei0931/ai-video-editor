@@ -20,6 +20,7 @@
     "test:tlrender": "python scripts/test_timeline_graph.py",
     "test:clip": "python scripts/test_review_clip.py",
     "test:cut": "python scripts/test_cut_confidence.py",
+    "test:clean": "python scripts/test_clean.py",
     "test:fcpxml": "python scripts/test_fcpxml.py",
     "test:music": "python scripts/test_music_mix.py",
     "test:time": "node scripts/test-edited-time.mjs",

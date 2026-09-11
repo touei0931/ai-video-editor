@@ -63,6 +63,7 @@ jobs:
         run: |
           npm run test:track
           npm run test:cut
+          npm run test:clean
           npm run test:fcpxml
           npm run test:graph
           npm run test:music
