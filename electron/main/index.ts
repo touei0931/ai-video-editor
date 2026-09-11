@@ -88,6 +88,13 @@ function createWindow(): void {
     width: 1280,
     height: 860,
     backgroundColor: '#101014',
+    /*
+      窓とタスクバーの印。
+      🔴 開発中（リポジトリから起動）は electron.exe の印になってしまうので、
+         自分の印を明示する。配布物は実行ファイル自体に印が入るので要らない。
+         デスクトップのアイコンから起動したとき、タスクバーに PAC の印で並ぶ。
+    */
+    icon: isDev ? join(app.getAppPath(), 'packaging', 'icon.png') : undefined,
     webPreferences: {
       preload: join(appRoot(), 'dist-electron', 'preload', 'index.cjs'),
       contextIsolation: true,
@@ -887,6 +894,13 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
+
+/*
+  タスクバーでの名乗り。
+  🔴 開発中はこれが無いと「electron」として束ねられ、ピン留めしても Electron の
+     印になる。配布物は electron-builder が入れるが、同じ値を書いておいて害は無い。
+*/
+app.setAppUserModelId('jp.touei.pac');
 
 app
   .whenReady()
