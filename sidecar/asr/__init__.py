@@ -116,13 +116,15 @@ class _RoutingAsr:
     def __init__(self, whisper: Asr) -> None:
         self._whisper = whisper
         self._qwen: Asr | None = None
+        # Qwen3-ASR の動かし方。Mac は Apple の GPU（mlx）、それ以外は torch（CUDA）
+        self._qwen_engine = "mlx" if _IS_MAC else "torch"
 
     def transcribe(self, audio_path: str, model: str = "large-v3-turbo", **kwargs) -> dict:
         from .qwen_backend import QwenAsr, is_qwen_model
 
         if is_qwen_model(model):
             if self._qwen is None:
-                self._qwen = QwenAsr()
+                self._qwen = QwenAsr(engine=self._qwen_engine)
             return self._qwen.transcribe(audio_path, model=model, **kwargs)
         return self._whisper.transcribe(audio_path, model=model, **kwargs)
 

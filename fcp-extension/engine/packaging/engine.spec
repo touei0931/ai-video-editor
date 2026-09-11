@@ -74,6 +74,9 @@ a = Analysis(
         "sidecar.asr",
         "sidecar.asr.faster_whisper_backend",
         "sidecar.asr.qwen_backend",
+        # nagisa（日本語の分かち書き）が読む。collect_all では拾えず、
+        # 固めた中で「No module named 'six'」になった（CI の --probe で判明）
+        "six",
     ],
     hookspath=[],
     runtime_hooks=[],

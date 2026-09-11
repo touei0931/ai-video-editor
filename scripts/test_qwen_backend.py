@@ -66,13 +66,23 @@ class Segments(unittest.TestCase):
         self.assertEqual(segs[0]["avg_logprob"], 0.0)
 
 
+try:
+    import numpy  # noqa: F401
+
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+
+
 class Chunks(unittest.TestCase):
+    @unittest.skipUnless(HAS_NUMPY, "numpy が無い環境（区切りは numpy で計算する）")
     def test_短ければ1つ(self):
         import numpy as np
 
         x = np.zeros(16000 * 30, dtype="float32")
         self.assertEqual(qb.chunk_bounds(x, 16000), [(0, len(x))])
 
+    @unittest.skipUnless(HAS_NUMPY, "numpy が無い環境（区切りは numpy で計算する）")
     def test_静かな所で区切る(self):
         import numpy as np
 

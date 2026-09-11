@@ -3,9 +3,10 @@
 日本語の自然な会話で最も誤りが少ないモデル（2026-02〜05 の公開ベンチマークで
 CER 0.140。whisper-large-v3-turbo は 0.184、kotoba-whisper は 0.495）。
 
-🔴 動かし方はプラットフォームで違う。呼び出し側はこのクラスしか見ない。
-   - Windows / Linux: qwen-asr（torch。CUDA が要る）
-   - Mac:             mlx-qwen3-asr（Apple の GPU。torch 不要）
+🔴 動かし方は2種類ある。どちらを使うかは asr/__init__.py（プラットフォーム分岐を
+   書いてよいファイル）が決めて engine="torch" / "mlx" で渡す。ここでは分岐しない。
+   - torch: qwen-asr（Windows / Linux。CUDA が要る）
+   - mlx:   mlx-qwen3-asr（Mac。Apple の GPU。torch 不要）
    語の時刻は、別の「整列モデル（Qwen3-ForcedAligner-0.6B）」が出す。
    Whisper と違って**語と語の間が時刻に出る**ので、息継ぎが時刻から分かる。
 
@@ -23,7 +24,6 @@ CER 0.140。whisper-large-v3-turbo は 0.184、kotoba-whisper は 0.495）。
 
 from __future__ import annotations
 
-import sys
 import time
 import wave
 from typing import Any, Callable
@@ -150,11 +150,14 @@ def to_segments(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 class QwenAsr:
-    def __init__(self) -> None:
+    def __init__(self, engine: str = "torch") -> None:
+        if engine not in ("torch", "mlx"):
+            raise ValueError(f"engine は torch か mlx: {engine}")
+        self._kind = engine
         self._engine: Any = None
         self._engine_model: str | None = None
-        self.device = "mlx" if sys.platform == "darwin" else "cuda"
-        self.backend = "mlx-qwen3-asr" if sys.platform == "darwin" else "qwen-asr"
+        self.device = "mlx" if engine == "mlx" else "cuda"
+        self.backend = "mlx-qwen3-asr" if engine == "mlx" else "qwen-asr"
 
     # ── モデルの読み込み ──
 
@@ -162,7 +165,7 @@ class QwenAsr:
         repo = MODELS[model]
         if self._engine is not None and self._engine_model == model:
             return self._engine
-        if sys.platform == "darwin":
+        if self._kind == "mlx":
             from mlx_qwen3_asr import Session
 
             self._engine = Session(model=repo)
@@ -188,7 +191,7 @@ class QwenAsr:
     def _run_chunk(self, engine: Any, samples: Any, rate: int, language: str) -> tuple[str, list[dict[str, Any]]]:
         """(本文, 語の並び[{text, src_start, src_end}]) を返す。時刻は区切りの先頭から。"""
         lang = _LANG.get(language, "Japanese")
-        if sys.platform == "darwin":
+        if self._kind == "mlx":
             r = engine.transcribe((samples, rate), language=lang, return_timestamps=True)
             items = [{"text": s["text"], "src_start": float(s["start"]), "src_end": float(s["end"])}
                      for s in (r.segments or [])]
