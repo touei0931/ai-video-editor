@@ -287,7 +287,8 @@ export function buildFCPXML(project: Project, options: ExportOptions = {}): stri
            しかも向こうで開くまで気付けない。
         🔴 完全一致はしない（Canvas と Basic Title は別物）。近い所までは寄せる。
       */
-      const resolved = resolveStyle(project.styles, t.style);
+      // 🔴 人ごとの色（override）も写す。落とすと Final Cut では全員同じ色になる
+      const resolved = resolveStyle(project.styles, t.style, t.override);
       const look = fcpLook(
         resolved,
         resolved.position,

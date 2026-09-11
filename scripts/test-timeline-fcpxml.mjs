@@ -161,6 +161,43 @@ function base() {
         (xml.match(/name="つよい[^"]*"[^>]*offset="[^"]+"/) || ['無し'])[0]);
 }
 
+/* ------------------------------------------------- 人ごとの色（1枚の上書き） */
+
+{
+  /*
+    🔴 喋っている人ごとの色は「雛形」ではなく「1枚ごとの上書き」で持つ。
+       強調の雛形のまま、その人の色で出す、ができないといけない。
+       送った瞬間に消えないこと、Final Cut 用にも写ること。
+  */
+  const p = importCutResult(emptyProject(), {
+    asset: { id: 'c', path: '/m/c.mp4', name: 'C', duration: 100, hasVideo: true, hasAudio: true },
+    keeps: [{ srcStart: 0, srcEnd: 10 }],
+    telops: [
+      { srcStart: 1, srcEnd: 2, text: 'フブキ', style: 'normal', override: { color: '#7ec8ff' } },
+      { srcStart: 3, srcEnd: 4, text: 'おかゆ強調', style: 'emphasis', override: { color: '#c59bff', strokeColor: '#221133' } },
+      { srcStart: 5, srcEnd: 6, text: '誰でもない', style: 'normal' },
+    ],
+  });
+  check('上書きが並べる画面のテロップに残る', p.telops[0].override?.color === '#7ec8ff', JSON.stringify(p.telops[0]));
+  const xml = buildFCPXML(p, { fps: 30 });
+  const looks = xml.split('<title ').slice(1).map((part) => ({
+    name: /name="([^"]*)"/.exec(part)?.[1] ?? '',
+    size: Number(/fontSize="(\d+)"/.exec(part)?.[1] ?? 0),
+    color: /fontColor="([^"]+)"/.exec(part)?.[1] ?? '',
+    stroke: /strokeColor="([^"]+)"/.exec(part)?.[1] ?? '',
+  }));
+  const f = looks.find((l) => l.name === 'フブキ');
+  const o = looks.find((l) => l.name === 'おかゆ強調');
+  const n = looks.find((l) => l.name === '誰でもない');
+  // 色は 0〜1 の3つ組。#7ec8ff = 126/255, 200/255, 255/255
+  const rgb = (s) => (s ?? '').split(' ').slice(0, 3).map((v) => Math.round(Number(v) * 255)).join(',');
+  check('Final Cut 用に人の色が写る', rgb(f?.color) === '126,200,255', f?.color);
+  check('強調の雛形のまま、その人の色になる（大きさは強調、色は人）',
+    !!o && !!n && o.size > n.size && rgb(o.color) === '197,155,255', JSON.stringify({ o, n }));
+  check('縁取りの色も写る', rgb(o?.stroke) === '34,17,51', o?.stroke);
+  check('上書きの無いものは雛形の色', n?.color.startsWith('1 1 1'), n?.color);
+}
+
 /* ------------------------------------------------------- クリップの音量 */
 
 {

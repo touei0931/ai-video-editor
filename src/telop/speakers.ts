@@ -2,21 +2,21 @@
  * 話者ごとの色。「誰が喋っているか」を声で見分け、登録した色でテロップを塗る。
  *
  * 見分ける本体は sidecar/speakers.py（話者埋め込み）。こちらは結果を
- * テロップと雛形に落とし込む側。
+ * テロップに落とし込む側。
  *
- * 🔴 色は「1枚ごとの上書き」ではなく**雛形の枠**として持つこと。
- *    並べる画面（タイムライン）のテロップは雛形の名前しか持たない。
- *    上書きで塗ると、タイムラインに送った瞬間に色が消える。
- *    人ごとに `slot-spk-<id>` の枠を作り、テロップの style をそこへ向ければ、
- *    プレビュー・書き出し・Final Cut 用・タイムラインのどれでも同じ色で出る。
- *    枠は「通常」を土台にして色だけ変える（利用者の選択: 色だけ）。
+ * 🔴 「誰が喋ったか（色）」と「どう見せるか（雛形）」は別の軸。
+ *    色はテロップ1枚ごとの上書き（override.color）で持ち、雛形（通常／強調）は触らない。
+ *    強調した話し方のときは強調の雛形のまま、その人の色で出る。
+ *    以前は人ごとに雛形の枠を作って style を向けていたが、それだと
+ *    「強調＋その人の色」が組めない（2026-09-11 に指摘）。
+ *    並べる画面のテロップも override を持てるようにしたので、送っても色は消えない。
  *
  * 🔴 自動で付けた色と、人が付けた色を区別すること（manualSpeaker）。
  *    見分け直したときに、人が直したものまで上書きすると、直した意味が無くなる。
  */
 
 import type { TelopCard } from './split';
-import { isBuiltinStyle, type StyleMap, type TelopStyle } from './style';
+import type { TelopOverride } from './style';
 
 /** 登録した人（覚えた声の持ち主）。画面に渡る形。埋め込みは含まない */
 export interface SpeakerProfile {
@@ -91,62 +91,38 @@ export function makeSpeakerService(
   };
 }
 
-/** 人ごとの枠の名前。`slot-` で始めると、雛形の一覧と数字キーにそのまま並ぶ */
-export const SPEAKER_STYLE_PREFIX = 'slot-spk-';
-
-export function speakerStyleName(speakerId: string): string {
-  return `${SPEAKER_STYLE_PREFIX}${speakerId}`;
+/** その人の色を上書きに写す。縁取りの色は登録に無ければ触らない */
+export function withSpeakerColor(
+  override: TelopOverride | undefined,
+  profile: SpeakerProfile,
+): TelopOverride {
+  const next: TelopOverride = { ...(override ?? {}), color: profile.color };
+  if (profile.strokeColor) next.strokeColor = profile.strokeColor;
+  else delete next.strokeColor;
+  return next;
 }
 
-/** その枠が「人ごとの枠」なら持ち主の id */
-export function speakerOfStyle(styleName: string): string | null {
-  return styleName.startsWith(SPEAKER_STYLE_PREFIX)
-    ? styleName.slice(SPEAKER_STYLE_PREFIX.length)
-    : null;
-}
-
-/**
- * 登録した人ごとの枠を、今の雛形に足す（あれば名前と色を今の登録に合わせる）。
- *
- * 🔴 土台は「通常」。書体・大きさ・位置は通常と同じで、色だけ人の色。
- *    通常を直せば全員に効く。
- * 🔴 縁取りの色は、登録に無ければ通常のまま。
- */
-export function withSpeakerStyles(styles: StyleMap, profiles: SpeakerProfile[]): StyleMap {
-  const next: StyleMap = { ...styles };
-  let changed = false;
-  for (const p of profiles) {
-    const name = speakerStyleName(p.id);
-    const base: TelopStyle = next[name] ?? structuredClone(next.normal);
-    const stroke = p.strokeColor
-      ? { ...(base.stroke ?? next.normal.stroke ?? { color: '#000000', widthRatio: 0.16 }), color: p.strokeColor }
-      : base.stroke;
-    const want: TelopStyle = { ...base, label: p.name.slice(0, 12), color: p.color, stroke };
-    if (
-      !next[name] ||
-      next[name].label !== want.label ||
-      next[name].color !== want.color ||
-      next[name].stroke?.color !== want.stroke?.color
-    ) {
-      next[name] = want;
-      changed = true;
-    }
-  }
-  return changed ? next : styles;
+/** 人の色を外す。大きさなど色以外の上書きは残す */
+export function withoutSpeakerColor(override: TelopOverride | undefined): TelopOverride | undefined {
+  if (!override) return undefined;
+  const rest = { ...override };
+  delete rest.color;
+  delete rest.strokeColor;
+  return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
 /**
  * 見分けた結果をテロップに書き込む。
  *
- * - 当たった人がいれば style を人の枠へ（人が手で付けたものは触らない）
- * - 当たらなければ voice（声n）だけ付け、以前に自動で付けた人の枠なら通常へ戻す
+ * - 当たった人がいれば、その人の色を上書きに（人が手で付けたものは触らない）
+ * - 当たらなければ voice（声n）だけ付け、以前に自動で付けた人の色なら外す
  */
 export function applyIdentification(
   cards: TelopCard[],
   result: IdentifyResult,
   profiles: SpeakerProfile[],
 ): TelopCard[] {
-  const known = new Set(profiles.map((p) => p.id));
+  const byProfile = new Map(profiles.map((p) => [p.id, p]));
   const byId = new Map(result.units.map((u) => [u.id, u]));
   return cards.map((c) => {
     const u = byId.get(c.id);
@@ -155,45 +131,80 @@ export function applyIdentification(
       // 人が決めたものは動かさない。声nの印だけ外す
       return c.voice ? { ...c, voice: null } : c;
     }
-    if (u.speaker && known.has(u.speaker)) {
+    const profile = u.speaker ? byProfile.get(u.speaker) : undefined;
+    if (profile) {
       return {
         ...c,
-        speaker: u.speaker,
+        speaker: profile.id,
         speakerScore: u.score,
         voice: null,
-        style: speakerStyleName(u.speaker),
+        override: withSpeakerColor(c.override, profile),
       };
     }
-    // 当たらなかった。前回自動で人の枠にしていたなら、通常へ戻す
-    const wasSpeaker = speakerOfStyle(c.style) !== null;
+    // 当たらなかった。前回自動で人の色にしていたなら外す
     return {
       ...c,
       speaker: null,
       speakerScore: u.score,
       voice: u.voice,
-      style: wasSpeaker ? 'normal' : c.style,
+      override: c.speaker ? withoutSpeakerColor(c.override) : c.override,
     };
   });
 }
 
 /**
  * 人が「この声は◯◯」と決めたときの書き込み。以後は自動で動かさない。
- * speakerId が null なら「誰でもない」に戻す（枠も通常へ）。
+ * profile が null なら「誰でもない」に戻す（色も外す）。
  */
 export function assignSpeaker(
   cards: TelopCard[],
   ids: Iterable<string>,
-  speakerId: string | null,
+  profile: SpeakerProfile | null,
 ): TelopCard[] {
   const target = new Set(ids);
   return cards.map((c) => {
     if (!target.has(c.id)) return c;
-    if (speakerId) {
-      return { ...c, speaker: speakerId, voice: null, manualSpeaker: true, style: speakerStyleName(speakerId) };
+    if (profile) {
+      return {
+        ...c,
+        speaker: profile.id,
+        voice: null,
+        manualSpeaker: true,
+        edited: true,
+        override: withSpeakerColor(c.override, profile),
+      };
     }
-    const style = speakerOfStyle(c.style) !== null || !isBuiltinStyle(c.style) ? 'normal' : c.style;
-    return { ...c, speaker: null, voice: null, manualSpeaker: true, style };
+    return {
+      ...c,
+      speaker: null,
+      voice: null,
+      manualSpeaker: true,
+      edited: true,
+      override: withoutSpeakerColor(c.override),
+    };
   });
+}
+
+/**
+ * 登録した人の色が変わったとき、その人のテロップを塗り直す。
+ * 消えた人（profiles に無い）のテロップは色を外し、自動の判定に戻す。
+ */
+export function recolor(cards: TelopCard[], profiles: SpeakerProfile[]): TelopCard[] {
+  const byProfile = new Map(profiles.map((p) => [p.id, p]));
+  let changed = false;
+  const next = cards.map((c) => {
+    if (!c.speaker) return c;
+    const p = byProfile.get(c.speaker);
+    if (p) {
+      const override = withSpeakerColor(c.override, p);
+      if (override.color === c.override?.color && override.strokeColor === c.override?.strokeColor) return c;
+      changed = true;
+      return { ...c, override };
+    }
+    changed = true;
+    return { ...c, speaker: null, manualSpeaker: false, override: withoutSpeakerColor(c.override) };
+  });
+  return changed ? next : cards;
 }
 
 /** テロップから「見分ける」に渡す区間 */

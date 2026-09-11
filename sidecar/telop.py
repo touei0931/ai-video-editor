@@ -205,16 +205,28 @@ def classify(
        日本語テロップの作法は「**その語だけ**を目立たせる」。
        文ごと書体まで変えると、テロップが1枚ごとに跳ねて読みにくくなるうえ、
        強調が「たまに出るから効く」という性質を失う。
-       文全体を強調にするのは、叫んだとき（感嘆符・大きな声）だけにする。
+       文全体を強調にするのは、叫んだとき（大きな声）だけにする。
+
+    🔴 感嘆符だけで強調にしないこと。
+       Whisper は叫び気味の配信では**ほぼ全部の文に「!」を付ける**。
+       VTuber のコラボ配信の切り抜きで 34枚中ほぼ全部が強調になり、
+       「ずっと強調表示されている」と言われた（2026-09-11）。
+       強調は「その素材の中で声が大きい」で決める。感嘆符は、声が平均より
+       少し大きい（半分の閾値）ときに背中を押す材料としてだけ使う。
+       音量が測れない（wav が無い）ときだけ、感嘆符で決める。
     """
     if any(m in text for m in NOTE_MARKERS) or any(text.startswith(p) for p in NOTE_PREFIXES):
         return "note", "補足の言い回し", None
 
-    if "！" in text or "!" in text:
-        return "emphasis", "感嘆符", None
-
-    if loud_delta is not None and loud_delta >= opts["loud_db"]:
-        return "emphasis", f"声が大きい（平均+{loud_delta:.1f}dB）", None
+    shout = "！" in text or "!" in text
+    if loud_delta is None:
+        if shout:
+            return "emphasis", "感嘆符", None
+    else:
+        if loud_delta >= opts["loud_db"]:
+            return "emphasis", f"声が大きい（平均+{loud_delta:.1f}dB）", None
+        if shout and loud_delta >= opts["loud_db"] * 0.5:
+            return "emphasis", f"感嘆符と大きめの声（平均+{loud_delta:.1f}dB）", None
 
     # 語だけを目立たせる。長い語を優先する（「めちゃくちゃ」＞「めちゃ」）
     hits = [w for w in EMPHASIS_WORDS if w in text]

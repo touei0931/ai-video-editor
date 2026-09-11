@@ -36,10 +36,9 @@ import {
   SPEAKER_COLOR_CANDIDATES,
   applyIdentification,
   assignSpeaker,
-  speakerStyleName,
+  recolor,
   unitsOf,
   visibleVoices,
-  withSpeakerStyles,
   type IdentifyResult,
   type SpeakerProfile,
   type SpeakerService,
@@ -204,6 +203,19 @@ export function TelopStage({
   const showing = useMemo(() => activeAt(cards, srcTime), [cards, srcTime]);
 
   /**
+   * 画面に描くもの。
+   *
+   * 🔴 止めているときだけ、選んでいるテロップをその時刻の外でも出す（見た目を確かめるため）。
+   *    再生中まで出していたので、テロップの無い間ずっと**最初の1枚（開いた時点で
+   *    選ばれている）が居座って**、出来上がりと違う絵になっていた（2026-09-11 に指摘）。
+   *    プラグイン版と同じ決まり: 再生中はその時刻のものだけ、止めていれば選択中も。
+   */
+  const drawList = useMemo(
+    () => (showing.length > 0 ? showing : !playing && cur ? [cur] : []),
+    [showing, playing, cur],
+  );
+
+  /**
    * 段の割り当てと、1段ぶんの高さ。
    * 🔴 書き出し（rasterize）と同じ関数から出すこと。別々に計算した瞬間に
    *    「画面では重なっていないのに書き出すと重なる」が起きる。
@@ -265,8 +277,7 @@ export function TelopStage({
          1枚しか描かないと、2枚重ねたときに画面では1枚しか見えないのに
          書き出しには2枚出る。どちらが正しいのか確かめようがなくなる。
     */
-    const list = showing.length > 0 ? showing : cur ? [cur] : [];
-    for (const card of list) {
+    for (const card of drawList) {
       const spec = specOf(card);
       drawTelop(ctx, spec, frame);
 
@@ -313,7 +324,7 @@ export function TelopStage({
       ctx.stroke();
       ctx.restore();
     }
-  }, [showing, cur, styles, frame, lanes, step, selected, specOf]);
+  }, [drawList, styles, frame, lanes, step, selected, specOf]);
 
   // 直したら描き直す
   useEffect(() => {
@@ -550,7 +561,7 @@ export function TelopStage({
   /**
    * 登録した人と、誰にも当たらなかった声のまとまり。
    * 見分ける本体は sidecar（telop/speakers.ts の注意書き）。ここは結果を
-   * テロップの style（人ごとの枠）へ落とすだけ。
+   * テロップの色（override）へ落とすだけ。雛形（通常／強調）は触らない。
    */
   const [profiles, setProfiles] = useState<SpeakerProfile[]>([]);
   const [voices, setVoices] = useState<VoiceGroup[]>([]);
@@ -558,39 +569,14 @@ export function TelopStage({
   const [speakerBusy, setSpeakerBusy] = useState(false);
   const [speakerError, setSpeakerError] = useState<string | null>(null);
 
-  /** 🔴 呼び出し側の値は ref で持つ。効果の依存に入れると毎描画で見分け直しが走る */
-  const stylesRef = useRef(styles);
-  stylesRef.current = styles;
-  const onStylesChangeRef = useRef(onStylesChange);
-  onStylesChangeRef.current = onStylesChange;
-  const rewrapRef = useRef(rewrap);
-  rewrapRef.current = rewrap;
-
-  /** 人ごとの枠を雛形に足す（既にあれば名前と色を合わせる） */
-  const ensureSpeakerStyles = useCallback((list: SpeakerProfile[]): StyleMap => {
-    const next = withSpeakerStyles(stylesRef.current, list);
-    if (next !== stylesRef.current) {
-      stylesRef.current = next;
-      onStylesChangeRef.current?.(next);
-    }
-    return next;
-  }, []);
-
-  /**
-   * 枠が変わったテロップだけ折り返し直す。
-   * 🔴 人の枠は「通常」と同じ大きさだが、元が「強調」だったものは大きさが変わる。
-   */
-  const rewrapChanged = useCallback((prev: TelopCard[], next: TelopCard[], map: StyleMap): TelopCard[] => {
-    const before = new Map(prev.map((c) => [c.id, c.style]));
-    return next.map((c) => {
-      if (before.get(c.id) === c.style) return c;
-      const r = rewrapRef.current?.(c.text, c.style, map, { breaks: c.breaks, highlight: c.highlight ?? null });
-      return r ? { ...c, lines: r.lines, fontScale: r.fontScale } : c;
-    });
-  }, []);
-
   const speakersRef = useRef(speakers);
   speakersRef.current = speakers;
+
+  /** 登録の一覧を受け取り、色が変わった人のテロップを塗り直す */
+  const takeProfiles = useCallback((list: SpeakerProfile[]) => {
+    setProfiles(list);
+    setCards((cs) => recolor(cs, list));
+  }, []);
 
   /** 見分ける。声の特徴を取って、登録済みの声と見比べる */
   const identifySpeakers = useCallback(async () => {
@@ -603,19 +589,20 @@ export function TelopStage({
       setProfiles(result.speakers);
       setVoices(result.voices);
       setSpeakerStat({ matched: result.matched, unknown: result.unknown, tooShort: result.tooShort });
-      const map = ensureSpeakerStyles(result.speakers);
-      setCards((cs) => rewrapChanged(cs, applyIdentification(cs, result, result.speakers), map));
+      setCards((cs) => applyIdentification(cs, result, result.speakers));
     } catch (e) {
       setSpeakerError((e as Error).message);
     } finally {
       setSpeakerBusy(false);
     }
-  }, [ensureSpeakerStyles, rewrapChanged]);
+  }, []);
 
   /*
-    最初の1回。登録した人を読み、まだ見分けていなければ見分ける。
-    🔴 見分け済み（speaker が付いている）なら走らせない。
-       戻ってきただけで自動の判定が上書きされると、直したものが消える。
+    開いたら見分ける（0.5 秒ほど）。
+    🔴 毎回走らせてよい。人が決めたものは applyIdentification が守るし、
+       自動で付いた分は登録が増えていれば新しく当たるべき。
+       「声n」の一覧は保存していないので、走らせないと下書きを開き直したときに
+       空のまま（2026-09-11 に踏んだ）。
   */
   useEffect(() => {
     const svc = speakersRef.current;
@@ -625,21 +612,17 @@ export function TelopStage({
       try {
         const r = await svc.list();
         if (!alive) return;
-        setProfiles(r.speakers);
-        ensureSpeakerStyles(r.speakers);
+        takeProfiles(r.speakers);
       } catch (e) {
         if (alive) setSpeakerError((e as Error).message);
         return;
       }
-      // まだ見分けていないテロップがあれば見分ける（作り直した直後など）。
-      // 人が決めたものは applyIdentification が守る
-      const fresh = cardsRef.current.some((c) => c.speaker === undefined);
-      if (fresh) await identifySpeakers();
+      await identifySpeakers();
     })();
     return () => {
       alive = false;
     };
-  }, [ensureSpeakerStyles, identifySpeakers]);
+  }, [takeProfiles, identifySpeakers]);
 
   /**
    * 「この声は◯◯」と決める。声も覚える（次の動画から自動で当たる）。
@@ -648,8 +631,8 @@ export function TelopStage({
   const assignVoice = useCallback(
     async (ids: string[], speakerId: string | null, learn = true) => {
       remember();
-      const map = stylesRef.current;
-      setCards((cs) => rewrapChanged(cs, assignSpeaker(cs, ids, speakerId), map));
+      const profile = speakerId ? (profiles.find((p) => p.id === speakerId) ?? null) : null;
+      setCards((cs) => assignSpeaker(cs, ids, profile));
       const svc = speakersRef.current;
       if (!svc || !speakerId || !learn) return;
       const ranges = cardsRef.current
@@ -658,8 +641,7 @@ export function TelopStage({
       setSpeakerBusy(true);
       try {
         const r = await svc.enroll({ id: speakerId, ranges });
-        setProfiles(r.speakers);
-        ensureSpeakerStyles(r.speakers);
+        takeProfiles(r.speakers);
       } catch (e) {
         setSpeakerError((e as Error).message);
         setSpeakerBusy(false);
@@ -667,7 +649,7 @@ export function TelopStage({
       }
       await identifySpeakers();
     },
-    [remember, rewrapChanged, ensureSpeakerStyles, identifySpeakers],
+    [remember, profiles, takeProfiles, identifySpeakers],
   );
 
   /** 新しい人を登録して、その声を覚える */
@@ -682,35 +664,34 @@ export function TelopStage({
           .filter((c) => ids.includes(c.id))
           .map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd }));
         const r = await svc.enroll({ name, color, ranges });
-        setProfiles(r.speakers);
-        ensureSpeakerStyles(r.speakers);
-        await assignVoice(ids, r.speaker.id, false);
+        takeProfiles(r.speakers);
+        remember();
+        setCards((cs) => assignSpeaker(cs, ids, r.speaker));
         await identifySpeakers();
       } catch (e) {
         setSpeakerError((e as Error).message);
         setSpeakerBusy(false);
       }
     },
-    [ensureSpeakerStyles, assignVoice, identifySpeakers],
+    [takeProfiles, remember, identifySpeakers],
   );
 
-  /** 名前や色を変える。枠にも反映する */
+  /** 名前や色を変える。その人のテロップも塗り直す */
   const updateSpeaker = useCallback(
     async (id: string, patchArgs: { name?: string; color?: string; forget?: boolean }) => {
       const svc = speakersRef.current;
       if (!svc) return;
       try {
         const r = await svc.update({ id, ...patchArgs });
-        setProfiles(r.speakers);
-        ensureSpeakerStyles(r.speakers);
+        takeProfiles(r.speakers);
       } catch (e) {
         setSpeakerError((e as Error).message);
       }
     },
-    [ensureSpeakerStyles],
+    [takeProfiles],
   );
 
-  /** 登録を消す。その人の色で塗っていたテロップは通常へ戻す */
+  /** 登録を消す。その人の色で塗っていたテロップは色を外す */
   const deleteSpeaker = useCallback(
     async (id: string) => {
       const svc = speakersRef.current;
@@ -718,21 +699,8 @@ export function TelopStage({
       if (!window.confirm('この人の登録（覚えた声と色）を消します。よろしいですか？')) return;
       try {
         const r = await svc.remove(id);
-        setProfiles(r.speakers);
         remember();
-        const ids = cardsRef.current.filter((c) => c.speaker === id).map((c) => c.id);
-        // 🔴 枠も消す。残すと雛形の一覧に「消した人」が並び続ける
-        const rest: StyleMap = { ...stylesRef.current };
-        delete rest[speakerStyleName(id)];
-        stylesRef.current = rest;
-        onStylesChangeRef.current?.(rest);
-        setCards((cs) =>
-          rewrapChanged(
-            cs,
-            assignSpeaker(cs, ids, null).map((c) => (ids.includes(c.id) ? { ...c, manualSpeaker: false } : c)),
-            rest,
-          ),
-        );
+        takeProfiles(r.speakers);
       } catch (e) {
         setSpeakerError((e as Error).message);
         return;
@@ -740,7 +708,7 @@ export function TelopStage({
       // 消した人の分が「声n」に戻るので、一覧を作り直す
       await identifySpeakers();
     },
-    [remember, rewrapChanged, identifySpeakers],
+    [remember, takeProfiles, identifySpeakers],
   );
 
   /** 「声n」の代表を聞く。少し手前から流す */
@@ -832,10 +800,9 @@ export function TelopStage({
       const px = ((e.clientX - rect.left - box.offX) / box.drawW) * frame.width;
       const py = ((e.clientY - rect.top - box.offY) / box.drawH) * frame.height;
 
-      const list = showing.length > 0 ? showing : cur ? [cur] : [];
       const pad = frame.height * 0.01;
       let hit: TelopCard | null = null;
-      for (const card of list) {
+      for (const card of drawList) {
         const b = telopBounds(ctx, specOf(card), frame);
         if (!b) continue;
         if (px >= b.x - pad && px <= b.x + b.w + pad && py >= b.y - pad && py <= b.y + b.h + pad) {
@@ -861,7 +828,7 @@ export function TelopStage({
         id: hit.id,
       };
     },
-    [cur, showing, specOf, frame, selected, stageBox],
+    [drawList, specOf, frame, selected, stageBox],
   );
   /**
    * 掴んで動かす。他のテロップと縦横のラインが合う所で吸い付ける。
@@ -1188,7 +1155,7 @@ export function TelopStage({
           <canvas
             ref={canvasRef}
             className="fcp-stage-inner"
-            style={{ cursor: showing.length > 0 || cur ? 'move' : 'default' }}
+            style={{ cursor: drawList.length > 0 ? 'move' : 'default' }}
             onPointerDown={onStagePointerDown}
             onPointerMove={onStagePointerMove}
             onPointerUp={endStageDrag}

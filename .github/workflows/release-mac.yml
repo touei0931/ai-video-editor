@@ -64,6 +64,7 @@ jobs:
           npm run test:track
           npm run test:cut
           npm run test:clean
+          npm run test:style
           npm run test:speakers
           npm run test:speakers-ui
           npm run test:fcpxml

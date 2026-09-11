@@ -93,6 +93,9 @@ jobs:
       #    本物の連呼と確度の低い「はい」は残す
       - name: 幻聴の除去
         run: python scripts/test_clean.py
+      # 🔴 強調は「声が大きい」で決める。感嘆符だけで決めると叫び気味の配信で全部が強調になる
+      - name: テロップの見せ方の判定
+        run: python scripts/test_telop_style.py
       # 🔴 話者の見分け。照合は閾値と2位との差で縛り、まとめ直しは後から似た組も合流させる。
       #    埋め込みを直接渡すのでモデルは要らない（numpy だけ）
       - name: 話者の見分け

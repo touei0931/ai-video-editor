@@ -56,6 +56,8 @@ export function buildTimelineCards(
       text: t.text,
       lines,
       style: t.style,
+      // 🔴 人ごとの色を落とさない。落とすと並べた瞬間に全員同じ色に戻る
+      override: t.override,
       reason: 'timeline',
       needsCheck: false,
       confidence: 1,

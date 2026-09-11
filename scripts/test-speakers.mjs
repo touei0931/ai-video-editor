@@ -2,10 +2,10 @@
  * 話者ごとの色（src/telop/speakers.ts）の検査。
  *
  * 🔴 守っていること:
- *   - 色は雛形の枠（slot-spk-<id>）として持つ。上書きで塗ると、
- *     タイムラインに送った瞬間に消える
+ *   - 色は1枚ごとの上書き（override.color）。雛形（通常／強調）は触らない。
+ *     強調した話し方のときは強調の雛形のまま、その人の色で出る
  *   - 見分け直しても、人が「この声は◯◯」と決めたものは動かさない
- *   - 当たらなくなったテロップは、自動で付いた人の枠なら通常へ戻す
+ *   - 当たらなくなったテロップは、自動で付いた人の色なら外す（大きさなど他の上書きは残す）
  *
  * 実行: node scripts/test-speakers.mjs
  */
@@ -39,7 +39,6 @@ for (const name of readdirSync(outDir)) {
   );
 }
 const S = await import(pathToFileURL(join(outDir, 'speakers.js')).href);
-const style = await import(pathToFileURL(join(outDir, 'style.js')).href);
 
 let failed = 0;
 function check(name, ok, detail) {
@@ -55,27 +54,26 @@ const card = (id, extra = {}) => ({
 const fubuki = { id: 'f1', name: '白上フブキ', color: '#7ec8ff', samples: 3 };
 const okayu = { id: 'o1', name: '猫又おかゆ', color: '#c59bff', strokeColor: '#221133', samples: 2 };
 
-// ── 枠 ──
+// ── 色の上書き ──
 {
-  const base = structuredClone(style.DEFAULT_STYLES);
-  const next = S.withSpeakerStyles(base, [fubuki, okayu]);
-  const f = next[S.speakerStyleName('f1')];
-  check('人ごとの枠ができる', !!f && !!next[S.speakerStyleName('o1')]);
-  check('枠の名前は登録した名前', f.label === '白上フブキ', f.label);
-  check('文字色は登録した色', f.color === '#7ec8ff', f.color);
-  check('土台は通常（書体・大きさ・位置が同じ）',
-    f.fontFamily === base.normal.fontFamily && f.fontSizeRatio === base.normal.fontSizeRatio && f.position === base.normal.position);
-  check('縁取りの色は登録に無ければ通常のまま', f.stroke.color === base.normal.stroke.color);
-  check('縁取りの色を登録していれば使う', next[S.speakerStyleName('o1')].stroke.color === '#221133');
-  check('変わらなければ同じものを返す（描き直しを起こさない）', S.withSpeakerStyles(next, [fubuki, okayu]) === next);
-  const renamed = S.withSpeakerStyles(next, [{ ...fubuki, name: 'フブキ', color: '#ffffff' }, okayu]);
-  check('名前と色を変えると枠も変わる', renamed[S.speakerStyleName('f1')].label === 'フブキ' && renamed[S.speakerStyleName('f1')].color === '#ffffff');
-  check('枠の名前から持ち主が分かる', S.speakerOfStyle('slot-spk-f1') === 'f1' && S.speakerOfStyle('normal') === null);
+  const o = S.withSpeakerColor(undefined, fubuki);
+  check('文字色は登録した色', o.color === '#7ec8ff', JSON.stringify(o));
+  check('縁取りの色は登録に無ければ持たない', o.strokeColor === undefined, JSON.stringify(o));
+  const o2 = S.withSpeakerColor({ sizeScale: 1.3 }, okayu);
+  check('大きさなど色以外の上書きは残す', o2.sizeScale === 1.3 && o2.color === '#c59bff', JSON.stringify(o2));
+  check('縁取りの色を登録していれば使う', o2.strokeColor === '#221133', JSON.stringify(o2));
+  check('色を外すと色以外だけ残る', JSON.stringify(S.withoutSpeakerColor(o2)) === JSON.stringify({ sizeScale: 1.3 }));
+  check('色しか無ければ上書きごと消える', S.withoutSpeakerColor(o) === undefined);
 }
 
 // ── 見分けた結果を書き込む ──
 {
-  const cards = [card('a'), card('b', { style: 'emphasis' }), card('c', { manualSpeaker: true, speaker: 'o1', style: 'slot-spk-o1' }), card('d', { style: 'slot-spk-f1', speaker: 'f1' })];
+  const cards = [
+    card('a'),
+    card('b', { style: 'emphasis' }),
+    card('c', { manualSpeaker: true, speaker: 'o1', override: { color: '#c59bff', strokeColor: '#221133' } }),
+    card('d', { speaker: 'f1', override: { color: '#7ec8ff', sizeScale: 1.2 } }),
+  ];
   const result = {
     units: [
       { id: 'a', speaker: 'f1', score: 0.8, voice: null },
@@ -87,21 +85,34 @@ const okayu = { id: 'o1', name: '猫又おかゆ', color: '#c59bff', strokeColor
   };
   const out = S.applyIdentification(cards, result, [fubuki, okayu]);
   const by = Object.fromEntries(out.map((c) => [c.id, c]));
-  check('当たったテロップは人の枠になる', by.a.style === 'slot-spk-f1' && by.a.speaker === 'f1');
-  check('強調だったものも人の枠になる', by.b.style === 'slot-spk-f1');
-  check('人が決めたものは動かさない', by.c.speaker === 'o1' && by.c.style === 'slot-spk-o1');
-  check('当たらなくなった自動の枠は通常へ戻す', by.d.style === 'normal' && by.d.speaker === null && by.d.voice === 'v1');
+  check('当たったテロップは人の色になる', by.a.override.color === '#7ec8ff' && by.a.speaker === 'f1');
+  check('🔴 雛形は触らない（強調のまま、その人の色）', by.b.style === 'emphasis' && by.b.override.color === '#7ec8ff', JSON.stringify(by.b));
+  check('人が決めたものは動かさない', by.c.speaker === 'o1' && by.c.override.color === '#c59bff');
+  check('当たらなくなった自動の色は外す（大きさは残す）',
+    by.d.speaker === null && by.d.voice === 'v1' && by.d.override.color === undefined && by.d.override.sizeScale === 1.2,
+    JSON.stringify(by.d));
   check('類似度を持つ', by.a.speakerScore === 0.8);
 }
 
 // ── 人が決める ──
 {
   const cards = [card('a'), card('b'), card('c', { style: 'emphasis' })];
-  const out = S.assignSpeaker(cards, ['a', 'c'], 'o1');
-  check('決めたものは人の枠 + 手で決めた印', out[0].style === 'slot-spk-o1' && out[0].manualSpeaker === true && out[0].speaker === 'o1');
-  check('決めていないものは触らない', out[1].style === 'normal' && out[1].manualSpeaker === undefined);
+  const out = S.assignSpeaker(cards, ['a', 'c'], okayu);
+  check('決めたものは人の色 + 手で決めた印', out[0].override.color === '#c59bff' && out[0].manualSpeaker === true && out[0].speaker === 'o1');
+  check('雛形はそのまま', out[2].style === 'emphasis' && out[2].override.color === '#c59bff');
+  check('決めていないものは触らない', out[1].override === undefined && out[1].manualSpeaker === undefined);
   const back = S.assignSpeaker(out, ['a'], null);
-  check('「誰でもない」に戻すと通常', back[0].style === 'normal' && back[0].speaker === null && back[0].manualSpeaker === true);
+  check('「誰でもない」に戻すと色が外れる', back[0].override === undefined && back[0].speaker === null && back[0].manualSpeaker === true);
+}
+
+// ── 登録の色が変わったら塗り直す／消えた人は外す ──
+{
+  const cards = [card('a', { speaker: 'f1', override: { color: '#7ec8ff' } }), card('b', { speaker: 'o1', manualSpeaker: true, override: { color: '#c59bff', strokeColor: '#221133' } }), card('c')];
+  const out = S.recolor(cards, [{ ...fubuki, color: '#ffffff' }]);
+  check('色を変えた人のテロップは塗り直る', out[0].override.color === '#ffffff');
+  check('消えた人のテロップは色が外れ、自動の判定に戻る', out[1].speaker === null && out[1].override === undefined && out[1].manualSpeaker === false);
+  check('無関係なものは触らない', out[2] === cards[2]);
+  check('変わらなければ同じ配列を返す', S.recolor(out, [{ ...fubuki, color: '#ffffff' }]) === out);
 }
 
 // ── 画面に出す声 ──

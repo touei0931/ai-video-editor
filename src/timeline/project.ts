@@ -16,7 +16,7 @@
  *    位置から順番を決めると、同じ位置に2つ来たときに順番が揺れる。
  */
 
-import { DEFAULT_STYLES, type StyleMap, type TelopStyleName } from '../telop/style';
+import { DEFAULT_STYLES, type StyleMap, type TelopOverride, type TelopStyleName } from '../telop/style';
 
 /** レーンの種類 */
 export type LaneKind =
@@ -222,6 +222,15 @@ export interface Telop {
    *    知らない名前は描くときに通常へ寄る（resolveStyle）ので、ここでは通す。
    */
   style: TelopStyleName;
+  /**
+   * この1枚だけの色（文字色・縁取りの色）。喋っている人ごとの色に使う。
+   *
+   * 🔴 「誰が喋ったか」は雛形（どう見せるか）とは別の軸。
+   *    強調の雛形のまま、その人の色で出す、ができないといけない。
+   *    人ごとに雛形の枠を作る形だと「強調＋その人の色」が組めない。
+   *    無ければ雛形の色のまま（古い書類はこれ）。
+   */
+  override?: TelopOverride;
 }
 
 export interface Project {

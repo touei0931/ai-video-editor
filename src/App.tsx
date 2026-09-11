@@ -1527,6 +1527,8 @@ export function App({ onSendToTimeline }: AppProps = {}) {
                       srcEnd: c.srcEnd,
                       text: c.text,
                       style: c.style,
+                      // 🔴 人ごとの色（1枚ごとの上書き）も渡す。落とすと並べた瞬間に全員同じ色
+                      override: c.override,
                     })),
                   });
                 }
