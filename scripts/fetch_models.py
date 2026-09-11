@@ -42,6 +42,19 @@ MODELS = [
         "license": "Apache-2.0",
         "note": "顔検出。2m以内の顔向け。話者追従のクロップに使う",
     },
+    {
+        "name": "speaker_eres2net.onnx",
+        "url": (
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
+            "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
+        ),
+        "license": "Apache-2.0",
+        "note": (
+            "話者埋め込み（3D-Speaker ERes2Net、sherpa-onnx で実行）。"
+            "「誰が喋っているか」を声で見分け、人ごとにテロップの色を変えるのに使う。"
+            "VoxCeleb の CAM++ はゲーム音つきの配信で話者の違いが出なかったので、こちら"
+        ),
+    },
 ]
 
 

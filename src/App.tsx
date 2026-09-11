@@ -35,6 +35,7 @@ import {
   type AnalyzeSettings,
 } from './analyzeSettings';
 import { ShellInfoContext, type ShellInfo } from './shell/ShellInfo';
+import { makeSpeakerService } from './telop/speakers';
 import { fcpLook, telopFontSize, type FcpLook } from './telop/render';
 import { renderBlank, renderTelopPngs } from './telop/rasterize';
 import { telopLanes } from './telop/lanes';
@@ -281,6 +282,9 @@ function mergeEdits(fresh: TelopCard[], previous: TelopCard[], removed: TelopCar
         srcEnd: prev.srcEnd,
         needsCheck: false,
         edited: true,
+        // 「この声は◯◯」と人が決めたものも引き継ぐ（自動で付いた分は見分け直す）
+        speaker: prev.manualSpeaker ? prev.speaker : undefined,
+        manualSpeaker: prev.manualSpeaker,
       };
     });
 
@@ -819,6 +823,18 @@ export function App({ onSendToTimeline }: AppProps = {}) {
       }
     },
     [analysis, pace, settings, updateSettings],
+  );
+
+  /**
+   * 声で「誰が喋っているか」を見分ける口。解析が作った audio.wav に結び付ける。
+   * 🔴 解析ごとに作り直す。別の動画の音で見分けても意味がない。
+   */
+  const speakerService = useMemo(
+    () =>
+      hasBridge && analysis?.wav_path
+        ? makeSpeakerService((p) => window.app.speakers(p), analysis.wav_path)
+        : undefined,
+    [hasBridge, analysis?.wav_path],
   );
 
   /**
@@ -1418,6 +1434,7 @@ export function App({ onSendToTimeline }: AppProps = {}) {
           music={music}
           onMusicChange={setMusic}
           onPickMusic={() => window.app.pickMusic()}
+          speakers={speakerService}
           cutRegions={cuts.map((c) => ({
             id: c.id,
             start: c.srcStart,

@@ -89,6 +89,8 @@ def main() -> None:
     targets = [("ffmpeg", info.get("ffmpeg"))]
     for key, value in (info.get("face_models") or {}).items():
         targets.append((f"顔のモデル({key})", value))
+    # 声を見分けるモデル（話者ごとの色）。vendor/models ごと同梱される
+    targets.append(("声のモデル", info.get("speaker_model")))
 
     for label, found in targets:
         print(f"  {label:18}: {found}")

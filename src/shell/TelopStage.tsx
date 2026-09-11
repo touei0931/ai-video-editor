@@ -32,6 +32,19 @@ import { Transport } from './Transport';
 import { useEditedPlayer } from './useEditedPlayer';
 import { buildSegments, toOutput, toSource } from './editedTime';
 import { isTyping, matchShortcut, nextShuttle } from './shortcuts';
+import {
+  SPEAKER_COLOR_CANDIDATES,
+  applyIdentification,
+  assignSpeaker,
+  speakerStyleName,
+  unitsOf,
+  visibleVoices,
+  withSpeakerStyles,
+  type IdentifyResult,
+  type SpeakerProfile,
+  type SpeakerService,
+  type VoiceGroup,
+} from '../telop/speakers';
 
 export interface TelopStageProps {
   cards: TelopCard[];
@@ -87,6 +100,11 @@ export interface TelopStageProps {
   music?: MusicTrack | null;
   onMusicChange?(m: MusicTrack | null): void;
   onPickMusic?(): Promise<string | null>;
+  /**
+   * 声で「誰が喋っているか」を見分け、人ごとの色で塗る（telop/speakers.ts）。
+   * 省略すると話者の欄を出さない（モックや解析前）。
+   */
+  speakers?: SpeakerService;
 }
 
 export interface MusicTrack {
@@ -124,6 +142,7 @@ export function TelopStage({
   music,
   onMusicChange,
   onPickMusic,
+  speakers,
 }: TelopStageProps) {
   const [cards, setCards] = useState<TelopCard[]>(initial);
   const [selected, setSelected] = useState<string | null>(initial[0]?.id ?? null);
@@ -525,6 +544,221 @@ export function TelopStage({
     },
     [styles, onStylesChange],
   );
+
+  /* ---------- 話者（誰が喋っているか）ごとの色 ---------- */
+
+  /**
+   * 登録した人と、誰にも当たらなかった声のまとまり。
+   * 見分ける本体は sidecar（telop/speakers.ts の注意書き）。ここは結果を
+   * テロップの style（人ごとの枠）へ落とすだけ。
+   */
+  const [profiles, setProfiles] = useState<SpeakerProfile[]>([]);
+  const [voices, setVoices] = useState<VoiceGroup[]>([]);
+  const [speakerStat, setSpeakerStat] = useState<Pick<IdentifyResult, 'matched' | 'unknown' | 'tooShort'> | null>(null);
+  const [speakerBusy, setSpeakerBusy] = useState(false);
+  const [speakerError, setSpeakerError] = useState<string | null>(null);
+
+  /** 🔴 呼び出し側の値は ref で持つ。効果の依存に入れると毎描画で見分け直しが走る */
+  const stylesRef = useRef(styles);
+  stylesRef.current = styles;
+  const onStylesChangeRef = useRef(onStylesChange);
+  onStylesChangeRef.current = onStylesChange;
+  const rewrapRef = useRef(rewrap);
+  rewrapRef.current = rewrap;
+
+  /** 人ごとの枠を雛形に足す（既にあれば名前と色を合わせる） */
+  const ensureSpeakerStyles = useCallback((list: SpeakerProfile[]): StyleMap => {
+    const next = withSpeakerStyles(stylesRef.current, list);
+    if (next !== stylesRef.current) {
+      stylesRef.current = next;
+      onStylesChangeRef.current?.(next);
+    }
+    return next;
+  }, []);
+
+  /**
+   * 枠が変わったテロップだけ折り返し直す。
+   * 🔴 人の枠は「通常」と同じ大きさだが、元が「強調」だったものは大きさが変わる。
+   */
+  const rewrapChanged = useCallback((prev: TelopCard[], next: TelopCard[], map: StyleMap): TelopCard[] => {
+    const before = new Map(prev.map((c) => [c.id, c.style]));
+    return next.map((c) => {
+      if (before.get(c.id) === c.style) return c;
+      const r = rewrapRef.current?.(c.text, c.style, map, { breaks: c.breaks, highlight: c.highlight ?? null });
+      return r ? { ...c, lines: r.lines, fontScale: r.fontScale } : c;
+    });
+  }, []);
+
+  const speakersRef = useRef(speakers);
+  speakersRef.current = speakers;
+
+  /** 見分ける。声の特徴を取って、登録済みの声と見比べる */
+  const identifySpeakers = useCallback(async () => {
+    const svc = speakersRef.current;
+    if (!svc) return;
+    setSpeakerBusy(true);
+    setSpeakerError(null);
+    try {
+      const result = await svc.identify(unitsOf(cardsRef.current));
+      setProfiles(result.speakers);
+      setVoices(result.voices);
+      setSpeakerStat({ matched: result.matched, unknown: result.unknown, tooShort: result.tooShort });
+      const map = ensureSpeakerStyles(result.speakers);
+      setCards((cs) => rewrapChanged(cs, applyIdentification(cs, result, result.speakers), map));
+    } catch (e) {
+      setSpeakerError((e as Error).message);
+    } finally {
+      setSpeakerBusy(false);
+    }
+  }, [ensureSpeakerStyles, rewrapChanged]);
+
+  /*
+    最初の1回。登録した人を読み、まだ見分けていなければ見分ける。
+    🔴 見分け済み（speaker が付いている）なら走らせない。
+       戻ってきただけで自動の判定が上書きされると、直したものが消える。
+  */
+  useEffect(() => {
+    const svc = speakersRef.current;
+    if (!svc) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await svc.list();
+        if (!alive) return;
+        setProfiles(r.speakers);
+        ensureSpeakerStyles(r.speakers);
+      } catch (e) {
+        if (alive) setSpeakerError((e as Error).message);
+        return;
+      }
+      // まだ見分けていないテロップがあれば見分ける（作り直した直後など）。
+      // 人が決めたものは applyIdentification が守る
+      const fresh = cardsRef.current.some((c) => c.speaker === undefined);
+      if (fresh) await identifySpeakers();
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [ensureSpeakerStyles, identifySpeakers]);
+
+  /**
+   * 「この声は◯◯」と決める。声も覚える（次の動画から自動で当たる）。
+   * 🔴 覚えたあとに見分け直す。同じ声の他のテロップが、その場で同じ色になる。
+   */
+  const assignVoice = useCallback(
+    async (ids: string[], speakerId: string | null, learn = true) => {
+      remember();
+      const map = stylesRef.current;
+      setCards((cs) => rewrapChanged(cs, assignSpeaker(cs, ids, speakerId), map));
+      const svc = speakersRef.current;
+      if (!svc || !speakerId || !learn) return;
+      const ranges = cardsRef.current
+        .filter((c) => ids.includes(c.id))
+        .map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd }));
+      setSpeakerBusy(true);
+      try {
+        const r = await svc.enroll({ id: speakerId, ranges });
+        setProfiles(r.speakers);
+        ensureSpeakerStyles(r.speakers);
+      } catch (e) {
+        setSpeakerError((e as Error).message);
+        setSpeakerBusy(false);
+        return;
+      }
+      await identifySpeakers();
+    },
+    [remember, rewrapChanged, ensureSpeakerStyles, identifySpeakers],
+  );
+
+  /** 新しい人を登録して、その声を覚える */
+  const createSpeaker = useCallback(
+    async (name: string, color: string, ids: string[]) => {
+      const svc = speakersRef.current;
+      if (!svc) return;
+      setSpeakerBusy(true);
+      setSpeakerError(null);
+      try {
+        const ranges = cardsRef.current
+          .filter((c) => ids.includes(c.id))
+          .map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd }));
+        const r = await svc.enroll({ name, color, ranges });
+        setProfiles(r.speakers);
+        ensureSpeakerStyles(r.speakers);
+        await assignVoice(ids, r.speaker.id, false);
+        await identifySpeakers();
+      } catch (e) {
+        setSpeakerError((e as Error).message);
+        setSpeakerBusy(false);
+      }
+    },
+    [ensureSpeakerStyles, assignVoice, identifySpeakers],
+  );
+
+  /** 名前や色を変える。枠にも反映する */
+  const updateSpeaker = useCallback(
+    async (id: string, patchArgs: { name?: string; color?: string; forget?: boolean }) => {
+      const svc = speakersRef.current;
+      if (!svc) return;
+      try {
+        const r = await svc.update({ id, ...patchArgs });
+        setProfiles(r.speakers);
+        ensureSpeakerStyles(r.speakers);
+      } catch (e) {
+        setSpeakerError((e as Error).message);
+      }
+    },
+    [ensureSpeakerStyles],
+  );
+
+  /** 登録を消す。その人の色で塗っていたテロップは通常へ戻す */
+  const deleteSpeaker = useCallback(
+    async (id: string) => {
+      const svc = speakersRef.current;
+      if (!svc) return;
+      if (!window.confirm('この人の登録（覚えた声と色）を消します。よろしいですか？')) return;
+      try {
+        const r = await svc.remove(id);
+        setProfiles(r.speakers);
+        remember();
+        const ids = cardsRef.current.filter((c) => c.speaker === id).map((c) => c.id);
+        // 🔴 枠も消す。残すと雛形の一覧に「消した人」が並び続ける
+        const rest: StyleMap = { ...stylesRef.current };
+        delete rest[speakerStyleName(id)];
+        stylesRef.current = rest;
+        onStylesChangeRef.current?.(rest);
+        setCards((cs) =>
+          rewrapChanged(
+            cs,
+            assignSpeaker(cs, ids, null).map((c) => (ids.includes(c.id) ? { ...c, manualSpeaker: false } : c)),
+            rest,
+          ),
+        );
+      } catch (e) {
+        setSpeakerError((e as Error).message);
+        return;
+      }
+      // 消した人の分が「声n」に戻るので、一覧を作り直す
+      await identifySpeakers();
+    },
+    [remember, rewrapChanged, identifySpeakers],
+  );
+
+  /** 「声n」の代表を聞く。少し手前から流す */
+  const playSample = useCallback(
+    (sample: { id: string; src_start: number }) => {
+      setSelected(sample.id);
+      player.seek(Math.max(0, toAxis(sample.src_start) - 0.3));
+      if (!player.playing) player.toggle();
+    },
+    [player, toAxis],
+  );
+
+  /** この動画で、その人の色になっている枚数 */
+  const countBySpeaker = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of cards) if (c.speaker) m.set(c.speaker, (m.get(c.speaker) ?? 0) + 1);
+    return m;
+  }, [cards]);
 
   /**
    * 手で決めた改行位置。文と文のあいだを押すとそこで折り返す。
@@ -1170,6 +1404,45 @@ export function TelopStage({
               </div>
             </div>
 
+            {speakers && (
+              <div className="fcp-field">
+                <label>話者（この声は誰？）</label>
+                <select
+                  className="fcp-select"
+                  value={cur.speaker ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '+') {
+                      const name = window.prompt('この声の人の名前', '');
+                      if (!name?.trim()) return;
+                      void createSpeaker(name.trim(), SPEAKER_COLOR_CANDIDATES[profiles.length % SPEAKER_COLOR_CANDIDATES.length], [cur.id]);
+                    } else if (v) {
+                      void assignVoice([cur.id], v);
+                    } else {
+                      void assignVoice([cur.id], null, false);
+                    }
+                  }}
+                >
+                  <option value="">（誰でもない）</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                  <option value="+">＋ 新しく登録…</option>
+                </select>
+                <p className="fcp-dim">
+                  {cur.speaker && cur.speakerScore !== undefined && !cur.manualSpeaker && cur.speakerScore < 0.6 && (
+                    <>⚠ 似ている度 {Math.round(cur.speakerScore * 100)}%。違っていたら選び直してください。</>
+                  )}
+                  {cur.voice && <>誰にも当たっていません（{cur.voice.replace('v', '声')}）。</>}
+                  {cur.manualSpeaker && <>手で決めたので、見分け直しても変わりません。</>}
+                  {' '}
+                  選ぶとその声を覚え、同じ声の他のテロップも同じ色になります。
+                </p>
+              </div>
+            )}
+
             <div className="fcp-field">
               <label>出る時間</label>
               <div className="fcp-stepper">
@@ -1403,6 +1676,131 @@ export function TelopStage({
                   <br />
                   保存した組は、保存したときの見た目のまま残ります。
                   位置が思ったところに出ないときは「最初の見た目に戻す」を試してください。
+                </p>
+              </div>
+            )}
+
+            {speakers && (
+              <div className="fcp-field">
+                <label>話者（喋っている人）ごとの色</label>
+                {speakerError && (
+                  <p className="fcp-dim" style={{ color: 'var(--sel)' }}>
+                    {speakerError}
+                  </p>
+                )}
+
+                {profiles.length > 0 ? (
+                  <div className="fcp-speakers">
+                    {profiles.map((p) => (
+                      <div key={p.id} className="fcp-speaker">
+                        <input
+                          type="color"
+                          value={p.color}
+                          onChange={(e) => void updateSpeaker(p.id, { color: e.target.value })}
+                          title="この人の文字色"
+                        />
+                        <strong>{p.name}</strong>
+                        <span className="fcp-dim">
+                          {countBySpeaker.get(p.id) ?? 0} 枚 / 覚えた声 {p.samples}
+                        </span>
+                        <button
+                          className="tiny"
+                          onClick={() => {
+                            const name = window.prompt('名前', p.name);
+                            if (name?.trim() && name.trim() !== p.name) void updateSpeaker(p.id, { name: name.trim() });
+                          }}
+                          title="名前を変える"
+                        >
+                          名前
+                        </button>
+                        <button
+                          className="tiny"
+                          onClick={() => {
+                            if (window.confirm(`${p.name} の覚えた声を忘れます（名前と色は残ります）。よろしいですか？`)) {
+                              void updateSpeaker(p.id, { forget: true });
+                            }
+                          }}
+                          title="覚えた声を忘れる（別の配信で覚え直すとき）"
+                        >
+                          声を忘れる
+                        </button>
+                        <button className="tiny danger" onClick={() => void deleteSpeaker(p.id)} title="登録を消す">
+                          消す
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="fcp-dim">
+                    まだ誰も登録していません。下の「声1・声2…」に名前を付けると、その声と色を覚えます。
+                    次の動画からは自動で同じ色になります。
+                  </p>
+                )}
+
+                {(() => {
+                  const { shown, others } = visibleVoices(voices);
+                  return (
+                    <>
+                      {shown.map((v) => (
+                        <div key={v.id} className="fcp-voice">
+                          <span>
+                            <strong>{v.id.replace('v', '声')}</strong>
+                            <span className="fcp-dim">
+                              {' '}
+                              {v.count} 枚・{v.seconds.toFixed(1)} 秒
+                            </span>
+                          </span>
+                          <button className="tiny" disabled={!v.sample} onClick={() => v.sample && playSample(v.sample)}>
+                            ▶ 聞く
+                          </button>
+                          <select
+                            className="fcp-select"
+                            value=""
+                            disabled={speakerBusy}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '+') {
+                                const name = window.prompt('この声の人の名前（例: 白上フブキ）', '');
+                                if (!name?.trim()) return;
+                                const color = SPEAKER_COLOR_CANDIDATES[profiles.length % SPEAKER_COLOR_CANDIDATES.length];
+                                void createSpeaker(name.trim(), color, v.unitIds);
+                              } else if (val) {
+                                void assignVoice(v.unitIds, val);
+                              }
+                            }}
+                          >
+                            <option value="">誰の声？</option>
+                            {profiles.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                            <option value="+">＋ 新しく登録…</option>
+                          </select>
+                        </div>
+                      ))}
+                      {others > 0 && (
+                        <p className="fcp-dim">
+                          短くて判別できない声が {others} 枚。テロップを選ぶと「話者」から付けられます。
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={() => void identifySpeakers()} disabled={speakerBusy}>
+                    {speakerBusy ? '見分けています…' : '声を見分け直す'}
+                  </button>
+                  {speakerStat && (
+                    <span className="fcp-dim">
+                      当たった {speakerStat.matched} / 不明 {speakerStat.unknown} / 短すぎ {speakerStat.tooShort}
+                    </span>
+                  )}
+                </div>
+                <p className="fcp-dim">
+                  色は「通常」を土台に、文字色だけ人ごとに変えます。書体や大きさは「通常」を直せば全員に効きます。
+                  覚えるのは声の特徴だけで、音そのものは保存しません。
                 </p>
               </div>
             )}

@@ -581,6 +581,24 @@ ipcMain.handle('app:makeClip', async (_e, params: Record<string, unknown>) => {
 });
 
 /**
+ * 声で「誰が喋っているか」を見分ける／声を覚える（sidecar/speakers.py）。
+ *
+ * 覚えた声は userData の speakers.json に置く。動画ごとではなく、この人の
+ * アプリ全体で1つ。「フブキの声」は動画をまたいで同じものだから。
+ * 🔴 置き場所はここで決めて渡す。レンダラにパスを決めさせない。
+ */
+const speakersPath = () => join(app.getPath('userData'), 'speakers.json');
+
+ipcMain.handle('app:speakers', async (_e, params: Record<string, unknown>) => {
+  try {
+    return await sidecar.call('speakers', { ...params, profiles_path: speakersPath() });
+  } catch (error) {
+    recordFailure('speakers', error, params);
+    throw error;
+  }
+});
+
+/**
  * 編集をやめるときの確認。
  *
  * 🔴 黙って捨ててはいけない。レビューを何十件も終えたあとかもしれない。

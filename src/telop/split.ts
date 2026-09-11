@@ -102,6 +102,17 @@ export interface TelopCard {
    */
   baseText?: string;
   baseStart?: number;
+  /**
+   * 誰の声か（登録した人の id）。無ければ null / 未判定は undefined。
+   * 🔴 色は style（人ごとの枠 `slot-spk-<id>`）が持つ。ここは「誰か」の記録。
+   */
+  speaker?: string | null;
+  /** 登録済みの声との類似度（0〜1）。低いものは画面で ⚠ を出す */
+  speakerScore?: number;
+  /** 誰にも当たらなかったときの声のまとまり（v1, v2…）。画面で名前を付ける手がかり */
+  voice?: string | null;
+  /** 人が「この声は◯◯」と決めた。見分け直しても動かさない */
+  manualSpeaker?: boolean;
 }
 
 export interface Frame {

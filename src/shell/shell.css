@@ -765,6 +765,71 @@
   padding: 4px 8px;
 }
 
+.fcp button.tiny {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* 話者（誰が喋っているか）の欄。登録した人の行と、まだ名前の無い「声n」の行 */
+.fcp-speakers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.fcp-speaker,
+.fcp-voice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  background: var(--s1);
+  font-size: 13px;
+}
+
+.fcp-voice {
+  margin-bottom: 4px;
+}
+
+.fcp-speaker input[type='color'] {
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.fcp-speaker strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fcp-speaker .fcp-dim,
+.fcp-voice .fcp-dim {
+  font-size: 12px;
+}
+
+.fcp select.fcp-select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--s0);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px 6px;
+  min-height: 28px;
+  max-width: 100%;
+}
+
 .fcp button.on {
   background: var(--accent);
   border-color: #2f6fb0;

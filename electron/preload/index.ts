@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('app', {
   findDraft: (videoPath: string) => ipcRenderer.invoke('app:findDraft', videoPath),
   deleteDraft: (workDir: string) => ipcRenderer.invoke('app:deleteDraft', workDir),
   makeClip: (params: Record<string, unknown>) => ipcRenderer.invoke('app:makeClip', params),
+  speakers: (params: Record<string, unknown>) => ipcRenderer.invoke('app:speakers', params),
   confirmQuit: (info: { hasWork: boolean }) => ipcRenderer.invoke('app:confirmQuit', info),
   confirmResume: (info: { savedAt: string; decided: number }) =>
     ipcRenderer.invoke('app:confirmResume', info),

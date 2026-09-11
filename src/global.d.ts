@@ -66,6 +66,12 @@ declare global {
       makeClip: (
         params: Record<string, unknown>,
       ) => Promise<{ path: string; join_at: number; duration: number } | null>;
+      /**
+       * 声で「誰が喋っているか」を見分ける／声を覚える。
+       * op: identify / enroll / update / delete / list（sidecar/speakers.py）。
+       * 覚えた声の置き場所はメイン側が決める。
+       */
+      speakers: (params: Record<string, unknown>) => Promise<unknown>;
       confirmQuit: (info: { hasWork: boolean }) => Promise<'save' | 'discard' | 'cancel'>;
       confirmResume: (info: {
         savedAt: string;

@@ -22,6 +22,9 @@ faster-whisper          # ASR。CUDA が使えなければ自動で CPU に落�
 # sudachipy             # 形態素解析（BudouX が使えない場合のフォールバック）
 
 # --- Phase 3（③ズーム・画角の自動化）---
+sherpa-onnx             # 話者埋め込み（声で「誰が喋っているか」を見分ける / Apache-2.0）
+                        # torch は使わない（配布物が 2GB 太り、Mac 版に載らない）
+                        # モデル本体は scripts/fetch_models.py で取得する
 mediapipe               # 顔検出（BlazeFace / Apache-2.0）
                         # モデル本体は scripts/fetch_models.py で取得する
                         # ⚠ Ultralytics YOLO は AGPL なので使わない

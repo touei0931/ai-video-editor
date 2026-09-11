@@ -52,6 +52,9 @@ jobs:
       - run: npm run test:framestep
       # 元素材の時刻とカット後の時刻の変換。ここがずれると全部ずれる
       - run: npm run test:time
+      # 🔴 話者ごとの色。色は上書きではなく雛形の枠として持つ（タイムラインに送っても消えない）。
+      #    見分け直しても人が決めたものは動かさない
+      - run: npm run test:speakers-ui
 
   # サイドカーが両OSで起動し、stdio JSON-RPC が成立するか
   sidecar:
@@ -90,6 +93,12 @@ jobs:
       #    本物の連呼と確度の低い「はい」は残す
       - name: 幻聴の除去
         run: python scripts/test_clean.py
+      # 🔴 話者の見分け。照合は閾値と2位との差で縛り、まとめ直しは後から似た組も合流させる。
+      #    埋め込みを直接渡すのでモデルは要らない（numpy だけ）
+      - name: 話者の見分け
+        run: |
+          python -m pip install -q numpy
+          python scripts/test_speakers.py
       # Final Cut へ渡すタイムライン。フレーム境界と file:// URL が要点
       - name: FCPXML の書き出し
         run: python scripts/test_fcpxml.py

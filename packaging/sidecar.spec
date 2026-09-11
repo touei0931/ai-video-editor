@@ -35,6 +35,8 @@ for package in (
     "av",
     "tokenizers",
     "huggingface_hub",
+    # 声を見分ける（sidecar/speakers.py）。ネイティブの共有ライブラリを持つので丸ごと拾う
+    "sherpa_onnx",
 ):
     try:
         d, b, h = collect_all(package)
@@ -50,7 +52,7 @@ a = Analysis(
     pathex=[".."],
     binaries=binaries,
     datas=datas,
-    hiddenimports=hiddenimports + ["sidecar", "sidecar.worker", "sidecar.heavy"],
+    hiddenimports=hiddenimports + ["sidecar", "sidecar.worker", "sidecar.heavy", "sidecar.speakers"],
     hookspath=[],
     runtime_hooks=[],
     excludes=[

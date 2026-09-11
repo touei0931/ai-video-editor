@@ -34,6 +34,8 @@ def _env(_params: dict[str, Any], **_kw) -> dict[str, Any]:
     """
     from .face import DETECTOR_MODEL, LANDMARK_MODEL, model_path
     from .media import find_ffmpeg
+    from .speakers import describe_backend as describe_speakers
+    from .speakers import model_path as speaker_model_path
 
     def resolve(fn) -> str:
         try:
@@ -54,8 +56,11 @@ def _env(_params: dict[str, Any], **_kw) -> dict[str, Any]:
         "frozen": getattr(sys, "frozen", False),
         "ffmpeg": ffmpeg,
         "face_models": models,
+        # 声を見分けるモデル。無くても解析と書き出しは動く（話者の色付けだけ使えない）
+        "speaker_model": resolve(speaker_model_path),
         "asr_backend": describe_asr(),
         "face_backend": describe_face(),
+        "speaker_backend": describe_speakers(),
         "encoder_args": video_args(),
     }
 
@@ -114,6 +119,19 @@ def _make_clip(params: dict[str, Any], **_kw) -> dict[str, Any]:
     )
 
 
+def _speakers(params: dict[str, Any], **_kw) -> dict[str, Any]:
+    """声で「誰が喋っているか」を見分ける／声を覚える（speakers.py）。
+
+    🔴 ワーカーに回さず親プロセスで実行する。
+       モデル（40MB）は1回読めば使い回せるが、子プロセスだと毎回読み直す。
+       画面で「この声はフブキ」と付けるたびに待たされるのは困る。
+       中身は ONNX Runtime なので、CTranslate2 のようなスレッドの罠は無い。
+    """
+    from .speakers import handle
+
+    return handle(params)
+
+
 def _heavy(method: str):
     """重い処理は別プロセスへ回す（worker.py の冒頭に理由を書いてある）。"""
 
@@ -131,6 +149,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "sleep": _sleep,
     "transcribe": _transcribe,
     "make_clip": _make_clip,
+    "speakers": _speakers,
     "analyze": _heavy("analyze"),
     "redetect": _heavy("redetect"),
     "build_telops": _heavy("build_telops"),
