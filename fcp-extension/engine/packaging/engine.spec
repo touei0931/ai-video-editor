@@ -34,6 +34,12 @@ for package in (
     "tokenizers",
     "huggingface_hub",
     "onnxruntime",
+    # Qwen3-ASR（Mac）。mlx は metallib、nagisa は分かち書きのモデルをデータとして持つ。
+    # 🔴 collect_all で拾わないと「固めた後だけ語の時刻が出ない」になる
+    "mlx",
+    "mlx_qwen3_asr",
+    "nagisa",
+    "dynet",
 ):
     try:
         d, b, h = collect_all(package)
@@ -67,6 +73,7 @@ a = Analysis(
         "sidecar.telop",
         "sidecar.asr",
         "sidecar.asr.faster_whisper_backend",
+        "sidecar.asr.qwen_backend",
     ],
     hookspath=[],
     runtime_hooks=[],

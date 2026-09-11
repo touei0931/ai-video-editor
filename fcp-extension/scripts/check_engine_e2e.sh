@@ -37,6 +37,15 @@ echo "--- 検証用の縦動画を作る（1080x1920 / 30fps） ---"
 #    CI の Mac には Homebrew が入っているので、PAC 本体が同梱の ffmpeg を
 #    見つけられなくても、PATH の ffmpeg に助けられて通ってしまう。
 #    友達の Mac には ffmpeg は入っていない。そちらに合わせて確かめる。
+echo "--- 文字起こしの部品が固めた中に入っているか ---"
+# 🔴 Qwen3-ASR（mlx）と分かち書き（nagisa）は固めた後だけ抜ける壊れ方をする。
+#    モデルは要らないので、import できるかだけを固めたバイナリの中で見る
+PROBE=$(env PATH=/usr/bin:/bin "$ENGINE" --probe)
+echo "$PROBE"
+echo "$PROBE" | grep -q '"mlx-qwen3-asr": "ok"' || { echo "❌ mlx-qwen3-asr が固めた中に無い"; exit 1; }
+echo "$PROBE" | grep -q '"nagisa": "ok"' || { echo "❌ nagisa が固めた中に無い"; exit 1; }
+echo "$PROBE" | grep -q '"faster-whisper": "ok"' || { echo "❌ faster-whisper が固めた中に無い"; exit 1; }
+
 echo "--- 解析を通す（アプリの中のエンジンで／PATH は裸） ---"
 env PATH=/usr/bin:/bin "$ENGINE" --video "$WORK/sample.mp4" --out "$WORK/state.json" --model base --ffmpeg "$FFMPEG"
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 _IS_MAC = sys.platform == "darwin"
 _IS_WINDOWS = sys.platform == "win32"
@@ -100,9 +100,35 @@ def make_asr() -> Asr:
 
     if _IS_MAC:
         # Apple Silicon では CUDA を探しに行かせない
-        return FasterWhisperAsr(device="cpu")
+        return _RoutingAsr(FasterWhisperAsr(device="cpu"))
 
-    return FasterWhisperAsr()
+    return _RoutingAsr(FasterWhisperAsr())
+
+
+class _RoutingAsr:
+    """モデルの名前で、どの実装に渡すかを決める。
+
+    🔴 呼び出し側はモデルの名前しか知らない。名前ごとに実装を変える判断は
+       ここに閉じ込める。Whisper 系は faster-whisper、qwen3-asr-* は
+       Qwen3-ASR（Windows は torch、Mac は mlx）。
+    """
+
+    def __init__(self, whisper: Asr) -> None:
+        self._whisper = whisper
+        self._qwen: Asr | None = None
+
+    def transcribe(self, audio_path: str, model: str = "large-v3-turbo", **kwargs) -> dict:
+        from .qwen_backend import QwenAsr, is_qwen_model
+
+        if is_qwen_model(model):
+            if self._qwen is None:
+                self._qwen = QwenAsr()
+            return self._qwen.transcribe(audio_path, model=model, **kwargs)
+        return self._whisper.transcribe(audio_path, model=model, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        # device など、診断で見る属性は Whisper 側のものを返す
+        return getattr(self._whisper, name)
 
 
 def describe_backend() -> str:

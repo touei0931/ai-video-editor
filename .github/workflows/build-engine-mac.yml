@@ -14,6 +14,10 @@ on:
   push:
     paths:
       - 'fcp-extension/engine/**'
+      # 🔴 sidecar も入れること。固めたエンジンは sidecar のコードを同梱している。
+      #    ここに無いと、sidecar だけ直したときに古いエンジンのまま配布される。
+      #    9/11 の直し3件（息継ぎ・kotoba・文末で繋がない）がそれで届いていなかった
+      - 'sidecar/**'
       - '.github/workflows/build-engine-mac.yml'
 
 permissions:

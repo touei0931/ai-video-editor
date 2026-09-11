@@ -21,10 +21,32 @@ from .analyze import analyze
 CUT_PRESETS = ["loose", "talk", "short", "tight"]
 
 
+def probe_backends() -> dict:
+    """文字起こしの部品が import できるか。
+
+    🔴 固めたバイナリの中で確かめること。素の Python で通っても、
+       PyInstaller が拾い損ねると固めた後だけ動かない。モデルは要らない。
+    """
+    out: dict = {}
+    for name, mod in (
+        ("faster-whisper", "faster_whisper"),
+        ("mlx-qwen3-asr", "mlx_qwen3_asr"),
+        ("nagisa", "nagisa"),
+    ):
+        try:
+            __import__(mod)
+            out[name] = "ok"
+        except Exception as e:  # noqa: BLE001
+            out[name] = f"ng: {e}"
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pac_fcp_engine", description="動画を解析してパネル用 JSON を作る")
-    p.add_argument("--video", required=True, help="解析する動画")
-    p.add_argument("--out", required=True, help="書き出す JSON")
+    p.add_argument("--probe", action="store_true",
+                   help="解析せず、文字起こしの部品が読み込めるかだけを JSON で出す（配布物の検査用）")
+    p.add_argument("--video", help="解析する動画")
+    p.add_argument("--out", help="書き出す JSON")
     p.add_argument("--model", default="large-v3-turbo")
     p.add_argument("--language", default="ja")
     p.add_argument("--cut-preset", default="talk", choices=CUT_PRESETS,
@@ -38,6 +60,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--ffmpeg", default="ffmpeg")
     p.add_argument("--waveform-points", type=int, default=800)
     args = p.parse_args(argv)
+
+    if args.probe:
+        print(json.dumps(probe_backends(), ensure_ascii=False))
+        return 0
+    if not args.video or not args.out:
+        p.error("--video と --out が要ります")
 
     def progress(stage: str, ratio: float) -> None:
         # 1行1メッセージ。呼び出し側が読みやすい形にしておく

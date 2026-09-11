@@ -97,6 +97,10 @@ jobs:
       #    差し替えた置き場所づくりを、ネットに出ずに確かめる
       - name: 日本語特化モデルの置き場所
         run: python scripts/test_kotoba.py
+      # 🔴 Qwen3-ASR の出力は faster-whisper と同じ形でなければ後段が壊れる。
+      #    句読点の付け直し・segment の切り方・区切り位置を、モデル無しで見る
+      - name: Qwen3-ASR の出力の形
+        run: python scripts/test_qwen_backend.py
       # 🔴 幻聴の除去。少しずつ変わる繰り返し（島上栗／島下通）と復号に失敗した窓を落とし、
       #    本物の連呼と確度の低い「はい」は残す
       - name: 幻聴の除去

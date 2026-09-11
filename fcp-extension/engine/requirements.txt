@@ -1,3 +1,7 @@
 # 解析エンジンの依存。PAC 本体の sidecar/requirements.txt と揃えること
 # （同じ sidecar のコードを動かすため）。
 faster-whisper>=1.0.3
+# Qwen3-ASR（日本語の会話で最も誤りが少ない）。Mac は Apple の GPU で動かす mlx 版。
+# [aligner] は語の時刻を出すときの日本語の分かち書き（nagisa）。
+# torch は使わない（配布物が太り、Mac 版に載らない）。
+mlx-qwen3-asr[aligner]>=0.4.0 ; sys_platform == "darwin"

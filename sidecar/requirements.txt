@@ -21,6 +21,13 @@ faster-whisper          # ASR。CUDA が使えなければ自動で CPU に落�
 # pyworld               # F0（DIO/StoneMask）
 # sudachipy             # 形態素解析（BudouX が使えない場合のフォールバック）
 
+# --- 文字起こし: Qwen3-ASR（日本語の会話で最も誤りが少ない）---
+# Windows は本家 qwen-asr（torch が要る。CUDA 版 torch を先に入れること:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 ）
+# Mac は mlx-qwen3-asr（Apple の GPU。torch 不要）。[aligner] は語の時刻用の分かち書き（nagisa）
+qwen-asr ; sys_platform != "darwin"
+mlx-qwen3-asr[aligner]>=0.4.0 ; sys_platform == "darwin"
+
 # --- Phase 3（③ズーム・画角の自動化）---
 sherpa-onnx             # 話者埋め込み（声で「誰が喋っているか」を見分ける / Apache-2.0）
                         # torch は使わない（配布物が 2GB 太り、Mac 版に載らない）

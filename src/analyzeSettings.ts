@@ -13,7 +13,7 @@
 
 import type { PacePreset } from './review/ReviewScreen';
 
-export type AsrModel = 'large-v3-turbo' | 'kotoba-whisper-v2.0' | 'medium' | 'small' | 'base';
+export type AsrModel = 'qwen3-asr-1.7b' | 'large-v3-turbo' | 'medium' | 'small' | 'base';
 export type AnalyzeLanguage = 'ja' | 'en' | 'auto';
 
 export interface AnalyzeSettings {
@@ -57,28 +57,25 @@ export const LANGUAGES: { code: AnalyzeLanguage; label: string }[] = [
 
 /** モデルの選択肢。初回のダウンロード量を必ず添える（無反応に見えて強制終了されるため） */
 export const MODELS: { name: AsrModel; label: string; description: string; downloadSize: string }[] = [
+  /*
+    日本語の自然な会話で最も誤りが少ないモデル（2026-02〜05 の公開ベンチマークで
+    CER 0.140。large-v3-turbo は 0.184、kotoba-whisper は 0.495 で最下位だった）。
+    🔴 語の時刻は別の整列モデルが出す（ダウンロードが2つになる）。
+       Windows は NVIDIA の GPU が要る。Mac は Apple の GPU（mlx）で動く。
+  */
+  {
+    name: 'qwen3-asr-1.7b',
+    label: '最高 — Qwen3-ASR 1.7B',
+    description:
+      '日本語の自然な会話で、いちばん聞き取りの間違いが少ないモデルです。「高い」より一段良く、' +
+      '語と語の間もきちんと取れるので、息継ぎでの分け方も良くなります。Windows は NVIDIA の GPU が要ります。',
+    downloadSize: '4.6GB（本体 3.4GB＋語の時刻用 1.2GB）',
+  },
   {
     name: 'large-v3-turbo',
     label: '高い（おすすめ） — large-v3-turbo',
     description: '一番きれいに文字起こしできます。',
     downloadSize: '1.6GB',
-  },
-  /*
-    日本語の話し言葉に強いモデル。
-    🔴 「一番良い」とは書かないこと。公開されている評価では、話し言葉
-       （ReazonSpeech）では large-v3 より良い（CER 11.6 vs 14.9）が、
-       朗読のようなきれいな音声では少し劣る（CommonVoice 9.2 vs 8.5）。
-       日本語専用で、言語の設定に関わらず日本語として起こす。
-       語の時刻を出すために sidecar 側で手を入れて読む
-       （faster_whisper_backend.py の KOTOBA_* の注意書き）。
-  */
-  {
-    name: 'kotoba-whisper-v2.0',
-    label: '日本語の話し言葉向け — kotoba-whisper v2',
-    description:
-      '日本語だけで学習し直したモデルです。喋り言葉の聞き取りが「高い」より良く、速さは同じくらい。' +
-      '朗読のようにきれいな音声では「高い」のほうがわずかに良いです。日本語専用で、言語の設定に関わらず日本語として起こします。',
-    downloadSize: '1.5GB',
   },
   {
     name: 'medium',
