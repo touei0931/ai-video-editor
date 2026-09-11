@@ -22,6 +22,7 @@ import { activeAt, laneOffsetY, laneStep, telopLanes } from '../telop/lanes';
 import { snapToBoxes } from '../telop/align';
 import {
   DEFAULT_STYLES,
+  isBuiltinStyle,
   resolveStyle,
   type StyleLibrary,
   type StyleMap,
@@ -1502,6 +1503,19 @@ export function TelopStage({
                 <summary>雛形「{styles[cur.style]?.label ?? cur.style}」を編集</summary>
                 <p className="fcp-dim">この枠を使っているテロップ全部に効きます。</p>
 
+                {/*
+                  🔴 補足・強調は書体と大きさを「通常」に揃える（style.ts の effectiveStyle）。
+                     ここで変えられるように見せると、動かしても効かない欄になる。
+                     色と縁取りと置く場所だけ出す。
+                */}
+                {isBuiltinStyle(cur.style) && cur.style !== 'normal' && (
+                  <p className="fcp-dim">
+                    書体と大きさは「通常」と同じです（同じ人のテロップが枚ごとに違う見た目にならないように）。
+                    {cur.style === 'emphasis' && ' 強調は縁取りが通常より太くなります。'}
+                  </p>
+                )}
+
+                {(!isBuiltinStyle(cur.style) || cur.style === 'normal') && (
                 <div className="fcp-field">
                   <label>書体</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -1531,6 +1545,7 @@ export function TelopStage({
                     </button>
                   </div>
                 </div>
+                )}
 
                 <div className="fcp-field">
                   <label>色</label>
@@ -1553,9 +1568,28 @@ export function TelopStage({
                         })
                       }
                     />
+                    <span className="fcp-dim">太さ</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={0.5}
+                      step={0.02}
+                      value={resolveStyle(styles, cur.style).stroke?.widthRatio ?? 0}
+                      onChange={(e) =>
+                        patchStyle(cur.style, {
+                          stroke: {
+                            color: styles[cur.style]?.stroke?.color ?? '#000000',
+                            widthRatio: Number(e.target.value),
+                          },
+                        })
+                      }
+                      title="縁取りの太さ（文字の大きさに対する割合）"
+                      style={{ width: 90 }}
+                    />
                   </div>
                 </div>
 
+                {(!isBuiltinStyle(cur.style) || cur.style === 'normal') && (
                 <div className="fcp-field">
                   <label>大きさ</label>
                   <input
@@ -1569,6 +1603,7 @@ export function TelopStage({
                     }
                   />
                 </div>
+                )}
 
                 <div className="fcp-field">
                   <label>置く場所</label>

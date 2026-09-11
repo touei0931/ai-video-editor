@@ -21,6 +21,7 @@ import { japaneseParser } from './budoux-ja';
 import { cssFont, telopFontSize, type FontChoice } from './render';
 import {
   DEFAULT_STYLES,
+  effectiveStyle,
   type TelopOverride,
   type TelopPosition,
   type TelopStyle,
@@ -104,7 +105,7 @@ export interface TelopCard {
   baseStart?: number;
   /**
    * 誰の声か（登録した人の id）。無ければ null / 未判定は undefined。
-   * 🔴 色は style（人ごとの枠 `slot-spk-<id>`）が持つ。ここは「誰か」の記録。
+   * 🔴 色は override.color が持つ（雛形は触らない）。ここは「誰か」の記録。
    */
   speaker?: string | null;
   /** 登録済みの声との類似度（0〜1）。低いものは画面で ⚠ を出す */
@@ -275,7 +276,8 @@ export function splitIntoCards(
   const marginRatio = options.marginRatio ?? 0.08;
   const minDuration = options.minDuration ?? 0.5;
 
-  const style = (options.styles ?? DEFAULT_STYLES)[unit.style];
+  // 🔴 描く側（resolveStyle）と同じ入口で雛形を決める。書体と大きさは通常に揃う
+  const style = effectiveStyle(options.styles ?? DEFAULT_STYLES, unit.style);
   const fontPx = telopFontSize(style, frame);
   const maxWidth = frame.width * (1 - marginRatio * 2);
   // 強調する語は大きく描かれるので、測るほうでもそのぶん足す（measureWithHighlight）
@@ -502,7 +504,8 @@ export function rewrapCard(
   card: { sizeScale?: number; breaks?: number[]; highlight?: string | null } = {},
 ): { lines: string[]; fontScale: number } {
   const marginRatio = options.marginRatio ?? 0.08;
-  const style = styles?.[styleName] ?? DEFAULT_STYLES[styleName];
+  // 🔴 描く側（resolveStyle）と同じ入口で雛形を決める。書体と大きさは通常に揃う
+  const style = effectiveStyle(styles ?? DEFAULT_STYLES, styleName);
   const fontPx = telopFontSize(style, frame) * (card.sizeScale ?? 1);
   const fit = fitToLines(
     measureWithHighlight(measure, style, fontPx, card.highlight),

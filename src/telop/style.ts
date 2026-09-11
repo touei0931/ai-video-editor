@@ -133,18 +133,65 @@ export const DEFAULT_STYLES: StyleMap = {
     highlightColor: '#ffe14d',
     highlightScale: 1.1,
   },
+  /*
+    強調。
+    🔴 書体と大きさは「通常」と同じ（effectiveStyle が揃える）。違うのは色と縁取りの太さだけ。
+       以前は別の書体（Dela Gothic）で一回り大きくしていたが、同じ人のテロップでも
+       強調の枚だけ見た目が変わり、「書体と大きさは同じで色だけ変えて」と言われた（2026-09-11）。
+       叫んだ感じは縁取りを太くして出す。
+  */
   emphasis: {
     label: '強調',
     position: 'bottom',
-    fontFamily: 'DelaGothicOne',
-    fontSizeRatio: 0.1,
+    fontFamily: 'ZenKakuGothicNew',
+    bold: true,
+    fontSizeRatio: 0.085,
     color: '#ff3b30',
-    stroke: { color: '#ffffff', widthRatio: 0.18 },
-    lineHeightRatio: 1.2,
+    stroke: { color: '#ffffff', widthRatio: 0.3 },
+    lineHeightRatio: 1.25,
     highlightColor: '#ffe14d',
     highlightScale: 1.15,
   },
 };
+
+/** 強調の縁取りは、通常の縁取りの何倍以上か（effectiveStyle が保証する下限） */
+export const EMPHASIS_STROKE_MIN = 1.8;
+
+/**
+ * 実際に使う雛形。書体と大きさは「通常」に揃える。
+ *
+ * 🔴 消せない3つ（通常／補足／強調）は、**書体・太字・斜体・大きさ・行送りを通常と同じ**にする。
+ *    違ってよいのは色・縁取り・位置・目立たせる語だけ。
+ *    「人ごとに色を変える」を入れた以上、同じ人のテロップが枚ごとに別の書体・大きさで
+ *    出ると「誰の色か」より「なぜ書体が違うのか」が目立ってしまう。
+ *    利用者が足した枠（slot-…）は、意図して別の書体を選んでいるので触らない。
+ *
+ * 🔴 強調の縁取りは通常の EMPHASIS_STROKE_MIN 倍以上にする。
+ *    保存済みの雛形は古い既定（0.18）のままなので、そこだけ見ると通常（0.16）と
+ *    ほとんど変わらず、強調が強調に見えない。
+ *
+ * 🔴 描く側（resolveStyle）も測る側（split.ts）も必ずここを通ること。
+ *    片方だけ揃えると、測った幅と描く幅がずれて折り返しが狂う。
+ */
+export function effectiveStyle(styles: Record<TelopStyleName, TelopStyle>, name: TelopStyleName): TelopStyle {
+  const normal = styles.normal ?? DEFAULT_STYLES.normal;
+  const base = styles[name] ?? normal;
+  if (name === 'normal' || !isBuiltinStyle(name)) return base;
+  const out: TelopStyle = {
+    ...base,
+    fontFamily: normal.fontFamily,
+    bold: normal.bold,
+    italic: normal.italic,
+    fontSizeRatio: normal.fontSizeRatio,
+    lineHeightRatio: normal.lineHeightRatio,
+  };
+  if (name === 'emphasis') {
+    const floor = (normal.stroke?.widthRatio ?? 0.16) * EMPHASIS_STROKE_MIN;
+    const own = base.stroke ?? { color: '#ffffff', widthRatio: 0 };
+    out.stroke = { ...own, widthRatio: Math.max(own.widthRatio, floor) };
+  }
+  return out;
+}
 
 /**
  * 雛形一式。
@@ -347,7 +394,8 @@ export function resolveStyle(
     **そのテロップだけ1枚も描かれない**。しかも例外にならないので、
     書き出した動画を見るまで気づけない。
   */
-  const base = styles[name] ?? styles.normal ?? DEFAULT_STYLES.normal;
+  // 🔴 書体と大きさを通常に揃えた雛形から始める（effectiveStyle）。測る側と同じ入口
+  const base = effectiveStyle(styles, name);
   const size = base.fontSizeRatio * fontScale * (override?.sizeScale ?? 1);
   return {
     ...base,

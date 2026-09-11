@@ -138,7 +138,9 @@ function base() {
   const looks = xml.split('<title ').slice(1).map((part) => ({
     name: /name="([^"]*)"/.exec(part)?.[1] ?? '',
     size: Number(/fontSize="(\d+)"/.exec(part)?.[1] ?? 0),
+    font: /font="([^"]+)"/.exec(part)?.[1] ?? '',
     color: /fontColor="([^"]+)"/.exec(part)?.[1] ?? '',
+    strokeW: Number(/strokeWidth="([\d.]+)"/.exec(part)?.[1] ?? 0),
   }));
   const normal = looks.find((l) => l.name.startsWith('ふつう'));
   // 本文に記号が入っているので、名前はエスケープされた形になる
@@ -146,8 +148,16 @@ function base() {
   check('通常と強調が両方ある', !!normal && !!strong, JSON.stringify(looks));
   check('どちらも大きさが入っている', (normal?.size ?? 0) > 0 && (strong?.size ?? 0) > 0,
         JSON.stringify(looks));
-  check('強調は通常より大きい', (strong?.size ?? 0) > (normal?.size ?? 0),
+  /*
+    🔴 強調は通常と**同じ書体・同じ大きさ**（style.ts の effectiveStyle）。
+       同じ人のテロップが枚ごとに違う見た目にならないように、違うのは色と縁取りの太さだけ
+       （2026-09-11）。以前は「強調は通常より大きい」を見ていた。
+  */
+  check('強調は通常と同じ大きさ', (strong?.size ?? 0) === (normal?.size ?? 0),
         `通常 ${normal?.size} / 強調 ${strong?.size}`);
+  check('強調は通常と同じ書体', strong?.font === normal?.font, `通常 ${normal?.font} / 強調 ${strong?.font}`);
+  check('強調は縁取りが太い', (strong?.strokeW ?? 0) > (normal?.strokeW ?? 0) * 1.5,
+        `通常 ${normal?.strokeW} / 強調 ${strong?.strokeW}`);
   // 🔴 色も雛形から来ること。両方とも白のままなら写せていない
   check('強調は色が違う', (strong?.color ?? '') !== (normal?.color ?? ''),
         `通常 ${normal?.color} / 強調 ${strong?.color}`);
@@ -192,8 +202,8 @@ function base() {
   // 色は 0〜1 の3つ組。#7ec8ff = 126/255, 200/255, 255/255
   const rgb = (s) => (s ?? '').split(' ').slice(0, 3).map((v) => Math.round(Number(v) * 255)).join(',');
   check('Final Cut 用に人の色が写る', rgb(f?.color) === '126,200,255', f?.color);
-  check('強調の雛形のまま、その人の色になる（大きさは強調、色は人）',
-    !!o && !!n && o.size > n.size && rgb(o.color) === '197,155,255', JSON.stringify({ o, n }));
+  check('強調の雛形のまま、その人の色になる（大きさは通常と同じ、色は人）',
+    !!o && !!n && o.size === n.size && rgb(o.color) === '197,155,255', JSON.stringify({ o, n }));
   check('縁取りの色も写る', rgb(o?.stroke) === '34,17,51', o?.stroke);
   check('上書きの無いものは雛形の色', n?.color.startsWith('1 1 1'), n?.color);
 }

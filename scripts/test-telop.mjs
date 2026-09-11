@@ -443,6 +443,52 @@ const at = (px) => (text, scale) => measure(text, px * scale);
   );
 }
 
+// ── 補足・強調は書体と大きさを通常に揃える ──────────────────
+
+{
+  /*
+    🔴 同じ人のテロップが枚ごとに別の書体・大きさで出ないように、
+       消せない3つ（通常／補足／強調）は書体と大きさを通常に揃える。
+       強調は縁取りを太くして出す。利用者が足した枠は触らない。
+  */
+  const D = style.DEFAULT_STYLES;
+  const em = style.effectiveStyle(D, 'emphasis');
+  const no = style.effectiveStyle(D, 'note');
+  check('強調は通常と同じ書体', em.fontFamily === D.normal.fontFamily, em.fontFamily);
+  check('強調は通常と同じ大きさ', em.fontSizeRatio === D.normal.fontSizeRatio, String(em.fontSizeRatio));
+  check('補足も通常と同じ書体と大きさ', no.fontFamily === D.normal.fontFamily && no.fontSizeRatio === D.normal.fontSizeRatio);
+  check('強調の色は残る', em.color === D.emphasis.color, em.color);
+  check(
+    `強調の縁取りは通常の ${style.EMPHASIS_STROKE_MIN} 倍以上`,
+    em.stroke.widthRatio >= D.normal.stroke.widthRatio * style.EMPHASIS_STROKE_MIN,
+    `${em.stroke.widthRatio} / 通常 ${D.normal.stroke.widthRatio}`,
+  );
+
+  // 保存済みの古い雛形（強調が別の書体・一回り大きい・細い縁取り）でも揃う
+  const old = structuredClone(D);
+  old.normal = { ...old.normal, fontFamily: 'ZenOldMincho', fontSizeRatio: 0.07, stroke: { color: '#000000', widthRatio: 0.16 } };
+  old.emphasis = { ...old.emphasis, fontFamily: 'DelaGothicOne', fontSizeRatio: 0.1, stroke: { color: '#ffffff', widthRatio: 0.18 } };
+  const em2 = style.effectiveStyle(old, 'emphasis');
+  check('古い雛形でも強調は通常の書体・大きさになる', em2.fontFamily === 'ZenOldMincho' && em2.fontSizeRatio === 0.07, `${em2.fontFamily} ${em2.fontSizeRatio}`);
+  check('古い雛形の細い縁取りは下限まで太くなる', em2.stroke.widthRatio >= 0.16 * style.EMPHASIS_STROKE_MIN, String(em2.stroke.widthRatio));
+  check('縁取りの色は強調のもの', em2.stroke.color === '#ffffff');
+
+  // 利用者が足した枠は触らない
+  const withSlot = { ...D, 'slot-a': { ...D.normal, label: 'オノマトペ', fontFamily: 'DelaGothicOne', fontSizeRatio: 0.12 } };
+  const sl = style.effectiveStyle(withSlot, 'slot-a');
+  check('足した枠の書体と大きさは触らない', sl.fontFamily === 'DelaGothicOne' && sl.fontSizeRatio === 0.12);
+
+  // 描く側も測る側も同じ入口を通る
+  const r = style.resolveStyle(D, 'emphasis');
+  check('resolveStyle も揃った雛形を返す', r.fontFamily === D.normal.fontFamily && r.fontSizeRatio === D.normal.fontSizeRatio);
+  const frame = { width: 1080, height: 1920 };
+  const m = (t, fontPx) => measure(t, fontPx);
+  const text = 'なるほど、たしかにその通りですね';
+  const a = split.rewrapCard(text, 'normal', m, frame, {}, D);
+  const b = split.rewrapCard(text, 'emphasis', m, frame, {}, D);
+  check('通常と強調で折り返しが同じ（測る側も揃っている）', a.lines.join('/') === b.lines.join('/') && a.fontScale === b.fontScale, `${a.lines.join('/')} vs ${b.lines.join('/')}`);
+}
+
 // ── 話し手の間で割る ────────────────────────────────────────
 
 /** 語の並びを作る。gapAfter は次の語までの間（秒） */
