@@ -139,7 +139,9 @@ enum FCPXMLWriter {
     static func stamp(
         meta: [String: Any], width: Int, height: Int, fps: Double,
         cuts: [[String: Any]], telops: [[String: Any]], approved: Int,
-        styles: [String: Any] = [:]
+        styles: [String: Any] = [:],
+        /// 書式の無い見本で、大きさを書かずテンプレの既定に任せているか
+        sizeFromTemplate: Bool = false
     ) -> String {
         var parts: [String] = ["PAC"]
         if let build = meta["build"] as? String, !build.isEmpty { parts.append(build) }
@@ -164,8 +166,14 @@ enum FCPXMLWriter {
              ふつうだが、2160x3840 では高さの 1.25% で豆粒になる。
              「テロップが小さい」で何往復もしたので、書き出したファイル
              1つで判断できるようにする（2026-09-09）。
+
+          🔴 大きさを書いていないのに px を書かないこと。
+             書式の無い見本では XML に fontSize が1つも無い。そこに
+             「文字 58px」と出ると、次に XML を見たとき誤読する（2026-09-14）。
         */
-        if let normal = styles["normal"] as? [String: Any],
+        if sizeFromTemplate {
+            parts.append("文字 見本の既定（大きさは書かない）")
+        } else if let normal = styles["normal"] as? [String: Any],
            let size = (normal["fontSize"] as? Double) ?? (normal["fontSize"] as? NSNumber)?.doubleValue,
            size > 0 {
             let ratio = height > 0 ? size / Double(height) * 100 : 0
@@ -313,7 +321,7 @@ enum FCPXMLWriter {
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE fcpxml>
         <fcpxml version="\(version)">
-          <!-- \(escape(stamp(meta: meta, width: w, height: h, fps: fps, cuts: cuts, telops: telops, approved: approvedCuts.count, styles: styles))) -->
+          <!-- \(escape(stamp(meta: meta, width: w, height: h, fps: fps, cuts: cuts, telops: telops, approved: approvedCuts.count, styles: styles, sizeFromTemplate: template.map { $0.textStyle.isEmpty } ?? false))) -->
           <resources>
             <format id="r1" name="\(formatName(width: w, height: h, fps: fps))" frameDuration="\(frameDur)" width="\(w)" height="\(h)" colorSpace="1-1-1 (Rec. 709)"/>
             <effect id="r2" name="\(escape(template?.effectName ?? "Basic Title"))" uid="\(escape(template?.effectUID ?? ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"))"/>
@@ -551,13 +559,18 @@ enum FCPXMLWriter {
              DTD の text は「書式なしの文字列」なので、text-style を付けなければ
              テンプレの既定の書式で描かれる。
 
-          🔴 1枚ごとの見た目の上書き（大きさ・色・一部だけ強調）があるときは、
-             利用者が意図して変えているので、これまでどおり書式を書く。
+          🔴 書式を書くのは、その1枚に**大きさが明示されている**ときだけ。
+
+             色だけ・太字だけの上書きや「強調」スタイルでも書式を書いていたが、
+             text-style を書く以上は大きさが要り（無いと Final Cut は極小で描く、
+             2026-09-01）、その大きさは PAC には分からない。プロジェクトの高さから
+             決めると、色を変えた1枚だけがまた豆粒になる（2026-09-14 のレビューで発覚）。
+             利用者が数字を入れた大きさなら、仕上がりを見て直せる。
+             大きさの無い色・太字・強調・一部強調は、この見本では効かない。
+             画面（⑤テロップ）でその旨を出している。
         */
         let templateHasNoStyle = template.map { $0.textStyle.isEmpty } ?? false
-        let hasLookOverride = ["fontFamily", "fontSize", "bold", "color", "strokeColor", "strokeWidth", "shadow"]
-            .contains { overrides[$0] != nil }
-        if templateHasNoStyle && !hasLookOverride && spans.isEmpty {
+        if templateHasNoStyle && !hasExplicitFontSize(overrides) {
             s += "\(indent)  <text>\(escape(text))</text>\n"
             s += "\(indent)</title>\n"
             return s
@@ -582,6 +595,14 @@ enum FCPXMLWriter {
 
         s += "\(indent)</title>\n"
         return s
+    }
+
+    /// その1枚に大きさが数字で入っているか（0 や無効な値は「無い」扱い）
+    static func hasExplicitFontSize(_ overrides: [String: Any]) -> Bool {
+        let size = (overrides["fontSize"] as? Double)
+            ?? (overrides["fontSize"] as? Int).map(Double.init)
+            ?? (overrides["fontSize"] as? NSNumber)?.doubleValue
+        return (size ?? 0) > 0
     }
 
     /// 一部だけ見た目を変える指定を、書き出せる「連なり」に分ける

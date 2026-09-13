@@ -423,6 +423,46 @@ do {
         mediaWidth: 2160, mediaHeight: 3840, template: tpl)
     check("1枚ごとの上書きがあれば書式を書く", 上書き.contains("fontSize=\"120\""),
           上書き.range(of: "<text-style [^>]*/>", options: .regularExpression).map { String(上書き[$0]) } ?? "無し")
+
+    /*
+      🔴 書式を書くのは「大きさが数字で入っている」ときだけ。
+
+         色だけ・太字だけ・「強調」スタイル・一部強調でも書式を書いていたが、
+         text-style を書くなら大きさが要り（無いと極小、2026-09-01）、その数は
+         PAC には分からない。プロジェクトの高さから決めると、色を変えた1枚だけが
+         また豆粒になる（2026-09-14 のレビュー）。大きさが無ければ本文だけ書く。
+    */
+    func 本文だけ(_ telop: [String: Any], _ label: String) {
+        let out = FCPXMLWriter.build(
+            cuts: [], telops: [telop], styles: [:], mediaPath: "/m/a.mov", fps: 30,
+            mediaDuration: 10, mediaWidth: 720, mediaHeight: 1280, template: tpl)
+        check("\(label)は本文だけ書く", out.contains("<text>あい</text>") && !out.contains("fontSize="),
+              out.range(of: "<text>.*?</text>", options: [.regularExpression, .caseInsensitive]).map { String(out[$0]) } ?? "無し")
+    }
+    本文だけ(["start": 1.0, "end": 3.0, "text": "あい", "style": "normal",
+           "overrides": ["color": "#ffe14d"]], "色だけの上書き")
+    本文だけ(["start": 1.0, "end": 3.0, "text": "あい", "style": "normal",
+           "overrides": ["bold": true, "fontFamily": "ヒラギノ角ゴシック W8"]], "太字と書体だけの上書き")
+    本文だけ(["start": 1.0, "end": 3.0, "text": "あい", "style": "emphasis"], "強調スタイル")
+    本文だけ(["start": 1.0, "end": 3.0, "text": "あい", "style": "normal",
+           "spans": [["start": 0, "end": 1, "color": "#ff0000"]]], "大きさの無い一部強調")
+    // 大きさが 0 は「入っていない」扱い
+    本文だけ(["start": 1.0, "end": 3.0, "text": "あい", "style": "normal",
+           "overrides": ["fontSize": 0]], "大きさ 0 の上書き")
+    // 大きさが入っていれば、色も一緒に書式に乗る
+    let 大きさと色 = FCPXMLWriter.build(
+        cuts: [], telops: [["start": 1.0, "end": 3.0, "text": "あい", "style": "normal",
+                            "overrides": ["fontSize": 120, "color": "#ff0000"]]],
+        styles: [:], mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10,
+        mediaWidth: 720, mediaHeight: 1280, template: tpl)
+    check("大きさがあれば色も書式に乗る",
+          大きさと色.contains("fontSize=\"120\"") && 大きさと色.contains("fontColor=\"1.0000 0.0000 0.0000 1\""),
+          大きさと色.range(of: "<text-style [^>]*/>", options: .regularExpression).map { String(大きさと色[$0]) } ?? "無し")
+
+    // 🔴 由来の1行に、書いてもいない px を出さない（次に XML を見たとき誤読する）
+    let 由来 = xml.range(of: "<!-- [^>]*-->", options: .regularExpression).map { String(xml[$0]) } ?? ""
+    check("書式の無い見本では由来の1行に「見本の既定」と出る", 由来.contains("文字 見本の既定"), 由来)
+    check("書式の無い見本では由来の1行に px を出さない", !由来.contains("px"), 由来)
     /*
       🔴 見本があるときは、PAC 自前の縁取り・影を足さないこと。
          本文を入れずに書き出した見本（text-style 無し）で足してしまい、

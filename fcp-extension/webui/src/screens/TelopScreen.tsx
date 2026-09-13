@@ -372,6 +372,25 @@ export function TelopScreen({
                 onFocus={readSelection}
               />
 
+              {/*
+                🔴 書式の無い見本（文字を入れずに書き出したもの）では、書き出しは
+                   大きさを数字で入れた1枚だけ書式を書く。それ以外は本文だけ書いて
+                   見本の既定の見た目に任せる（大きさが分からないまま書式を書くと
+                   豆粒になる、2026-09-14）。下の項目が効かない理由をここで伝える。
+              */}
+              {state.template?.hasStyle === false && (
+                <>
+                  <label />
+                  <div className="inline">
+                    <span className="warn" style={{ fontSize: 11 }}>
+                      {(selected.overrides?.fontSize ?? 0) > 0
+                        ? 'この見本は文字の書式を持っていません。大きさを入れたので、このテロップはスタイル・書体・色・太字が効きます'
+                        : 'この見本は文字の書式を持っていません。大きさを入れないと、スタイル・書体・色・太字は効かず、見本の既定の見た目になります'}
+                    </span>
+                  </div>
+                </>
+              )}
+
               <label>スタイル</label>
               <select
                 value={selected.style}
