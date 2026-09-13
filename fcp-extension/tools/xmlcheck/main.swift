@@ -404,6 +404,21 @@ do {
     check("文字の無い見本でも大きさが入る", xml.contains("fontSize="),
           xml.range(of: "<text-style [^>]*/>", options: .regularExpression)
             .map { String(xml[$0]) } ?? "無し")
+    /*
+      🔴 見本があるときは、PAC 自前の縁取り・影を足さないこと。
+         本文を入れずに書き出した見本（text-style 無し）で足してしまい、
+         Motion テンプレの見た目の上に黒の縁取りと影が重なって
+         「最初からフォントが別物」と言われた（2026-09-13）。
+    */
+    check("見本があれば自前の縁取りを足さない", !xml.contains("strokeWidth="),
+          xml.range(of: "<text-style [^>]*/>", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
+    check("見本があれば自前の影を足さない", !xml.contains("shadowOffset="))
+    // 見本が無いときは、これまでどおり自前の縁取りで読めるようにする
+    let 見本なし = FCPXMLWriter.build(
+        cuts: [], telops: [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal"]],
+        styles: [:], mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10,
+        mediaWidth: 1080, mediaHeight: 1920)
+    check("見本が無ければ自前の縁取りを付ける", 見本なし.contains("strokeWidth="))
     // 高さの 4.5% 前後（3840 なら 172 前後）。豆粒にしない
     check("枠に見合った大きさになる", xml.contains("fontSize=\"172\""),
           xml.range(of: "fontSize=\"[0-9]+\"", options: .regularExpression)

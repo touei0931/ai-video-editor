@@ -620,7 +620,17 @@ enum FCPXMLWriter {
     ) -> String {
         var attrs: [String: String] = template?.textStyle ?? [:]
 
-        if attrs.isEmpty {
+        /*
+          🔴 PAC 自前の縁取り・影を足すのは、**見本（Motion テンプレ）が無いとき**だけ。
+
+             以前は「見本の text-style が空なら」足していた。見本はあるが本文を
+             入れずに書き出したもの（text-style-def が無い）でもそこに入り、
+             Motion テンプレが自分で描く見た目の上に、黒の縁取り 6px と影が
+             重なった。「最初からテロップのフォントが別物」と言われた
+             （2026-09-13、インタビュー動画①.fcpxml）。
+             見本があるなら見た目は見本に任せ、こちらは書体・大きさ・色だけ書く。
+        */
+        if template == nil {
             attrs["alignment"] = "center"
             attrs["strokeColor"] = rgba(from: (style["strokeColor"] as? String) ?? "#000000")
             attrs["strokeWidth"] = String(format: "%g", (style["strokeWidth"] as? Double) ?? 6)
