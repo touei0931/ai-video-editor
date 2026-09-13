@@ -396,14 +396,33 @@ do {
     check("書式が無いことを持ち帰る", (tpl.summary["hasStyle"] as? Bool) == false,
           "\(tpl.summary["hasStyle"] ?? "無し")")
 
-    // 🔴 それでも大きさの無い text-style を出さないこと
+    /*
+      🔴 書式の無い見本では、本文だけ書いて見た目は見本に任せること。大きさを書かない。
+
+         以前は「それでも大きさを入れる（高さの 4.5%）」にしていたが、Motion テンプレの
+         fontSize は**テンプレのキャンバス**基準で、プロジェクトの高さから決めた数は
+         合わない。横パック（1920x1080）を 720x1280 に置くと 0.375 倍に縮み、
+         58px が実質 22px の豆粒になった（2026-09-14）。
+         text-style を付けなければテンプレの既定の書式で描かれる（DTD: text は書式なしの文字列）。
+    */
     let xml = FCPXMLWriter.build(
         cuts: [], telops: [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal"]],
         styles: [:], mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10,
         mediaWidth: 2160, mediaHeight: 3840, template: tpl)
-    check("文字の無い見本でも大きさが入る", xml.contains("fontSize="),
-          xml.range(of: "<text-style [^>]*/>", options: .regularExpression)
-            .map { String(xml[$0]) } ?? "無し")
+    check("書式の無い見本では本文だけを書く", xml.contains("<text>あ</text>"),
+          xml.range(of: "<text>.*?</text>", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
+    check("書式の無い見本では大きさを書かない", !xml.contains("fontSize="),
+          xml.range(of: "<text-style [^>]*/>", options: .regularExpression).map { String(xml[$0]) } ?? "")
+    check("XML として妥当", (try? XMLDocument(xmlString: xml, options: [])) != nil)
+
+    // 1枚だけ大きさを変えたときは、利用者の意図なので書式を書く
+    let 上書き = FCPXMLWriter.build(
+        cuts: [], telops: [["start": 1.0, "end": 3.0, "text": "あ", "style": "normal",
+                            "overrides": ["fontSize": 120.0]]],
+        styles: [:], mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10,
+        mediaWidth: 2160, mediaHeight: 3840, template: tpl)
+    check("1枚ごとの上書きがあれば書式を書く", 上書き.contains("fontSize=\"120\""),
+          上書き.range(of: "<text-style [^>]*/>", options: .regularExpression).map { String(上書き[$0]) } ?? "無し")
     /*
       🔴 見本があるときは、PAC 自前の縁取り・影を足さないこと。
          本文を入れずに書き出した見本（text-style 無し）で足してしまい、
@@ -419,10 +438,6 @@ do {
         styles: [:], mediaPath: "/m/a.mov", fps: 30, mediaDuration: 10,
         mediaWidth: 1080, mediaHeight: 1920)
     check("見本が無ければ自前の縁取りを付ける", 見本なし.contains("strokeWidth="))
-    // 高さの 4.5% 前後（3840 なら 172 前後）。豆粒にしない
-    check("枠に見合った大きさになる", xml.contains("fontSize=\"172\""),
-          xml.range(of: "fontSize=\"[0-9]+\"", options: .regularExpression)
-            .map { String(xml[$0]) } ?? "?")
 }
 
 // 書式のある見本では、写せたと分かること

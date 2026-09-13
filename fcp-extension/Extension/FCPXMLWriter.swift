@@ -537,6 +537,32 @@ enum FCPXMLWriter {
             s += "\(indent)  <adjust-transform position=\"\(transform)\"/>\n"
         }
 
+        /*
+          見本に文字の書式が無いときは、本文だけを書いて見た目は見本（Motion テンプレ）に任せる。
+
+          🔴 文字の大きさを書いてはいけない。
+             Motion テンプレの fontSize は**テンプレ自身のキャンバス**の画素で解釈される。
+             横パック（1920x1080 のキャンバス）を 720x1280 のプロジェクトに置くと
+             0.375 倍に縮むので、プロジェクトの高さから決めた 58px は実質 22px になり
+             「テロップが鬼小さい」になった（2026-09-14、PAC.fcpxml）。
+             見本に書式が入っていれば（本文を入れて書き出したもの）その fontSize は
+             キャンバス基準なので、そのまま写せばどの大きさのプロジェクトでも合う。
+             入っていないときは PAC には正しい数字が分からない。
+             DTD の text は「書式なしの文字列」なので、text-style を付けなければ
+             テンプレの既定の書式で描かれる。
+
+          🔴 1枚ごとの見た目の上書き（大きさ・色・一部だけ強調）があるときは、
+             利用者が意図して変えているので、これまでどおり書式を書く。
+        */
+        let templateHasNoStyle = template.map { $0.textStyle.isEmpty } ?? false
+        let hasLookOverride = ["fontFamily", "fontSize", "bold", "color", "strokeColor", "strokeWidth", "shadow"]
+            .contains { overrides[$0] != nil }
+        if templateHasNoStyle && !hasLookOverride && spans.isEmpty {
+            s += "\(indent)  <text>\(escape(text))</text>\n"
+            s += "\(indent)</title>\n"
+            return s
+        }
+
         // 本文。一部だけ見た目を変えている場合は、その範囲ごとに分けて書く
         s += "\(indent)  <text>\n"
         for (i, run) in runs.enumerated() {

@@ -339,9 +339,10 @@ export function SettingsScreen({
               </p>
               {template?.hasStyle === false && (
                 <p className="settings-note warn">
-                  見本のテロップに<strong>文字を入れた状態</strong>で書き出し直してください。
+                  見本のテロップに<strong>文字を入れた状態</strong>（「テスト」などで可）で書き出し直してください。
                   文字が空のまま書き出すと、Final Cut は書体や大きさを XML に書きません。
-                  写せるものが無いので、書体と大きさは下の既定値（素材の高さに合わせた大きさ）になります。
+                  写せるものが無いので、書き出しは<strong>見本のテンプレの既定の見た目</strong>になり、
+                  下の書体・大きさは効きません（1枚ずつの上書きだけ効きます）。
                 </p>
               )}
             </section>
