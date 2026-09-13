@@ -599,10 +599,12 @@ enum FCPXMLWriter {
 
     /// その1枚に大きさが数字で入っているか（0 や無効な値は「無い」扱い）
     static func hasExplicitFontSize(_ overrides: [String: Any]) -> Bool {
-        let size = (overrides["fontSize"] as? Double)
-            ?? (overrides["fontSize"] as? Int).map(Double.init)
-            ?? (overrides["fontSize"] as? NSNumber)?.doubleValue
-        return (size ?? 0) > 0
+        (number(overrides["fontSize"]) ?? 0) > 0
+    }
+
+    /// Double / Int / NSNumber のどれで来ても数として読む（JSON 経由と試験で型が違う）
+    static func number(_ v: Any?) -> Double? {
+        (v as? Double) ?? (v as? Int).map(Double.init) ?? (v as? NSNumber)?.doubleValue
     }
 
     /// 一部だけ見た目を変える指定を、書き出せる「連なり」に分ける
@@ -694,7 +696,9 @@ enum FCPXMLWriter {
                 attrs.removeValue(forKey: "fontFace")
             }
         }
-        if let size = style["fontSize"] as? Double, size > 0 {
+        // 🔴 Int でも読むこと。hasExplicitFontSize が「入っている」と言った値を
+        //    ここで落とすと、fontSize 無しの経路に入って高さ基準の数が書かれる
+        if let size = number(style["fontSize"]), size > 0 {
             attrs["fontSize"] = String(Int(size))
         }
         if let color = style["color"] as? String {
