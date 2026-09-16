@@ -153,6 +153,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "analyze": _heavy("analyze"),
     "redetect": _heavy("redetect"),
     "build_telops": _heavy("build_telops"),
+    "fix_names": _heavy("fix_names"),
     "plan_framing": _heavy("plan_framing"),
     "export": _heavy("export"),
     "export_timeline": _heavy("export_timeline"),

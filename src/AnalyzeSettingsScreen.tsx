@@ -149,6 +149,25 @@ export function AnalyzeSettingsScreen({ videoPath, settings, onChange, onBack, o
         </section>
 
         <section>
+          <h2>出演者（喋っている人の名前）</h2>
+          <textarea
+            rows={3}
+            value={settings.cast}
+            placeholder={'天音かなた かなた かなたん\n湊あくあ あくあ'}
+            onChange={(e) => onChange({ cast: e.target.value })}
+          />
+          <p className="muted">
+            名前が別の言葉に聞き取られたとき、この一覧を見て直す。
+            1 行に 1 人、名前のあとに呼び方を空白区切りで（例: 天音かなた かなた かなたん）。
+            <br />
+            <strong>対戦相手やゲストも書く</strong>——一覧に無い人の名前は、似た出演者に書き換えられることがある。
+            <br />
+            短い呼び方（すい・フブ）が 1 音違いの言葉や別の人と紛れるなら、末尾に「!」を付ける（例: すい!）。
+            その呼び方は表記を揃えるだけで、聞き違いの補正には使わない。
+          </p>
+        </section>
+
+        <section>
           <h2>書き出す再生速度</h2>
           <div className="inline">
             <input

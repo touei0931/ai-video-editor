@@ -221,6 +221,19 @@ export interface AnalyzeSettings {
    */
   extraFillers: string
   /**
+   * 出演者（喋っている人）の一覧。1 行に 1 人。「名前 呼び方 呼び方…」を空白区切り。
+   * 聞き取りで名前が別の言葉になったとき、この一覧を見てエンジンが直す。
+   *
+   * 🔴 デスクトップ版（src/analyzeSettings.ts）と同じ項目だが、こちらは任意（?）にしてある。
+   *    プラグイン版ではまだ画面にもエンジンにも繋がっていないので、既定値も sanitize も無い。
+   *    エンジンへ繋ぐときに必須（cast: string）にし、SettingsScreen の既定値と sanitize に '' を足す
+   *    （optional のまま textarea の value に渡すと controlled/uncontrolled の警告が出る）。
+   *    通すには webui の SettingsScreen → bridge → Extension/PanelActions.swift →
+   *    Extension/EngineClient.swift → App/EngineServer.swift（--cast）→
+   *    engine/pac_fcp_engine/__main__.py → analyze.py の順に足す。
+   */
+  cast?: string
+  /**
    * 書き出す再生速度（1.0 = 等倍）。
    *
    * 🔴 これは書き出しにだけ効く。解析には関係しない。

@@ -21,6 +21,8 @@
     "test:clip": "python scripts/test_review_clip.py",
     "test:cut": "python scripts/test_cut_confidence.py",
     "test:clean": "python scripts/test_clean.py",
+    "test:names": "python scripts/test_names.py",
+    "test:heavy-names": "python scripts/test_heavy_names.py",
     "test:style": "python scripts/test_telop_style.py",
     "test:speakers": "python scripts/test_speakers.py",
     "test:speakers-ui": "node scripts/test-speakers.mjs",

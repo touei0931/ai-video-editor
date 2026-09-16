@@ -144,6 +144,59 @@ def _make_review_clips(
     return failed
 
 
+def _clean_if_needed(transcript: dict[str, Any]) -> None:
+    """analyze が掃除済み（transcript["cleaned"]）でなければ clean_transcript を通す。
+
+    🔴 掃除済みに再度掛けない。出演者名の補正で表記が揃った連続セグメントが
+       「似た出力の繰り返し」に見えて落ちる（実測: ぺこれちゃん/ペコラちゃん/ぺこら の 3 つが
+       補正後 Jaccard 1.0/0.5・平均確度 <0.5 で全部 drop）。
+    """
+    if transcript.get("cleaned"):
+        return
+    from .clean import clean_transcript
+
+    clean_transcript(transcript)
+    transcript["cleaned"] = True
+
+
+NAME_FIXES_FILE = "name_fixes.json"
+RAW_TRANSCRIPT_FILE = "transcript.raw.json"
+
+
+def _apply_cast(
+    transcript: dict[str, Any], entries: list[Any], work_dir: Path, raw_path: Path | None
+) -> dict[str, Any]:
+    """出演者名の補正を当て、何を直したかを work_dir/name_fixes.json に残す。
+
+    返り値は analysis["name_fixes"] / fix_names の結果に入れる要約
+    （count・cast・path・raw_transcript_path・skipped_mismatch・warnings・fixes）。
+    """
+    from .media import write_json
+    from .names import fix_transcript
+
+    report = fix_transcript(transcript, entries)
+    cast_names = [e.name for e in entries]
+    fixes_path = write_json(
+        str(work_dir / NAME_FIXES_FILE),
+        {
+            "cast": cast_names,
+            "count": report["count"],
+            "skipped_mismatch": report.get("skipped_mismatch", 0),
+            "warnings": report.get("warnings", []),
+            "fixes": report["fixes"],
+        },
+    )
+    return {
+        "count": report["count"],
+        "cast": cast_names,
+        "path": fixes_path,
+        "raw_transcript_path": str(raw_path) if raw_path else None,
+        "skipped_mismatch": report.get("skipped_mismatch", 0),
+        "warnings": report.get("warnings", []),
+        "fixes": report["fixes"],
+    }
+
+
 def _redetect(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     """文字起こしをやり直さずに、カット候補だけ作り直す。
 
@@ -157,7 +210,6 @@ def _redetect(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]
        detect_candidates は transcript.json だけあれば動く。
        候補の組み直しは数百ミリ秒で終わる。
     """
-    from .clean import clean_transcript
     from .cut import detect_candidates
     from .media import write_json
 
@@ -168,7 +220,12 @@ def _redetect(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]
 
     on_progress(0.05, "カット候補を作り直しています")
     transcript = json.loads(Path(transcript_path).read_text(encoding="utf-8"))
-    clean_transcript(transcript)
+    # 出演者名の補正（names.py）は analyze / fix_names が transcript.json に
+    # 書き戻しているので、ここで当て直す必要は無い。
+    # 🔴 掃除は analyze が済ませて transcript["cleaned"] を立てている。補正後にもう一度
+    #    通すと、名前が揃って似た表記になった連続セグメント（ぺこれちゃん/ペコラちゃん/ぺこら
+    #    → 全部 ぺこらちゃん系）を「似た出力の繰り返し」として落とす。フラグ無し＝古いファイルだけ掃除する
+    _clean_if_needed(transcript)
 
     analysis = detect_candidates(transcript, params.get("options"))
     analysis["video_path"] = video_path
@@ -219,6 +276,14 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     #    区別がつかず、友達には全部「動画が見つかりません」に見えてしまう。
     ensure_readable_video(video_path)
 
+    # 🔴 出演者リストの型検査は ASR の前に済ませる。cast に None や数値が混ざる、
+    #    list ではなく str をそのまま渡す、といった誤りで数十分の文字起こしを無駄にしない
+    #    （79 分素材で 10 分超。以前は clean 後・write_json 前で落ちて結果も残らなかった）
+    from .names import parse_cast
+
+    cast = params.get("cast")
+    cast_entries = parse_cast(cast) if cast else []
+
     work_dir = Path(params.get("work_dir") or default_work_dir(video_path))
     ensure_writable_dir(work_dir, "作業用のフォルダ")
 
@@ -243,6 +308,23 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     from .clean import clean_transcript
 
     speech = clean_transcript(transcript)
+    # redetect / build_telops に「もう掃除済み」を伝える（_clean_if_needed 参照）
+    transcript["cleaned"] = True
+
+    # 🔴 補正前の transcript を transcript.raw.json に残す。cast が間違っていた
+    #    （ゲスト漏れで別人化した）と後で気づいても、fix_names が raw から当て直せば
+    #    完全に再現できる。transcript.json だけだと、既に別人の正解表記になった区間は
+    #    保護されて直らない
+    raw_path = Path(write_json(str(work_dir / RAW_TRANSCRIPT_FILE), transcript))
+
+    # 出演者名の聞き違いを直す（names.py）。cast が無ければ何もしない。
+    # 掃除の直後・候補検出の前に当てる。ここで直した transcript が下で
+    # transcript.json に書かれるので、redetect / build_telops は補正済みを読む。
+    name_fixes: dict[str, Any] | None = None
+    if cast_entries:
+        name_fixes = _apply_cast(transcript, cast_entries, work_dir, raw_path)
+        # analysis.json には一覧まで入れない（name_fixes.json にある）
+        name_fixes = {k: v for k, v in name_fixes.items() if k != "fixes"}
 
     on_progress(0.86, "カット候補を検出しています")
 
@@ -274,6 +356,7 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
         failed = _make_review_clips(video_path, work_dir, analysis, on_progress, 0.86, 0.13)
     analysis["clip_failures"] = failed
     analysis["video_path"] = video_path
+    analysis["name_fixes"] = name_fixes
     analysis["transcript"] = {
         "backend": transcript.get("backend"),
         "device": transcript.get("device"),
@@ -295,6 +378,10 @@ def _analyze(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
     return {
         "cancelled": False,
         "analysis_path": analysis_path,
+        # 出演者名の補正の要約（fixes 抜き: count / cast / path / raw_transcript_path /
+        # skipped_mismatch / warnings）。cast を渡さなければ None。
+        # 🔴 clip-factory はこれが無いと「PAC が fix_names を知らない」と警告する
+        "name_fixes": name_fixes,
         # テロップ生成はカットレビューのあとに別の呼び出しで行うので、
         # そのときに必要になるパスをここで渡しておく
         "transcript_path": transcript_path,
@@ -327,11 +414,12 @@ def _build_telops(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, 
         raise ValueError("transcript_path が必要です")
     transcript = json.loads(Path(transcript_path).read_text(encoding="utf-8"))
 
-    # transcript.json は掃除済みのものが書かれているが、
-    # 古い解析結果を読み直した場合に備えてもう一度通す（何度通しても結果は同じ）
-    from .clean import clean_transcript
-
-    clean_transcript(transcript)
+    # transcript.json は掃除済みのものが書かれている（transcript["cleaned"]）。
+    # フラグの無い古い解析結果を読み直した場合だけもう一度通す。
+    # 🔴 補正済みに再度掛けない理由は _redetect と同じ（名前が揃った連続セグメントを落とす）。
+    # 出演者名の補正（names.py）は analyze / fix_names が書き戻した結果を読むので、
+    # ここで当て直さない（cast をここに渡す経路も無い）
+    _clean_if_needed(transcript)
 
     cuts = [(float(c["src_start"]), float(c["src_end"])) for c in params.get("cuts", [])]
     result = build_units(transcript, cuts, params.get("wav_path"), params.get("options"))
@@ -354,6 +442,83 @@ def _build_telops(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, 
         "telops": result["telops"],
         "styles": styles,
         "needs_check": sum(1 for t in result["telops"] if t["needs_check"]),
+    }
+
+
+def _fix_names(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]:
+    """解析済みの transcript.json に、出演者リストだけ後から当てる。
+
+    `{"transcript_path": str, "cast": list}` → 補正して**同じパスに書き戻し**（count 0 でも書く）、
+    `{"count": int, "fixes": [{"time", "before", "after", "rule", "segment_text"}], ...}` を返す。
+
+    clip-factory が概要欄から出演者を拾うのは解析のあとになることがあるので、
+    analyze をやり直さずに名前だけ直せる入口が要る。規則は names.py 参照。
+
+    🔴 同じフォルダに transcript.raw.json（補正前）があればそこから当て直す。
+       cast を変えて呼び直したときに、前回の補正結果に引きずられずに再現できる。
+       raw が無い古いフォルダでは、今の transcript.json を raw として保存してから当てる
+       （以降はそれが基準になる）。transcript_path そのものが無ければ FileNotFoundError
+       （raw だけ隣にあっても新しいファイルは作らない）。
+    🔴 読んだ直後に _clean_if_needed を通して cleaned フラグを付ける（raw を書く前）。
+       analyze が掃除済みなので中身は変わらない。フラグ無しの旧 transcript.json に当てると
+       補正後もフラグ無しで書かれ、続く build_telops / redetect が再 clean して、名前が揃った
+       連続セグメント（ぺこれちゃん/ペコラちゃん/ぺこら）を「似た出力の繰り返し」として落とす。
+       fixes の一覧は name_fixes.json に残し、analysis.json が隣にあれば
+       transcript.text と name_fixes を更新する（候補の文脈文字列までは触らない）。
+    """
+    from .media import write_json
+    from .names import parse_cast
+
+    transcript_path = params.get("transcript_path")
+    if not transcript_path:
+        raise ValueError("transcript_path が必要です")
+    entries = parse_cast(params.get("cast") or [])
+
+    on_progress(0.1, "出演者名を直しています")
+    transcript_path = Path(transcript_path)
+    if not transcript_path.is_file():
+        raise FileNotFoundError(f"transcript.json が見つかりません: {transcript_path}")
+    work_dir = transcript_path.parent
+    raw_path = work_dir / RAW_TRANSCRIPT_FILE
+    if raw_path.exists():
+        transcript = json.loads(raw_path.read_text(encoding="utf-8"))
+        if not transcript.get("cleaned"):
+            # 古い raw（フラグ無し）は掃除してフラグを書き戻す。書き戻さないと毎回 clean が走る
+            _clean_if_needed(transcript)
+            write_json(str(raw_path), transcript)
+    else:
+        transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
+        _clean_if_needed(transcript)
+        write_json(str(raw_path), transcript)
+
+    summary = _apply_cast(transcript, entries, work_dir, raw_path)
+    write_json(str(transcript_path), transcript)
+
+    analysis_path = work_dir / "analysis.json"
+    if analysis_path.exists():
+        try:
+            analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            analysis = None
+        if isinstance(analysis, dict):
+            analysis["name_fixes"] = {k: v for k, v in summary.items() if k != "fixes"}
+            if isinstance(analysis.get("transcript"), dict):
+                analysis["transcript"]["text"] = "".join(
+                    seg.get("text", "") for seg in transcript.get("segments", [])
+                )
+            write_json(str(analysis_path), analysis)
+    on_progress(1.0, "完了")
+
+    return {
+        "cancelled": False,
+        "transcript_path": str(transcript_path),
+        "raw_transcript_path": str(raw_path),
+        "name_fixes_path": summary["path"],
+        "count": summary["count"],
+        "fixes": summary["fixes"],
+        "skipped_mismatch": summary["skipped_mismatch"],
+        "warnings": summary["warnings"],
+        "cast": summary["cast"],
     }
 
 
@@ -671,6 +836,7 @@ HEAVY_HANDLERS: dict[str, Callable[..., Any]] = {
     "analyze": _analyze,
     "redetect": _redetect,
     "build_telops": _build_telops,
+    "fix_names": _fix_names,
     "plan_framing": _plan_framing,
     "export": _export,
     "export_timeline": _export_timeline,

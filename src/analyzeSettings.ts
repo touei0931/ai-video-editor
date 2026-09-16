@@ -26,6 +26,16 @@ export interface AnalyzeSettings {
   /** 自分の口ぐせ。読点・空白・改行のどれで区切ってもよい */
   extraFillers: string;
   /**
+   * 出演者（喋っている人）の一覧。1 行に 1 人。「名前 呼び方 呼び方…」を空白区切り。
+   *
+   * 聞き取りで名前が別の言葉になったとき、この一覧を見て sidecar が直す
+   * （analyze の params["cast"]。行ごとの文字列の配列にして渡す。空なら渡さない）。
+   * 🔴 対戦相手やゲストも書くこと。一覧に無い人の名前は、似た出演者に書き換えられることがある。
+   * 呼び方の末尾「!」（すい!）は strict: 表記統一だけに使い、1 音違いの補正には使わない
+   * （sidecar/names.py の parse_cast 参照。1 音違いに一般語や別の人が居る 2 モーラの呼び方に付ける）。
+   */
+  cast: string;
+  /**
    * 書き出す再生速度（1 = 等倍）。
    *
    * 🔴 解析には関係しない。書き出し（動画・字幕・Final Cut 用）にだけ効く。
@@ -43,6 +53,7 @@ export const DEFAULT_ANALYZE_SETTINGS: AnalyzeSettings = {
   // 必ず人が1件ずつ見る側に入るので、既定で挙げる
   detectAside: true,
   extraFillers: '',
+  cast: '',
   exportSpeed: 1,
 };
 
@@ -137,8 +148,10 @@ export function sanitizeAnalyzeSettings(raw: unknown): AnalyzeSettings {
   const pace = PACE_PRESETS.some((p) => p.name === r.pace) ? (r.pace as PacePreset) : d.pace;
   const detectAside = typeof r.detectAside === 'boolean' ? r.detectAside : d.detectAside;
   const extraFillers = typeof r.extraFillers === 'string' ? r.extraFillers : d.extraFillers;
+  // 保存済みの設定に無いとき（この項目より前に保存されたもの）は空に落とす
+  const cast = typeof r.cast === 'string' ? r.cast : d.cast;
   const exportSpeed = clampSpeed(typeof r.exportSpeed === 'number' ? r.exportSpeed : d.exportSpeed);
-  return { language, model, pace, detectAside, extraFillers, exportSpeed };
+  return { language, model, pace, detectAside, extraFillers, cast, exportSpeed };
 }
 
 /** 速度を範囲に収める。数でなければ等倍 */
@@ -180,6 +193,23 @@ export function cutOptionsOf(s: Pick<AnalyzeSettings, 'pace' | 'detectAside' | '
   extra_fillers: string;
 } {
   return { preset: s.pace, detect_aside: s.detectAside, extra_fillers: s.extraFillers };
+}
+
+/**
+ * 出演者の一覧を、analyze の params["cast"] に渡す形にする。
+ * 1 行 1 人の文字列（「名前 呼び方 呼び方…」の空白区切り）。sidecar 側で先頭を name、残りを呼び方と読む。
+ * 🔴 空なら undefined。空配列を渡さないのは、「書いていない」と「空」を sidecar で区別させないため
+ *    （どちらも何もしない、が契約）。
+ */
+export function castListOf(text: string): string[] | undefined {
+  const lines = text
+    .split(/\r?\n/)
+    // 行内の読点（、，,）は空白と同じ区切りにする。「天音かなた、かなた」と書くと
+    // 1 トークン（漢字混じり＝完全一致だけ）になって黙って何もしなくなるため。
+    // 口ぐせ欄（splitFillers）は読点でも切れるので、こちらも同じに揃える
+    .map((l) => l.replace(/[、，,]+/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  return lines.length > 0 ? lines : undefined;
 }
 
 /** 口ぐせを一覧にする。読点・空白・改行のどれで区切ってもよい */

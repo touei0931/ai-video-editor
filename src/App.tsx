@@ -28,6 +28,7 @@ import { loadTelopFonts, macFontOf } from './telop/fonts';
 import { AnalyzeSettingsScreen } from './AnalyzeSettingsScreen';
 import {
   PACE_LABEL,
+  castListOf,
   cutOptionsOf,
   loadAnalyzeSettings,
   sanitizeAnalyzeSettings,
@@ -717,6 +718,8 @@ export function App({ onSendToTimeline }: AppProps = {}) {
         model: settings.model,
         language: settings.language,
         options: cutOptionsOf(settings),
+        // 出演者の一覧（1 行 1 人の文字列の配列）。空なら undefined で、渡さないのと同じ
+        cast: castListOf(settings.cast),
       })) as AnalyzeResult;
       // 中断された場合は結果が来ない
       if (!result || (result as unknown as { cancelled?: boolean }).cancelled) {
