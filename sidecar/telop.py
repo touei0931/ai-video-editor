@@ -34,9 +34,6 @@ DEFAULTS = {
     "min_duration": 0.7,
     # 表示を終わらせるまでの余韻。次のテロップが来ればそちらが優先。
     "tail_padding": 0.15,
-    # 平均よりこれ以上大きい声なら「強調」とみなす
-    "loud_db": 4.0,
-
     # ── 息継ぎ ──
     #
     # 🔴 語の時刻の隙間で息継ぎを見ないこと。
@@ -81,22 +78,14 @@ SOFT_BREAK = "、，,"
 # テロップに句読点は普通入れない。！？は感情を運ぶので残す。
 _STRIP_PUNCT = re.compile(r"[、。，．]")
 
-# ── スタイル判定の手がかり ────────────────────────────────
-# 🔴 ここは暫定のルールベース。
-#    設計上は LLM が発言内容と感情から判定する部分（§11.4）で、
-#    classify() の入出力を変えずに中身だけ差し替えられるようにしてある。
-EMPHASIS_WORDS = [
-    "すごい", "すげー", "すげえ", "やばい", "やば", "めちゃくちゃ", "めっちゃ",
-    "絶対", "最高", "マジ", "本当に", "ほんとに", "超", "一番", "絶対に",
-    "驚", "ヤバ", "痛い", "無理", "ダメ", "だめ", "危ない", "注意",
-]
-
-NOTE_PREFIXES = [
-    "つまり", "ちなみに", "ただし", "なお", "ようは", "要は", "実は",
-    "補足", "ここで", "念のため", "参考", "ちなみ",
-]
-
-NOTE_MARKERS = ["※", "（", "(", "…つまり"]
+# ── 見た目は決めない ──────────────────────────────────────
+# 🔴 テロップの見た目を自動で変えないこと。
+#    以前は声の大きさ・感嘆符・強調語（「めちゃくちゃ」など）・補足の言い回し
+#    （「ちなみに」など）から、強調 / 補足 に振り分けていた。
+#    声の大きさで決めるところまで絞っても「強調表示はいらない」と言われた
+#    （2026-09-27、利用者から）。見た目は利用者が読み込ませた見本（Motion
+#    テンプレ）に全部任せ、変えたい1枚だけ手で変えてもらう。
+#    ここで返すのは常に "normal"（＝見本のまま）。
 
 
 def _display_len(text: str) -> float:
@@ -294,50 +283,24 @@ def _drop_cut_words(words: list[dict[str, Any]], cuts: list[tuple[float, float]]
     return kept
 
 
-# ── スタイル判定 ─────────────────────────────────────────
+# ── スタイル ─────────────────────────────────────────────
 
 
 def classify(
     text: str, loud_delta: float | None, opts: dict[str, Any]
 ) -> tuple[str, str, str | None]:
-    """テロップの見せ方を決める。(スタイル名, 理由, 強調する語) を返す。
+    """テロップの見せ方。**常に「通常」**（＝見本のまま）を返す。
 
-    理由を必ず返すのは、レビュー画面で「なぜ赤くなったのか」を出すため。
-    判定を人間が直すとき、根拠が見えないと直しようがない。
+    🔴 自動で強調・補足に振り分けないこと。
+       以前は声の大きさ・感嘆符・強調語・補足の言い回しから見た目を変えていた。
+       Whisper が叫び気味の配信でほぼ全文に「!」を付けるため 34枚中ほぼ全部が
+       強調になり（2026-09-11）、声の大きさだけで決める形に絞ったが、それでも
+       「強調表示はいらない」と言われた（2026-09-27）。
+       見た目は利用者が読み込ませた見本（Motion テンプレ）に任せ、変えたい1枚
+       だけ手で変えてもらう。
 
-    🔴 強調語が出てきても、文全体を赤くしてはいけない。
-       日本語テロップの作法は「**その語だけ**を目立たせる」。
-       文ごと書体まで変えると、テロップが1枚ごとに跳ねて読みにくくなるうえ、
-       強調が「たまに出るから効く」という性質を失う。
-       文全体を強調にするのは、叫んだとき（大きな声）だけにする。
-
-    🔴 感嘆符だけで強調にしないこと。
-       Whisper は叫び気味の配信では**ほぼ全部の文に「!」を付ける**。
-       VTuber のコラボ配信の切り抜きで 34枚中ほぼ全部が強調になり、
-       「ずっと強調表示されている」と言われた（2026-09-11）。
-       強調は「その素材の中で声が大きい」で決める。感嘆符は、声が平均より
-       少し大きい（半分の閾値）ときに背中を押す材料としてだけ使う。
-       音量が測れない（wav が無い）ときだけ、感嘆符で決める。
+    戻り値の形は変えていない（呼び出し側と、見た目を後から足す余地のため）。
     """
-    if any(m in text for m in NOTE_MARKERS) or any(text.startswith(p) for p in NOTE_PREFIXES):
-        return "note", "補足の言い回し", None
-
-    shout = "！" in text or "!" in text
-    if loud_delta is None:
-        if shout:
-            return "emphasis", "感嘆符", None
-    else:
-        if loud_delta >= opts["loud_db"]:
-            return "emphasis", f"声が大きい（平均+{loud_delta:.1f}dB）", None
-        if shout and loud_delta >= opts["loud_db"] * 0.5:
-            return "emphasis", f"感嘆符と大きめの声（平均+{loud_delta:.1f}dB）", None
-
-    # 語だけを目立たせる。長い語を優先する（「めちゃくちゃ」＞「めちゃ」）
-    hits = [w for w in EMPHASIS_WORDS if w in text]
-    if hits:
-        word = max(hits, key=len)
-        return "normal", f"強調語「{word}」", word
-
     return "normal", "", None
 
 
@@ -452,14 +415,6 @@ def build_units(
     loudness = Loudness.from_wav(wav_path) if wav_path else None
 
     # 平均音量。「大声かどうか」は絶対値ではなく素材内の相対で見る。
-    levels: list[float] = []
-    if loudness:
-        for g in groups:
-            db = loudness.db(g[0]["src_start"], g[-1]["src_end"])
-            if db is not None:
-                levels.append(db)
-    baseline = sorted(levels)[len(levels) // 2] if levels else None
-
     telops: list[dict[str, Any]] = []
     for i, g in enumerate(groups):
         unit_words = [
@@ -495,10 +450,8 @@ def build_units(
         if end <= start:
             end = start + 0.2
 
-        db = loudness.db(g[0]["src_start"], g[-1]["src_end"]) if loudness else None
-        loud_delta = (db - baseline) if (db is not None and baseline is not None) else None
-
-        style, reason, highlight = classify(text.strip(), loud_delta, opts)
+        # 見た目は見本に任せるので、ここでは音量を見ない（classify 参照）
+        style, reason, highlight = classify(text.strip(), None, opts)
 
         probs = [w["probability"] for w in g if w["probability"] > 0]
         mean_prob = sum(probs) / len(probs) if probs else 1.0
@@ -530,5 +483,4 @@ def build_units(
     return {
         "telops": telops,
         "options": opts,
-        "baseline_db": round(baseline, 2) if baseline is not None else None,
     }

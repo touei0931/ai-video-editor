@@ -103,16 +103,11 @@ class TestTelops(unittest.TestCase):
     def test_テロップができる(self) -> None:
         self.assertTrue(self.telops)
 
-    def test_スタイルは通常か強調の2種類だけ(self) -> None:
-        # パネルのテンプレートは2種類しか持たない。note が漏れると Swift 側で落ちる
+    def test_自動で強調しない(self) -> None:
+        # 🔴 見た目は利用者が読み込ませた見本に任せる。感嘆符でも大きい声でも
+        #    強調にしない（2026-09-27）。手で変えた1枚だけが通常以外になる
         for t in self.telops:
-            self.assertIn(t["style"], ("normal", "emphasis"), t)
-
-    def test_感嘆符は強調になる(self) -> None:
-        self.assertTrue(
-            any(t["style"] == "emphasis" for t in self.telops),
-            f"「！」があるのに強調が無い: {self.telops}",
-        )
+            self.assertEqual(t["style"], "normal", t)
 
     def test_空のテロップは捨てる(self) -> None:
         for t in self.telops:
