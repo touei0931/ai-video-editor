@@ -12,6 +12,7 @@ import { StylePanel } from '../components/StylePanel'
 import { usePlayback } from '../lib/store'
 import type { Store } from '../lib/store'
 import { STYLE_LABEL } from '../lib/types'
+import { countsBySpeaker, nextColor, visibleVoices, withSpeakerColor } from '../lib/speakers'
 import type { StyleName, Telop, TelopStyle } from '../lib/types'
 import { fmtTime } from '../lib/format'
 import { applySpan, clampSpans, clearSpan, spanAt } from '../lib/spans'
@@ -47,6 +48,12 @@ export function TelopScreen({
   // 既定スタイルは畳んでおく。普段は一覧を広く使いたいので
   const [styleOpen, setStyleOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
+  /* 話者（喋っている人）ごとの色 */
+  const [speakersOpen, setSpeakersOpen] = useState(false)
+  const [identifying, setIdentifying] = useState(false)
+  const [speakerNote, setSpeakerNote] = useState('')
+  /** 「声n」に打ち込んでいる名前（覚えるまでの下書き） */
+  const [voiceNames, setVoiceNames] = useState<Record<string, string>>({})
   const clipboard = useRef<Telop | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
@@ -58,6 +65,10 @@ export function TelopScreen({
   const { time, playing, seek, toggle } = usePlayback(duration, videoEl, store.approvedCuts, speed)
 
   const selected = state?.telops.find((t) => t.id === selectedId) ?? null
+
+  /** 人ごとの枚数と、画面に出す「声n」 */
+  const speakerCounts = useMemo(() => countsBySpeaker(state?.telops ?? []), [state])
+  const shownVoices = useMemo(() => visibleVoices(state?.voices ?? []), [state])
 
   /** いま再生位置にかかっているテロップ */
   const playingTelop = useMemo(
@@ -123,6 +134,9 @@ export function TelopScreen({
    * 見た目の上書きだけを外して、既定に戻す。
    * 🔴 位置と自動改行は残すこと。あれは「どこに出すか」の話で、
    *    見た目（書体・大きさ・色）とは別に決めたいことが多い。
+   * 🔴 話者（喋っている人）の色は、外したあとに付け直すこと。
+   *    あれは「誰が喋ったか」で、見た目の好みではない。一緒に消すと
+   *    1枚だけ色が抜け、誰の発言か分からないテロップができる。
    */
   const LOOK_KEYS = ['fontFamily', 'fontSize', 'bold', 'color', 'strokeColor', 'strokeWidth', 'shadow'] as const
   const hasLookOverride = !!selected && LOOK_KEYS.some((k) => selected.overrides?.[k] !== undefined)
@@ -130,7 +144,10 @@ export function TelopScreen({
     if (!selected?.overrides) return
     const rest = { ...selected.overrides }
     for (const k of LOOK_KEYS) delete rest[k]
-    updateTelop(selected.id, { overrides: rest })
+    const profile = selected.speaker
+      ? (state?.speakers ?? []).find((p) => p.id === selected.speaker)
+      : undefined
+    updateTelop(selected.id, { overrides: profile ? withSpeakerColor(rest, profile) : rest })
   }
 
   // 再生中のテロップが画面の外に出たら、一覧を追いかけさせる。
@@ -340,6 +357,14 @@ export function TelopScreen({
               }}
             >
               <span className={`badge ${t.style}`}>{STYLE_LABEL[t.style]}</span>
+              {/* 誰が喋っているか。色だけで分かるよう、行に小さな丸を出す */}
+              {t.speaker && (
+                <span
+                  className="speaker-dot"
+                  title={state.speakers?.find((p) => p.id === t.speaker)?.name ?? ''}
+                  style={{ background: t.overrides?.color ?? '#ffffff' }}
+                />
+              )}
               <span className="row-time">{fmtTime(t.start)}</span>
               <span className="row-text">{t.text}</span>
             </div>
@@ -399,6 +424,28 @@ export function TelopScreen({
                 <option value="normal">{STYLE_LABEL.normal}</option>
                 <option value="emphasis">{STYLE_LABEL.emphasis}</option>
               </select>
+
+              {/*
+                誰が喋っているか。
+                🔴 ここで選んだものは「人が決めた」として覚え、見分け直しても動かさない。
+                   自動の判定で上書きすると、直した意味が無くなる。
+              */}
+              {(state.speakers?.length ?? 0) > 0 && (
+                <>
+                  <label>話者（この声は誰？）</label>
+                  <select
+                    value={selected.speaker ?? ''}
+                    onChange={(e) => store.setTelopSpeaker(selected.id, e.target.value || null)}
+                  >
+                    <option value="">（指定しない）</option>
+                    {state.speakers!.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
 
               {/*
                 このテロップだけの見た目。
@@ -639,6 +686,167 @@ export function TelopScreen({
             </div>
           </div>
         )}
+
+        {/*
+          話者（喋っている人）ごとの色。
+
+          🔴 色が付かないものを「付かない」と見せること。
+             似た声のどちらか分からないものに色を付けると、間違った色が半分出る。
+             当たらなかったものは「声n」として並べ、人に決めてもらう
+             （PAC 本体で実測: 本人 0.58±0.2 / 他人 0.34±0.2、2026-09-11）。
+        */}
+        <div className="section">
+          <button
+            className="disclosure"
+            onClick={() => {
+              const next = !speakersOpen
+              setSpeakersOpen(next)
+              if (next) void store.refreshSpeakers()
+            }}
+          >
+            <span className="disclosure-arrow">{speakersOpen ? '▾' : '▸'}</span>
+            話者（喋っている人）ごとの色
+            <span className="spacer" />
+            <span className="disclosure-value">
+              {(state.speakers?.length ?? 0) > 0 ? `${state.speakers!.length}人` : '未設定'}
+            </span>
+          </button>
+          {speakersOpen && (
+            <>
+              <div className="form">
+                <label />
+                <div className="inline">
+                  <button
+                    className="tiny"
+                    disabled={identifying}
+                    onClick={async () => {
+                      setIdentifying(true)
+                      setSpeakerNote('声を聞き分けています…')
+                      const note = await store.identify((stage) => setSpeakerNote(stage))
+                      setSpeakerNote(note)
+                      setIdentifying(false)
+                    }}
+                  >
+                    {identifying ? '聞き分けています…' : '声を見分ける'}
+                  </button>
+                  {speakerNote && (
+                    <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>{speakerNote}</span>
+                  )}
+                </div>
+              </div>
+
+              {/*
+                🔴 見本に文字の書式が無いと、色は XML に書けない。
+                   大きさの分からないまま書式を書くと豆粒になるため（2026-09-14）。
+                   画面では色が付いて見えるのに FCP では付かない、が一番困るので先に出す。
+              */}
+              {state.template?.hasStyle === false && (
+                <div className="hint warn">
+                  いまの見本は文字の書式を持っていないので、<strong>色は Final Cut に反映されません</strong>。
+                  見本のテロップに文字（「テスト」で可）を入れて書き出し直し、②設定で読み込み直してください。
+                </div>
+              )}
+
+              {(state.speakers?.length ?? 0) > 0 && (
+                <div className="form">
+                  <label>登録した人</label>
+                  <div className="speaker-list">
+                    {state.speakers!.map((p) => (
+                      <div key={p.id} className="inline speaker-row">
+                        <input
+                          type="color"
+                          value={p.color}
+                          title="この人の色"
+                          onChange={(e) => void store.editSpeaker(p.id, { color: e.target.value })}
+                        />
+                        <input
+                          type="text"
+                          value={p.name}
+                          style={{ width: 120 }}
+                          onChange={(e) => void store.editSpeaker(p.id, { name: e.target.value })}
+                        />
+                        <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>
+                          {speakerCounts[p.id] ?? 0}枚 ・ 覚えた声 {p.samples}本
+                        </span>
+                        <button
+                          className="tiny"
+                          title="覚えた声だけ消します（名前と色は残ります）"
+                          onClick={() => void store.editSpeaker(p.id, { forget: true })}
+                        >
+                          声を忘れる
+                        </button>
+                        <button className="tiny" onClick={() => void store.forgetSpeaker(p.id)}>
+                          消す
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {shownVoices.shown.length > 0 && (
+                <div className="form">
+                  <label>当たらなかった声</label>
+                  <div className="speaker-list">
+                    {shownVoices.shown.map((v) => (
+                      <div key={v.id} className="inline speaker-row">
+                        <span style={{ minWidth: 92 }}>
+                          {v.id.replace('v', '声')}（{v.count}枚・{v.seconds}秒）
+                        </span>
+                        <button
+                          className="tiny"
+                          title="いちばん長いところを聞いて確かめます"
+                          disabled={!v.sample}
+                          onClick={() => v.sample && seek(v.sample.src_start)}
+                        >
+                          ▶ 聞く
+                        </button>
+                        <input
+                          type="text"
+                          placeholder="この声は誰？"
+                          style={{ width: 120 }}
+                          value={voiceNames[v.id] ?? ''}
+                          onChange={(e) => setVoiceNames((m) => ({ ...m, [v.id]: e.target.value }))}
+                        />
+                        <button
+                          className="tiny"
+                          disabled={!(voiceNames[v.id] ?? '').trim()}
+                          onClick={async () => {
+                            const name = (voiceNames[v.id] ?? '').trim()
+                            if (!name) return
+                            const note = await store.nameVoice(v.id, name, nextColor(state.speakers ?? []))
+                            setVoiceNames((m) => ({ ...m, [v.id]: '' }))
+                            setSpeakerNote(note)
+                          }}
+                        >
+                          覚える
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {shownVoices.others > 0 && (
+                    <>
+                      <label />
+                      <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>
+                        短くて判別できない声が {shownVoices.others}枚。
+                        テロップを選んで「話者」から付けられます。
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="hint">
+                一度名前を付ければ声を覚えるので、次の動画からは自動で色が付きます
+                （覚えるのは声の特徴だけで、音そのものは保存しません）。
+                <br />
+                変わるのは<strong>文字の色だけ</strong>です（書体と大きさは全員同じ）。
+                自信が無いところは色を付けず「当たらなかった声」に残すので、そこは手で付けてください。
+                同時に喋っているところは声が混ざるので当たりません。
+              </div>
+            </>
+          )}
+        </div>
 
         {/* テロップの見本（畳んでおく） */}
         <div className="section">

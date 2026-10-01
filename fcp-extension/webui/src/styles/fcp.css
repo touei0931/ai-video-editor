@@ -631,3 +631,28 @@ textarea {
   min-width: 28px;
   padding: 2px 6px;
 }
+
+/* ── 話者（喋っている人）ごとの色 ───────────────────────── */
+
+/* 一覧の行に出す小さな丸。誰の発言かを色だけで分かるようにする */
+.speaker-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+}
+
+.speaker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 1人ぶんの行。色・名前・枚数・操作を横に並べる */
+.speaker-row input[type='color'] {
+  width: 28px;
+  height: 20px;
+  padding: 0;
+  flex: none;
+}

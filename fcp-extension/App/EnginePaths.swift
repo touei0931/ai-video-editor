@@ -37,6 +37,18 @@ enum EnginePaths {
         return dir
     }
 
+    /// 覚えた声（話者ごとの色）の置き場所。
+    ///
+    /// 🔴 一時フォルダに置かないこと。覚えた声は**動画をまたいで**使う。
+    ///    work/ に置くと、Mac の掃除で消えて「毎回また名前を付ける」ことになる。
+    static var speakerProfiles: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        let dir = base.appendingPathComponent("PAC for Final Cut", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("speakers.json")
+    }
+
     /// 同梱物がそろっているか。足りないものを日本語で返す
     static func missing() -> [String] {
         var out: [String] = []

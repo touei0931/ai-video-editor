@@ -5,3 +5,7 @@ faster-whisper>=1.0.3
 # [aligner] は語の時刻を出すときの日本語の分かち書き（nagisa）。
 # torch は使わない（配布物が太り、Mac 版に載らない）。
 mlx-qwen3-asr[aligner]>=0.4.0 ; sys_platform == "darwin"
+# 話者（喋っている人）を声で見分ける（Apache-2.0）。
+# 🔴 torch は使わない。埋め込みモデルは ONNX（3D-Speaker ERes2Net、40MB）で、
+#    scripts/fetch_models.py が vendor/models に置き、engine.spec が同梱する。
+sherpa-onnx

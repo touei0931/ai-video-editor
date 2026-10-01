@@ -45,6 +45,10 @@ echo "$PROBE"
 echo "$PROBE" | grep -q '"mlx-qwen3-asr": "ok"' || { echo "❌ mlx-qwen3-asr が固めた中に無い"; exit 1; }
 echo "$PROBE" | grep -q '"nagisa": "ok"' || { echo "❌ nagisa が固めた中に無い"; exit 1; }
 echo "$PROBE" | grep -q '"faster-whisper": "ok"' || { echo "❌ faster-whisper が固めた中に無い"; exit 1; }
+# 🔴 話者（喋っている人）を声で見分ける部品と、その 40MB のモデル。
+#    抜けると「話者の色だけ効かない」形で現れ、解析も書き出しも普通に動くので気づけない
+echo "$PROBE" | grep -q '"sherpa-onnx": "ok"' || { echo "❌ sherpa-onnx が固めた中に無い"; exit 1; }
+echo "$PROBE" | grep -q '"声のモデル": "ok"' || { echo "❌ 声のモデルが同梱されていない"; exit 1; }
 
 echo "--- 解析を通す（アプリの中のエンジンで／PATH は裸） ---"
 env PATH=/usr/bin:/bin "$ENGINE" --video "$WORK/sample.mp4" --out "$WORK/state.json" --model base --ffmpeg "$FFMPEG"

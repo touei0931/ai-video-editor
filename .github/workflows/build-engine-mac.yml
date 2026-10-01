@@ -49,6 +49,8 @@ jobs:
           python3 fcp-extension/engine/tests/test_engine.py
           # 🔴 同梱漏れの検査。抜けると「動くのに一部だけ効かない」形で現れる
           python3 fcp-extension/engine/tests/test_packaging.py
+          # 🔴 話者（喋っている人）の配管。ここが抜けると「声を見分ける」が沈黙する
+          python3 fcp-extension/engine/tests/test_speakers_cli.py
 
       - name: ffmpeg を用意（PAC 本体の LGPL ビルドを使う）
         env:
@@ -71,6 +73,12 @@ jobs:
           "$FF" -version | head -2
           echo "--- 何に依存しているか（Homebrew が混ざっていないこと）---"
           otool -L "$FF" | tail -n +2 | awk '{print $1}' | grep -v '^/usr/lib/' | grep -v '^/System/' || echo "システムのみ ✅"
+
+      # 🔴 話者（喋っている人）を声で見分けるモデル（40MB、Apache-2.0）。
+      #    engine.spec は無ければ固める作業を止める。入れ忘れると
+      #    「話者の色だけ効かない」形で現れ、解析も書き出しも普通に動くので気づけない
+      - name: 声のモデルを用意
+        run: python scripts/fetch_models.py
 
       - name: PyInstaller で固める
         working-directory: fcp-extension/engine/packaging

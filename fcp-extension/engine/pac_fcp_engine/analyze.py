@@ -38,9 +38,15 @@ def analyze(
     ffmpeg: str = "ffmpeg",
     waveform_points: int = 800,
     options: dict[str, Any] | None = None,
+    keep_wav: str | None = None,
     progress: Progress = _noop,
 ) -> dict[str, Any]:
-    """動画を解析してパネル用の状態を返す。"""
+    """動画を解析してパネル用の状態を返す。
+
+    keep_wav を渡すと、取り出した音声をそこに残す。
+    🔴 話者（喋っている人）を声で見分けるのに、解析のあとで元の音が要る。
+       以前は一時フォルダに作って消していたので、見分けようとしても音が無かった。
+    """
     from sidecar import clean as pac_clean
     from sidecar import cut as pac_cut
     from sidecar import telop as pac_telop
@@ -76,7 +82,10 @@ def analyze(
         os.environ["PAC_FFMPEG"] = ffmpeg
 
     with tempfile.TemporaryDirectory(prefix="pac-fcp-") as tmp:
-        wav = str(Path(tmp) / "audio.wav")
+        # 残すよう頼まれていれば、はじめからそこに作る（作ってから写すと倍の時間がかかる）
+        wav = keep_wav or str(Path(tmp) / "audio.wav")
+        if keep_wav:
+            Path(keep_wav).parent.mkdir(parents=True, exist_ok=True)
 
         progress("音声を取り出しています", 0.05)
         extract_wav(video_path, wav, ffmpeg=ffmpeg)
@@ -134,6 +143,10 @@ def analyze(
             #    1920x1080 決め打ちになり、縦動画が横向きに収まる
             video_info=video_info,
         )
+        # 🔴 音の置き場所を持ち帰る。話者を見分けるときにエンジンがもう一度読む
+        #    （パネルからは読めない場所。パネルはこの文字列をそのまま返すだけ）
+        if keep_wav:
+            state["wavPath"] = str(Path(keep_wav).resolve())
         # 何が落ちたかは残しておく（テロップが少ないときの原因が分かるように）
         cut_opts = options.get("cut") or {}
         state["report"] = {

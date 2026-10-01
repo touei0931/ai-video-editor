@@ -75,6 +75,22 @@ export interface Telop {
   style: StyleName
   /** そのテロップだけ既定から変えたいとき */
   overrides?: Partial<TelopStyle>
+  /**
+   * 喋っている人（登録済みの話者の id）。無ければ null。
+   *
+   * 🔴 「誰が喋ったか（色）」と「どう見せるか（スタイル）」は別の軸。
+   *    色は overrides.color として持ち、スタイル（通常/強調）は触らない。
+   */
+  speaker?: string | null
+  /** 見分けたときの近さ（0..1）。低いものは人が確かめる手がかり */
+  speakerScore?: number
+  /** 誰にも当たらなかったときの「声1」「声2」 */
+  voice?: string | null
+  /**
+   * 人が「この声は◯◯」と決めた。
+   * 🔴 見分け直しても動かさないこと。直した意味が無くなる。
+   */
+  manualSpeaker?: boolean
   /** 一部の文字だけ見た目を変えたいとき */
   spans?: TelopSpan[]
   /**
@@ -83,6 +99,44 @@ export interface Telop {
    *    無いと割れない（出どころの無い時刻をでっち上げないため）。
    */
   words?: TelopWord[]
+}
+
+/**
+ * 登録した人（覚えた声の持ち主）。
+ * 🔴 覚えているのは声の特徴（数値）だけで、音そのものは保存していない。
+ */
+export interface SpeakerProfile {
+  id: string
+  name: string
+  /** #rrggbb。テロップの文字色として使う */
+  color: string
+  /** 縁取りの色。登録していなければ触らない */
+  strokeColor?: string | null
+  /** 覚えている声の数（区間の数） */
+  samples: number
+  updated?: string
+}
+
+/** 誰にも当たらなかった声のまとまり（「声1」「声2」…） */
+export interface VoiceGroup {
+  id: string
+  count: number
+  seconds: number
+  /** 聞いて確かめる用。いちばん長い区間 */
+  sample: { id: string; src_start: number; src_end: number } | null
+  unitIds: string[]
+}
+
+/** 声を見分けた結果（エンジンが返す形） */
+export interface IdentifyResult {
+  units: { id: string; speaker: string | null; score: number; voice: string | null }[]
+  voices: VoiceGroup[]
+  speakers: SpeakerProfile[]
+  matched: number
+  unknown: number
+  tooShort: number
+  /** 部品とモデルの有無（同梱漏れをここから辿る） */
+  backend?: string
 }
 
 /** 友達のテロップ見本（FCPXML から取り込んだもの）の要約 */
@@ -122,6 +176,12 @@ export interface ProjectState {
   fonts: string[]
   /** 取り込み済みのテロップ見本。無ければ null */
   template?: TitleTemplateSummary | null
+  /** 登録した話者（喋っている人ごとの色）。覚えた声は動画をまたいで残る */
+  speakers?: SpeakerProfile[]
+  /** 誰にも当たらなかった声のまとまり。名前を付けると次から自動で当たる */
+  voices?: VoiceGroup[]
+  /** 最後に声を見分けた結果の要約。画面に出して判断の材料にする */
+  speakerReport?: { matched: number; unknown: number; tooShort: number; backend?: string }
   /** FCP から読めた情報（アプリ名・バージョン・シーケンス名など） */
   host?: Record<string, unknown>
   /**

@@ -113,6 +113,8 @@ jobs:
           python3 fcp-extension/engine/tests/test_engine.py
           # 🔴 同梱漏れの検査。抜けると「動くのに一部だけ効かない」形で現れる
           python3 fcp-extension/engine/tests/test_packaging.py
+          # 🔴 話者（喋っている人）の配管。ここが抜けると「声を見分ける」が沈黙する
+          python3 fcp-extension/engine/tests/test_speakers_cli.py
 
       - name: xcodegen
         run: brew install xcodegen

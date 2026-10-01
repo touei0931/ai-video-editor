@@ -19,6 +19,8 @@ onedir にする理由:
     動かして初めて分かる壊れ方をする。
 """
 
+import os
+
 from PyInstaller.utils.hooks import collect_all
 
 datas: list = []
@@ -40,6 +42,8 @@ for package in (
     "mlx_qwen3_asr",
     "nagisa",
     "dynet",
+    # 話者（喋っている人）を声で見分ける。ネイティブの共有ライブラリを持つので丸ごと拾う
+    "sherpa_onnx",
 ):
     try:
         d, b, h = collect_all(package)
@@ -49,6 +53,24 @@ for package in (
     datas += d
     binaries += b
     hiddenimports += h
+
+"""
+🔴 声のモデル（40MB）を必ず同梱すること。
+
+   `sidecar/speakers.py` の model_path() は、固めた中では
+   **実行ファイルの隣の models/** を見る。入れ忘れると
+   「話者の色だけ効かない」形で現れる（エラーは出るが、
+   解析も書き出しも普通に動くので気づきにくい）。
+   ここで無ければ固める作業自体を止める。手元では
+   `python scripts/fetch_models.py` で降ってくる。
+"""
+SPEAKER_MODEL = "../../../vendor/models/speaker_eres2net.onnx"
+if not os.path.exists(SPEAKER_MODEL):
+    raise SystemExit(
+        f"声のモデルがありません: {SPEAKER_MODEL} / "
+        "python scripts/fetch_models.py を実行してください"
+    )
+datas += [(SPEAKER_MODEL, "models")]
 
 a = Analysis(
     ["engine_entry.py"],
@@ -74,6 +96,8 @@ a = Analysis(
         "sidecar.asr",
         "sidecar.asr.faster_whisper_backend",
         "sidecar.asr.qwen_backend",
+        # 話者（喋っている人）を声で見分ける。pac_fcp_engine/speakers.py が実行時に読む
+        "sidecar.speakers",
         # nagisa（日本語の分かち書き）が読む。collect_all では拾えず、
         # 固めた中で「No module named 'six'」になった（CI の --probe で判明）
         "six",

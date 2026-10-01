@@ -4,7 +4,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { splitTelops } from './splitTelop'
-import { clearTitleTemplate, loadProject, loadTitleTemplate } from './bridge'
+import {
+  clearTitleTemplate,
+  enrollSpeaker,
+  identifySpeakers,
+  listSpeakers,
+  loadProject,
+  loadTitleTemplate,
+  removeSpeaker,
+  updateSpeaker,
+} from './bridge'
+import { applyIdentification, assignSpeaker, recolor, unitsOf } from './speakers'
 import type { CutCandidate, Decision, ProjectState, StyleName, Telop, TelopStyle } from './types'
 
 export interface Store {
@@ -27,6 +37,19 @@ export interface Store {
   dropTemplate: () => Promise<void>
   /** 解析の結果で中身を入れ替える（スタイル・フォント・見本は保つ） */
   applyAnalysis: (result: Partial<ProjectState>, telopMaxChars?: number) => void
+  /* ── 話者（喋っている人）ごとの色 ── */
+  /** 登録の一覧を読み直す */
+  refreshSpeakers: () => Promise<void>
+  /** 声を見分けて色を付ける。返り値は画面に出すひとこと */
+  identify: (onProgress?: (stage: string, ratio: number) => void) => Promise<string>
+  /** 「声n」に名前と色を付けて覚える */
+  nameVoice: (voiceId: string, name: string, color: string) => Promise<string>
+  /** 1枚だけ話者を付け替える */
+  setTelopSpeaker: (telopId: string, speakerId: string | null) => void
+  /** 名前・色を変える / 覚えた声だけ忘れる */
+  editSpeaker: (id: string, patch: { name?: string; color?: string; forget?: boolean }) => Promise<void>
+  /** 登録を消す */
+  forgetSpeaker: (id: string) => Promise<void>
   /** ひとつ前に戻す（Cmd+Z） */
   undo: () => void
   canUndo: boolean
@@ -43,6 +66,14 @@ export function useStore(): Store {
    */
   const history = useRef<ProjectState[]>([])
   const [canUndo, setCanUndo] = useState(false)
+
+  /*
+    いまの状態を同期的に読むための控え。
+    🔴 非同期の操作（声を見分ける）で使う。setState の中から
+       await すると、返ってきた時には古い状態を見ていることがある。
+  */
+  const stateRef = useRef<ProjectState | null>(null)
+  stateRef.current = state
 
   /** 変更を加える前に、いまの状態を控えておく */
   const edit = useCallback((fn: (s: ProjectState) => ProjectState) => {
@@ -222,11 +253,144 @@ export function useStore(): Store {
         waveform: result.waveform ?? base.waveform,
         cuts: result.cuts ?? [],
         telops,
+        /*
+          🔴 「声n」の一覧は捨てること。あれは前の素材のテロップ id を指している。
+             残すと、別の動画で「覚える」を押したときに1枚も当たらない
+             （どのテロップのことか分からないまま覚えることになる）。
+             登録した人（speakers）は動画をまたいで使うので残す。
+        */
+        voices: [],
+        speakerReport: undefined,
         // 🔴 落とさないこと。素材の大きさが読めなかった理由がここにしかない
         report: result.report ?? base.report,
       }
     })
   }, [])
+
+  /*
+    ── 話者（喋っている人）ごとの色 ─────────────────────────
+
+    🔴 色は「1枚ごとの上書き」として持つ（lib/speakers.ts 参照）。
+       スタイル（通常/強調）は触らないので、見た目の既定を後から変えても付いてくる。
+
+    🔴 覚えた声はエンジン側（Application Support）にある。
+       こちらが持つのは画面に出すための写しだけなので、
+       操作のたびに返ってきた一覧で入れ替える。
+  */
+
+  /** 登録の一覧を読み直す（⑤テロップで話者の欄を開いたとき） */
+  const refreshSpeakers = useCallback(async () => {
+    try {
+      const r = await listSpeakers()
+      setState((s) => (s ? { ...s, speakers: r.speakers } : s))
+    } catch {
+      // 読めなくても画面は出す（登録が無いのと見分けがつかないが、操作はできる）
+    }
+  }, [])
+
+  /** 声を見分ける。返り値は画面に出すひとこと（失敗の理由もここに入る） */
+  const identify = useCallback(
+    async (onProgress?: (stage: string, ratio: number) => void): Promise<string> => {
+      const current = stateRef.current
+      if (!current || current.telops.length === 0) return 'テロップがありません'
+      try {
+        const result = await identifySpeakers(unitsOf(current.telops), onProgress)
+        edit((s) => ({
+          ...s,
+          speakers: result.speakers,
+          voices: result.voices,
+          speakerReport: {
+            matched: result.matched,
+            unknown: result.unknown,
+            tooShort: result.tooShort,
+            backend: result.backend,
+          },
+          telops: applyIdentification(s.telops, result, result.speakers),
+        }))
+        if (result.speakers.length === 0) {
+          return `${result.voices.length}人ぶんの声に分かれました。名前を付けると色が付きます`
+        }
+        return `${result.matched}枚に色が付きました（当たらなかった声 ${result.unknown}枚）`
+      } catch (e) {
+        /*
+          🔴 理由をそのまま画面に出すこと。
+             声のモデル（40MB）や部品が同梱から漏れていると、ここに
+             「見つかりません」が入る。黙って 0 件にすると
+             「1人しか喋っていない動画なのかも」と誤解したまま終わる。
+        */
+        const message = (e as { message?: string })?.message
+        return message ? `見分けられませんでした：${message}` : '見分けられませんでした'
+      }
+    },
+    [edit],
+  )
+
+  /**
+   * 「この声は◯◯」と決める。その声の区間を覚えてから、人に結び付ける。
+   *
+   * 🔴 覚える前に結び付けないこと。覚えていないと、次の動画で同じ声が来ても当たらない。
+   */
+  const nameVoice = useCallback(
+    async (voiceId: string, name: string, color: string): Promise<string> => {
+      const current = stateRef.current
+      const voice = current?.voices?.find((v) => v.id === voiceId)
+      if (!current || !voice) return 'その声が見つかりません'
+      const ids = new Set(voice.unitIds)
+      const ranges = current.telops
+        .filter((t) => ids.has(t.id))
+        // 長い区間ほど声の特徴が出る。上限は覚えすぎを防ぐため（エンジン側も 32 まで）
+        .sort((a, b) => b.end - b.start - (a.end - a.start))
+        .slice(0, 16)
+        .map((t) => ({ src_start: t.start, src_end: t.end }))
+      try {
+        const r = await enrollSpeaker({ name, color, ranges })
+        edit((s) => ({
+          ...s,
+          speakers: r.speakers,
+          voices: (s.voices ?? []).filter((v) => v.id !== voiceId),
+          telops: assignSpeaker(s.telops, ids, r.speaker),
+        }))
+        return `${name} を覚えました（声 ${r.added}本・${ids.size}枚に色が付きました）`
+      } catch (e) {
+        const message = (e as { message?: string })?.message
+        return message ? `覚えられませんでした：${message}` : '覚えられませんでした'
+      }
+    },
+    [edit],
+  )
+
+  /** 1枚ずつ「この人」に付け替える（自動の判定より人の指定を優先する） */
+  const setTelopSpeaker = useCallback(
+    (telopId: string, speakerId: string | null) => {
+      edit((s) => {
+        const profile = speakerId ? (s.speakers ?? []).find((p) => p.id === speakerId) ?? null : null
+        return { ...s, telops: assignSpeaker(s.telops, [telopId], profile) }
+      })
+    },
+    [edit],
+  )
+
+  /** 名前と色を変える。色を変えたら、その人のテロップを塗り直す */
+  const editSpeaker = useCallback(
+    async (id: string, patch: { name?: string; color?: string; forget?: boolean }) => {
+      const r = await updateSpeaker({ id, ...patch })
+      edit((s) => ({ ...s, speakers: r.speakers, telops: recolor(s.telops, r.speakers) }))
+    },
+    [edit],
+  )
+
+  /** 登録を消す。そのテロップは色を外して自動の判定に戻す */
+  const forgetSpeaker = useCallback(
+    async (id: string) => {
+      const r = await removeSpeaker(id)
+      edit((s) => ({
+        ...s,
+        speakers: r.speakers,
+        telops: recolor(s.telops, r.speakers),
+      }))
+    },
+    [edit],
+  )
 
   const approvedCuts = useMemo(
     () => (state ? state.cuts.filter((c) => c.decision === 'approved') : []),
@@ -246,6 +410,12 @@ export function useStore(): Store {
     pickTemplate,
     dropTemplate,
     applyAnalysis,
+    refreshSpeakers,
+    identify,
+    nameVoice,
+    setTelopSpeaker,
+    editSpeaker,
+    forgetSpeaker,
     undo,
     canUndo,
   }

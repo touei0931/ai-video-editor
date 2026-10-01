@@ -146,6 +146,62 @@ final class EngineClient {
         }
     }
 
+    // MARK: - 話者（喋っている人）を声で見分ける
+
+    /*
+      ⑤テロップの「声を見分ける」「この声は◯◯」から来る。
+
+      🔴 解析と同じ job → 進捗の形に乗せること。
+         声を見比べる時間そのものは短いが、エンジンの起動と
+         声のモデル（40MB）の読み込みが乗る。繋ぎっぱなしで待つと、
+         枚数の多い素材で 20 秒の待ち時間に当たる。
+
+      🔴 音と覚えた声の置き場所は、ここでは足さない。
+         どちらもサンドボックスの外にあり、パネルからは触れない。
+         コンテナアプリ側（EngineServer.startSpeakers）が足す。
+    */
+    func speakers(
+        params: [String: Any],
+        wake: Bool = true,
+        progress: @escaping (String, Double) -> Void,
+        completion: @escaping (Bool, Any) -> Void
+    ) {
+        post(path: "/speakers", body: params) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure:
+                // 繋がらない = だいたい「まだ起きていない」。黙って起こしてやり直す
+                guard wake, let wakeApp = self.wakeApp else {
+                    completion(false, ["message": """
+                    声を見分けられませんでした。エンジンを起こせません。
+                    「インストールと確認」をもう一度実行してみてください。
+                    """])
+                    return
+                }
+                progress("解析エンジンを起こしています", 0.02)
+                wakeApp { launched in
+                    guard launched else {
+                        completion(false, ["message": "解析エンジンを起こせませんでした"])
+                        return
+                    }
+                    self.waitUntilAwake(left: self.wakeAttempts) { awake in
+                        guard awake else {
+                            completion(false, ["message": "解析エンジンが応じませんでした"])
+                            return
+                        }
+                        self.speakers(params: params, wake: false, progress: progress, completion: completion)
+                    }
+                }
+            case .success(let json):
+                guard let job = json["jobId"] as? String else {
+                    completion(false, ["message": (json["error"] as? String) ?? "エンジンが応答しませんでした"])
+                    return
+                }
+                self.poll(job: job, progress: progress, completion: completion)
+            }
+        }
+    }
+
     /// 進み具合を聞きに行く。解析は数分〜数十分かかるので、繋ぎっぱなしにはしない。
     private func poll(
         job: String,

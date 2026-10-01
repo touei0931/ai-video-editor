@@ -121,4 +121,64 @@ for t in r["telops"]:
     print(f"   {t['start']:5.2f}s  {t['text']}")
 PY
 
+
+# ── 話者（喋っている人）を声で見分ける経路 ───────────────────
+#
+# 🔴 ここも同じ4つを跨ぐ（画面 → 拡張 → アプリ → エンジン）。
+#    見たいのは2つ:
+#      - 解析が取り出した音が残っていること（--keep-wav）。消えていると見分けられない
+#      - 声のモデル（40MB）と sherpa-onnx が固めた中に入っていること。
+#        抜けると「話者の色だけ効かない」形で現れ、解析も書き出しも普通に動く
+echo "--- 登録の一覧を聞く（声は要らない操作） ---"
+SJOB=$(curl -s --max-time 10 -X POST "http://127.0.0.1:$PORT/speakers" \
+  -H 'Content-Type: application/json' -d '{"op":"list"}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin).get('jobId',''))")
+test -n "$SJOB" || { echo "❌ 話者の注文を受け付けてもらえなかった"; exit 1; }
+
+echo "--- 声を見分けさせる（解析が残した音を使う） ---"
+python3 - "$WORK/done.json" "$WORK/units.json" <<'PY'
+import json, sys
+r = (json.load(open(sys.argv[1], encoding="utf-8")).get("result") or {})
+units = [{"id": t["id"], "src_start": t["start"], "src_end": t["end"]} for t in r.get("telops", [])]
+json.dump({"op": "identify", "units": units}, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
+print(f"  区間 {len(units)} 件")
+PY
+IJOB=$(curl -s --max-time 20 -X POST "http://127.0.0.1:$PORT/speakers" \
+  -H 'Content-Type: application/json' -d @"$WORK/units.json" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin).get('jobId',''))")
+test -n "$IJOB" || { echo "❌ 見分けの注文を受け付けてもらえなかった"; exit 1; }
+
+rm -f "$WORK/sdone.json"
+for i in $(seq 1 60); do
+  curl -s --max-time 5 "http://127.0.0.1:$PORT/progress?job=$IJOB" -o "$WORK/sprog.json" || true
+  python3 - "$WORK/sprog.json" "$WORK/sdone.json" <<'PYEOF'
+import json, sys
+
+try:
+    p = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+if p.get("done"):
+    json.dump(p, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
+PYEOF
+  if [ -f "$WORK/sdone.json" ]; then break; fi
+  sleep 2
+done
+test -f "$WORK/sdone.json" || { echo "❌ 声の見分けが終わらなかった"; exit 1; }
+
+python3 - "$WORK/sdone.json" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1], encoding="utf-8"))
+if p.get("error"):
+    # 🔴 ここで落ちるのは「音が残っていない」か「モデル/部品が同梱から漏れた」のどちらか
+    print("❌ 声を見分けられなかった: " + p["error"])
+    sys.exit(1)
+r = p.get("result") or {}
+print("   部品:", r.get("backend"))
+assert "units" in r, f"結果の形がおかしい: {r}"
+n = r.get("matched", 0) + r.get("unknown", 0) + r.get("tooShort", 0)
+assert n == len(r["units"]), f"数が合わない: {r}"
+print(f"✅ 声を見分けられた（当たり {r.get('matched')} / 不明 {r.get('unknown')} / 短すぎ {r.get('tooShort')}）")
+PY
+
 echo "🎉 パネルが使う経路で解析が通った"

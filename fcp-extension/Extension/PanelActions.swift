@@ -168,6 +168,27 @@ extension WorkflowExtensionViewController {
         }
     }
 
+    /// ⑤ 話者（喋っている人）を声で見分ける・覚える・名前と色を変える。
+    ///
+    /// 中身は PAC 本体の sidecar/speakers.py。ここは注文を渡すだけ。
+    /// 音（wav）と覚えた声の置き場所はコンテナアプリ側が足すので、
+    /// パネルは op と中身だけ渡せばよい。
+    func runSpeakers(params: [String: Any], completion: @escaping (Bool, Any) -> Void) {
+        guard let op = params["op"] as? String, !op.isEmpty else {
+            completion(false, ["message": "何をするのか分かりません"])
+            return
+        }
+        EngineClient.shared.speakers(
+            params: params,
+            progress: { [weak self] stage, ratio in
+                self?.sendProgress(stage: stage, ratio: ratio)
+            },
+            completion: { ok, payload in
+                completion(ok, payload)
+            }
+        )
+    }
+
     /// 友達が FCP から書き出した .fcpxml を「テロップの見本」として取り込む。
     /// effect の uid・param・text-style を丸写しして、以後のテロップに適用する。
     func loadTitleTemplate(completion: @escaping (Bool, Any) -> Void) {

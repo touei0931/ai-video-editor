@@ -365,6 +365,75 @@ do {
      「テロップが意味が分からないくらい小さい」になる
      （2026-09-01、見本 基本01_13 で発生）。
 */
+/* ================================================ 話者（喋っている人）ごとの色
+
+  🔴 色は1枚ごとの上書き（overrides.color）として来る。スタイルは触られない。
+     「強調の見た目のまま、その人の色」が組めるようにするため（2026-09-11）。
+
+  🔴 書式の無い見本（文字を入れずに書き出したもの）では**色を書けない**。
+     text-style を書くなら大きさが要り（無いと Final Cut は極小で描く、2026-09-01）、
+     その大きさは PAC には分からない（テンプレのキャンバス基準、2026-09-14）。
+     画面では色が付いて見えるのに FCP では付かないので、②設定と⑤テロップで
+     「見本に文字を入れて書き出し直す」ことを知らせている。ここではその境目を固定する。
+*/
+do {
+    let 色つき: [[String: Any]] = [
+        ["id": "s1", "start": 1.0, "end": 3.0, "text": "フブキの発言", "style": "normal",
+         "speaker": "spk1", "overrides": ["color": "#7ec8ff"]],
+        ["id": "s2", "start": 4.0, "end": 6.0, "text": "おかゆの発言", "style": "emphasis",
+         "speaker": "spk2", "overrides": ["color": "#c59bff"]],
+    ]
+
+    // 書式のある見本（本文を入れて書き出したもの）→ 色が書ける
+    let xml = FCPXMLWriter.build(
+        cuts: [], telops: 色つき, styles: styles, mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 10, mediaWidth: 1080, mediaHeight: 1920, template: template)
+    check("話者の色が文字色として書かれる", xml.contains("fontColor=\"0.4941 0.7843 1.0000 1\""),
+          xml.range(of: "fontColor=\"[^\"]*\"", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
+    check("2人目の色も書かれる", xml.contains("fontColor=\"0.7725 0.6078 1.0000 1\""))
+    // 🔴 大きさは見本のものがそのまま残ること（色だけ変える）
+    check("色を変えても大きさは見本のまま", xml.contains("fontSize=\"146\""),
+          xml.range(of: "fontSize=\"[^\"]*\"", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
+    check("XML として妥当", (try? XMLDocument(xmlString: xml, options: [])) != nil)
+
+    // 由来の1行に人数と枚数が残る（色が付いていないと言われたときの切り分け用）
+    let 由来 = xml.range(of: "<!-- [^>]*-->", options: .regularExpression).map { String(xml[$0]) } ?? ""
+    check("由来の1行に話者の人数と枚数が入る", 由来.contains("話者 2人（色つき 2枚）"), 由来)
+
+    // 書式の無い見本 → 色は書かない（本文だけ）
+    let 空の見本XML = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE fcpxml>
+    <fcpxml version="1.13">
+      <resources><effect id="r2" name="空見本" uid="~/Titles.localized/X/Y/Y.moti"/></resources>
+      <library><event name="e"><project name="p"><sequence><spine>
+        <title ref="r2" offset="0s" name="見本" start="3600s" duration="542/30s">
+          <param name="位置" key="9999/1/2/3/100/101" value="0 -46.5"/>
+          <text/>
+        </title>
+      </spine></sequence></project></event></library>
+    </fcpxml>
+    """
+    guard let 空 = try? TitleTemplate.parse(fcpxml: 空の見本XML) else {
+        check("書式の無い見本を読める", false); exit(1)
+    }
+    let 書けない = FCPXMLWriter.build(
+        cuts: [], telops: 色つき, styles: styles, mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 10, mediaWidth: 1080, mediaHeight: 1920, template: 空)
+    check("書式の無い見本では色を書かない（本文だけ）",
+          !書けない.contains("fontColor=") && 書けない.contains("<text>フブキの発言</text>"),
+          書けない.range(of: "<text-style [^>]*/>", options: .regularExpression).map { String(書けない[$0]) } ?? "書式なし")
+    // 🔴 それでも由来の1行には「色つき」と残る。画面と XML の食い違いを辿れるように
+    let 由来2 = 書けない.range(of: "<!-- [^>]*-->", options: .regularExpression).map { String(書けない[$0]) } ?? ""
+    check("色を書けなくても由来の1行には残る", 由来2.contains("話者 2人（色つき 2枚）"), 由来2)
+
+    // 見本が無い（Basic Title）ときは、これまでどおり自前の書式で色を書く
+    let 見本なし = FCPXMLWriter.build(
+        cuts: [], telops: 色つき, styles: styles, mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 10, mediaWidth: 1080, mediaHeight: 1920)
+    check("見本が無ければ色は書ける", 見本なし.contains("fontColor=\"0.4941 0.7843 1.0000 1\""))
+}
+
 /* ================================================ 文字の入っていない見本
 
   🔴 見本のタイトルに**文字を入れずに**書き出すと、Final Cut は

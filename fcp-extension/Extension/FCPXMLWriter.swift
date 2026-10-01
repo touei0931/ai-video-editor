@@ -161,6 +161,18 @@ enum FCPXMLWriter {
             parts.append("速度 \(String(format: "%g", speed * 100))%")
         }
         /*
+          🔴 話者（喋っている人）ごとの色を使ったかも残すこと。
+             「色が付いていない」と言われたとき、付けていないのか・
+             書き出しで落ちたのか（書式の無い見本では色を書けない）を
+             XML 1つで切り分けられるようにする。
+        */
+        let colored = telops.filter { ($0["speaker"] as? String)?.isEmpty == false }.count
+        if colored > 0 {
+            let people = Set(telops.compactMap { $0["speaker"] as? String }).count
+            parts.append("話者 \(people)人（色つき \(colored)枚）")
+        }
+
+        /*
           🔴 文字の大きさは、**枠の高さに対する割合**も一緒に書くこと。
              px だけでは大きいか小さいか分からない。48px は 1080p なら
              ふつうだが、2160x3840 では高さの 1.25% で豆粒になる。

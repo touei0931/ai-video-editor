@@ -12,6 +12,8 @@ import type {
   TitleTemplateSummary,
   AnalyzeSettings,
   CutMemorySummary,
+  IdentifyResult,
+  SpeakerProfile,
 } from './types'
 
 type Resolver = { resolve: (v: unknown) => void; reject: (e: unknown) => void }
@@ -157,6 +159,133 @@ export async function loadTitleTemplate(): Promise<TitleTemplateSummary> {
     return { effectName: '基本01_10', font: 'Hiragino Sans', fontFace: 'W8', fontSize: 146, bold: true, paramCount: 3 }
   }
   return callSwift<TitleTemplateSummary>('loadTitleTemplate', {}, 0)
+}
+
+/**
+ * 話者（喋っている人）を声で見分ける・覚える・名前と色を変える。
+ *
+ * 🔴 音（wav）と覚えた声の置き場所は渡さないこと。
+ *    どちらもサンドボックスの外にあり、パネルからは触れない。
+ *    コンテナアプリ側（EngineServer）が足す。
+ *
+ * 🔴 時間で切らないこと。エンジンの起動と声のモデル（40MB）の
+ *    読み込みが乗るので、枚数が多いと 30 秒を超える。
+ */
+async function speakersCall<T>(params: Record<string, unknown>): Promise<T> {
+  if (!isInFCP) return mockSpeakers<T>(params)
+  return callSwift<T>('speakers', params, 0)
+}
+
+/** 声を見分ける（登録済みの声と見比べる） */
+export async function identifySpeakers(
+  units: { id: string; src_start: number; src_end: number }[],
+  onProgress?: (stage: string, ratio: number) => void,
+): Promise<IdentifyResult> {
+  if (onProgress && isInFCP) window.pacProgress = onProgress
+  try {
+    return await speakersCall<IdentifyResult>({ op: 'identify', units })
+  } finally {
+    if (onProgress && isInFCP) window.pacProgress = undefined
+  }
+}
+
+/** この声を覚える。id があればその人に足し、無ければ名前と色で新しく作る */
+export async function enrollSpeaker(args: {
+  id?: string
+  name?: string
+  color?: string
+  ranges: { src_start: number; src_end: number }[]
+}): Promise<{ speaker: SpeakerProfile; added: number; speakers: SpeakerProfile[] }> {
+  return speakersCall({ op: 'enroll', ...args })
+}
+
+/** 名前や色を変える。forget を立てると覚えた声だけ消す（名前と色は残す） */
+export async function updateSpeaker(args: {
+  id: string
+  name?: string
+  color?: string
+  strokeColor?: string | null
+  forget?: boolean
+}): Promise<{ speakers: SpeakerProfile[] }> {
+  return speakersCall({ op: 'update', ...args })
+}
+
+/** 登録を消す */
+export async function removeSpeaker(id: string): Promise<{ speakers: SpeakerProfile[] }> {
+  return speakersCall({ op: 'delete', id })
+}
+
+/** 登録の一覧と、部品の有無 */
+export async function listSpeakers(): Promise<{ speakers: SpeakerProfile[]; backend?: string }> {
+  return speakersCall({ op: 'list' })
+}
+
+/*
+  開発中（Windows のブラウザ）は声を聞けないので、それらしい返事を作る。
+  🔴 UI の確認はここで済ませること。Mac の実機でしか触れない作りにすると、
+     パネルの見え方を直すたびにビルドを1回待つことになる。
+*/
+const devSpeakers: SpeakerProfile[] = []
+
+function mockSpeakers<T>(params: Record<string, unknown>): Promise<T> {
+  const op = params.op as string
+  if (op === 'list') return Promise.resolve({ speakers: [...devSpeakers], backend: '開発モード' } as T)
+  if (op === 'enroll') {
+    const existing = devSpeakers.find((s) => s.id === params.id)
+    const ranges = (params.ranges as unknown[] | undefined) ?? []
+    if (existing) {
+      existing.samples += ranges.length
+      return Promise.resolve({ speaker: existing, added: ranges.length, speakers: [...devSpeakers] } as T)
+    }
+    const made: SpeakerProfile = {
+      id: `spk${devSpeakers.length + 1}`,
+      name: String(params.name ?? '名無し'),
+      color: String(params.color ?? '#7ec8ff'),
+      samples: ranges.length,
+    }
+    devSpeakers.push(made)
+    return Promise.resolve({ speaker: made, added: ranges.length, speakers: [...devSpeakers] } as T)
+  }
+  if (op === 'update') {
+    const s = devSpeakers.find((x) => x.id === params.id)
+    if (s) {
+      if (params.name !== undefined) s.name = String(params.name)
+      if (params.color !== undefined) s.color = String(params.color)
+      if (params.forget) s.samples = 0
+    }
+    return Promise.resolve({ speakers: [...devSpeakers] } as T)
+  }
+  if (op === 'delete') {
+    const i = devSpeakers.findIndex((x) => x.id === params.id)
+    if (i >= 0) devSpeakers.splice(i, 1)
+    return Promise.resolve({ speakers: [...devSpeakers] } as T)
+  }
+  // identify: 登録があれば交互に当て、無ければ2つの「声」に分ける
+  const units = (params.units as { id: string; src_start: number; src_end: number }[]) ?? []
+  const result: IdentifyResult = {
+    units: units.map((u, i) => {
+      if (devSpeakers.length > 0 && i % 3 !== 2) {
+        return { id: u.id, speaker: devSpeakers[i % devSpeakers.length].id, score: 0.62, voice: null }
+      }
+      return { id: u.id, speaker: null, score: 0.3, voice: `v${(i % 2) + 1}` }
+    }),
+    voices: [1, 2].map((n) => {
+      const mine = units.filter((_u, i) => i % 3 === 2 && (i % 2) + 1 === n)
+      return {
+        id: `v${n}`,
+        count: mine.length,
+        seconds: Math.round(mine.reduce((a, u) => a + (u.src_end - u.src_start), 0) * 100) / 100,
+        sample: mine[0] ? { id: mine[0].id, src_start: mine[0].src_start, src_end: mine[0].src_end } : null,
+        unitIds: mine.map((u) => u.id),
+      }
+    }).filter((v) => v.count > 0),
+    speakers: [...devSpeakers],
+    matched: units.filter((_u, i) => devSpeakers.length > 0 && i % 3 !== 2).length,
+    unknown: units.filter((_u, i) => i % 3 === 2).length,
+    tooShort: 0,
+    backend: '開発モード',
+  }
+  return Promise.resolve(result as T)
 }
 
 /**

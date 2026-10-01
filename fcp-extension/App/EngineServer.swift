@@ -44,6 +44,14 @@ final class EngineServer {
 
     private(set) var lastMessage = "待機中"
 
+    /*
+      直前の解析が取り出した音（wav）。話者を声で見分けるのに使い回す。
+
+      🔴 パネル側に持たせないこと。あちらはサンドボックスの中で、
+         この場所を触れない。パスを往復させても読めないままになる。
+    */
+    private var lastWav: URL?
+
     // MARK: - 開始
 
     func start() {
@@ -140,6 +148,9 @@ final class EngineServer {
         if method == "POST", path.hasPrefix("/analyze") {
             let params = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
             payload = startAnalysis(params: params)
+        } else if method == "POST", path.hasPrefix("/speakers") {
+            let params = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+            payload = startSpeakers(params: params)
         } else if method == "GET", path.hasPrefix("/progress") {
             let job = value(of: "job", in: path)
             payload = progress(of: job)
@@ -184,6 +195,18 @@ final class EngineServer {
         jobsLock.lock(); jobs[id] = job; jobsLock.unlock()
 
         let out = EnginePaths.work.appendingPathComponent("\(id).json")
+
+        /*
+          🔴 取り出した音を残すこと。話者（喋っている人）を声で見分けるのに、
+             解析のあとでもう一度同じ音が要る。前の素材のものは消す
+             （1時間で約 115MB。溜めると一時フォルダを食い潰す）。
+        */
+        if let previous = lastWav {
+            try? FileManager.default.removeItem(at: previous)
+        }
+        let wav = EnginePaths.work.appendingPathComponent("\(id).wav")
+        lastWav = wav
+
         let process = Process()
         process.executableURL = EnginePaths.engine
         process.arguments = [
@@ -200,6 +223,8 @@ final class EngineServer {
             // 覚えた境目。0 なら渡さない扱いにする（エンジン側で無視される）
             "--min-gain", String((params["minGain"] as? Double) ?? 0),
             "--ffmpeg", EnginePaths.ffmpeg.path,
+            // 声を見分けるのに使うので、取り出した音を残す
+            "--keep-wav", wav.path,
         ]
 
         // 進み具合は標準エラーに1行ずつ流れてくる
@@ -251,6 +276,100 @@ final class EngineServer {
             job.done = true
         }
 
+        return ["jobId": id]
+    }
+
+    // MARK: - 話者（喋っている人）を声で見分ける
+
+    /*
+      パネルの「声を見分ける」から来る注文。
+
+      🔴 解析と同じ job の仕組みに乗せること。
+         声を見比べるのは数秒で終わるが、固めたエンジンの起動（1〜2秒）と
+         モデルの読み込み（40MB）が乗る。繋ぎっぱなしにすると、
+         長い素材でパネル側の待ち時間（20秒）に当たる。
+
+      🔴 音（wav）と覚えた声の置き場所は、ここで足すこと。
+         パネルはサンドボックスの中なので、どちらの場所も触れない。
+         パネルから渡させると、渡し忘れた日に「見分けられません」としか出ない。
+    */
+    private func startSpeakers(params: [String: Any]) -> [String: Any] {
+        let missing = EnginePaths.missing()
+        guard missing.isEmpty else {
+            return ["error": "同梱物が足りません：\(missing.joined(separator: " / "))"]
+        }
+        let op = (params["op"] as? String) ?? ""
+        guard !op.isEmpty else { return ["error": "何をするのか指定されていません"] }
+
+        // 声を聞く操作（見分ける・覚える）は、解析が取り出した音が要る
+        let needsAudio = (op == "identify" || op == "enroll")
+        var payload = params
+        if needsAudio {
+            guard let wav = lastWav, FileManager.default.fileExists(atPath: wav.path) else {
+                return ["error": "元の音が見つかりません。先に③解析をやり直してください"]
+            }
+            payload["wav_path"] = wav.path
+        }
+        payload["profiles_path"] = EnginePaths.speakerProfiles.path
+
+        let id = UUID().uuidString
+        let job = Job()
+        job.stage = op == "identify" ? "声を聞き分けています" : "声を覚えています"
+        jobsLock.lock(); jobs[id] = job; jobsLock.unlock()
+
+        let paramsURL = EnginePaths.work.appendingPathComponent("spk-\(id).json")
+        let out = EnginePaths.work.appendingPathComponent("spk-\(id).out.json")
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              (try? data.write(to: paramsURL)) != nil
+        else {
+            return ["error": "注文を書き出せませんでした"]
+        }
+
+        let process = Process()
+        process.executableURL = EnginePaths.engine
+        process.arguments = ["--speakers", paramsURL.path, "--out", out.path]
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+
+        process.terminationHandler = { proc in
+            defer {
+                job.done = true
+                try? FileManager.default.removeItem(at: paramsURL)
+                try? FileManager.default.removeItem(at: out)
+            }
+            guard
+                let data = try? Data(contentsOf: out),
+                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                job.error = proc.terminationStatus == 0
+                    ? "結果を読み取れませんでした"
+                    : "声を見分けられませんでした（終了コード \(proc.terminationStatus)）"
+                return
+            }
+            /*
+              🔴 エンジンが返した理由をそのまま渡すこと。
+                 声のモデルや部品が同梱から漏れたときは、ここに
+                 「見つかりません」が入って返ってくる。握りつぶすと
+                 「声が1人しかいない動画なのかも」と誤解したまま終わる。
+            */
+            if let message = obj["error"] as? String {
+                job.error = message
+                return
+            }
+            job.result = obj
+            job.stage = "完了"
+            job.ratio = 1.0
+        }
+
+        do {
+            try process.run()
+            job.process = process
+            job.ratio = 0.3
+            lastMessage = "声を見分けています…"
+        } catch {
+            job.error = "エンジンを起動できませんでした：\(error.localizedDescription)"
+            job.done = true
+        }
         return ["jobId": id]
     }
 

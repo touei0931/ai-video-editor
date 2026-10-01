@@ -137,6 +137,10 @@ extension WorkflowExtensionViewController: WKScriptMessageHandler {
             runAnalysis(params: params) { ok, payload in
                 self.reply(id: id, ok: ok, payload: payload)
             }
+        case "speakers":
+            runSpeakers(params: params) { ok, payload in
+                self.reply(id: id, ok: ok, payload: payload)
+            }
         case "loadTitleTemplate":
             loadTitleTemplate { ok, payload in
                 self.reply(id: id, ok: ok, payload: payload)
