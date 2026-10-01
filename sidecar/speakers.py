@@ -70,16 +70,39 @@ _extractor: Any = None
 
 
 def model_path() -> Path:
-    """同梱モデルの場所。顔モデル（face/__init__.py の model_path）と同じ置き方。
+    """同梱モデルの場所。
 
     🔴 配布時の候補を先に見ること。開発時の vendor/ を先に見ると、
        「配布物の中でだけ場所がずれている」を手元でもCIでも踏めなくなる。
+
+    🔴 固めた配布物には**2つの置き方**がある。両方見ること。
+       - PAC 本体（デスクトップ版）: electron-builder の extraResources が
+         `Resources/sidecar/models/` に置く。実行ファイルの隣（face/ と同じ）
+       - FCP プラグインの解析エンジン: PyInstaller の datas に入れている。
+         PyInstaller 6 の onedir は**データを `_internal/` に入れる**ので、
+         実行ファイルの隣には無い。`sys._MEIPASS` がそこを指す
+       片方しか見ていなかったため、エンジンに同梱したのに
+       「アプリの中に見つかりません」になった（2026-10-01、CI で判明）。
+
+    🔴 どこを探したかを例外に残すこと。配布物の中は覗けないので、
+       メッセージだけが手がかりになる。
     """
     if getattr(sys, "frozen", False):
-        packed = Path(sys.executable).resolve().parent / "models" / MODEL_NAME
-        if packed.exists():
-            return packed
-        raise RuntimeError("声を見分けるための部品がアプリの中に見つかりません。アプリを入れ直してください。")
+        exe_dir = Path(sys.executable).resolve().parent
+        meipass = getattr(sys, "_MEIPASS", None)
+        tried = [
+            exe_dir / "models" / MODEL_NAME,
+            *([Path(meipass) / "models" / MODEL_NAME] if meipass else []),
+            exe_dir / "_internal" / "models" / MODEL_NAME,
+        ]
+        for candidate in tried:
+            if candidate.exists():
+                return candidate
+        places = " / ".join(str(p) for p in tried)
+        raise RuntimeError(
+            "声を見分けるための部品がアプリの中に見つかりません。"
+            f"アプリを入れ直してください（探した場所: {places}）"
+        )
 
     root = Path(__file__).resolve().parent.parent
     candidate = root / "vendor" / "models" / MODEL_NAME

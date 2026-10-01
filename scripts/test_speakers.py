@@ -173,6 +173,62 @@ def main() -> int:
                       by["u1"]["score"] > by["u3"]["score"] and by["u2"]["score"] > by["u4"]["score"],
                       f"u1 {by['u1']['score']} / u3 {by['u3']['score']}")
 
+    """
+    🔴 固めた配布物でのモデルの置き場所。
+
+       置き方は2つある（PAC 本体は実行ファイルの隣、FCP プラグインの
+       エンジンは PyInstaller の `_internal/`）。片方しか見ていなかったため、
+       エンジンに同梱したのに「アプリの中に見つかりません」になった
+       （2026-10-01、CI で判明）。Mac の実機が無くても気づけるように、
+       ここで3つの置き場所を固定する。
+    """
+    with tempfile.TemporaryDirectory() as box:
+        exe_dir = Path(box) / "pac-engine"
+        (exe_dir).mkdir()
+        fake_exe = exe_dir / "pac-engine"
+        fake_exe.write_text("")
+
+        saved = (getattr(sys, "frozen", False), getattr(sys, "_MEIPASS", None), sys.executable)
+        try:
+            sys.frozen = True  # type: ignore[attr-defined]
+            sys.executable = str(fake_exe)
+
+            # 1) 実行ファイルの隣（PAC 本体 / electron-builder の extraResources）
+            side = exe_dir / "models"
+            side.mkdir()
+            (side / S.MODEL_NAME).write_bytes(b"x")
+            check("固めた: 実行ファイルの隣を見る", S.model_path() == side / S.MODEL_NAME, str(S.model_path()))
+            (side / S.MODEL_NAME).unlink()
+            side.rmdir()
+
+            # 2) PyInstaller の datas（_MEIPASS。FCP プラグインのエンジン）
+            mei = Path(box) / "mei"
+            (mei / "models").mkdir(parents=True)
+            (mei / "models" / S.MODEL_NAME).write_bytes(b"x")
+            sys._MEIPASS = str(mei)  # type: ignore[attr-defined]
+            check("固めた: PyInstaller の datas を見る",
+                  S.model_path() == mei / "models" / S.MODEL_NAME, str(S.model_path()))
+            del sys._MEIPASS  # type: ignore[attr-defined]
+
+            # 3) _MEIPASS が無くても _internal/ を見る
+            internal = exe_dir / "_internal" / "models"
+            internal.mkdir(parents=True)
+            (internal / S.MODEL_NAME).write_bytes(b"x")
+            check("固めた: _internal/ も見る", S.model_path() == internal / S.MODEL_NAME, str(S.model_path()))
+            (internal / S.MODEL_NAME).unlink()
+
+            # 無いときは、探した場所を言う（配布物の中は覗けないので）
+            try:
+                S.model_path()
+                check("固めた: 無ければ理由を言う", False, "例外が出なかった")
+            except RuntimeError as e:
+                check("固めた: 無ければ探した場所を言う", "models" in str(e), str(e))
+        finally:
+            sys.frozen = saved[0]  # type: ignore[attr-defined]
+            if saved[1] is not None:
+                sys._MEIPASS = saved[1]  # type: ignore[attr-defined]
+            sys.executable = saved[2]
+
     print()
     print("test-speakers: OK" if failed == 0 else f"test-speakers: {failed} 件失敗")
     return 0 if failed == 0 else 1
