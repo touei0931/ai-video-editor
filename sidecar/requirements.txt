@@ -10,6 +10,13 @@
 faster-whisper          # ASR。CUDA が使えなければ自動で CPU に落ちる
                         # NVIDIA GPU を使う場合は requirements-cuda.txt も入れること
                         # （約800MBあるので既定には入れない。無くても CPU で動く）
+# 🔴 av（PyAV）は 19 を入れないこと。
+#    19 で av.open の metadata_errors が消えたが、faster-whisper 1.2.1 は
+#    まだそれを渡しているので、文字起こしの頭で
+#    「open() got an unexpected keyword argument 'metadata_errors'」で落ちる
+#    （2026-10-01、CI の Mac で踏んだ）。本家の master では直っているので、
+#    1.2.1 より新しいものが出たらこの縛りを外す。
+av<19
 
 # --- Phase 1 ---
 # pywhispercpp          # Mac 側 ASR（CoreML/Metal）。T5 で対応

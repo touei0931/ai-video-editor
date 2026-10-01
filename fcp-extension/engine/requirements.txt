@@ -1,6 +1,13 @@
 # 解析エンジンの依存。PAC 本体の sidecar/requirements.txt と揃えること
 # （同じ sidecar のコードを動かすため）。
 faster-whisper>=1.0.3
+# 🔴 av（PyAV）は 19 を入れないこと。
+#    19 で av.open の metadata_errors が消えたが、faster-whisper 1.2.1 は
+#    まだそれを渡しているので、文字起こしの頭で
+#    「open() got an unexpected keyword argument 'metadata_errors'」で落ちる
+#    （2026-10-01、CI の Mac で踏んだ）。本家の master では直っているので、
+#    1.2.1 より新しいものが出たらこの縛りを外す。
+av<19
 # Qwen3-ASR（日本語の会話で最も誤りが少ない）。Mac は Apple の GPU で動かす mlx 版。
 # [aligner] は語の時刻を出すときの日本語の分かち書き（nagisa）。
 # torch は使わない（配布物が太り、Mac 版に載らない）。
