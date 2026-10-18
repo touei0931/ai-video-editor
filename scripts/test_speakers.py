@@ -197,7 +197,14 @@ def main() -> int:
             side = exe_dir / "models"
             side.mkdir()
             (side / S.MODEL_NAME).write_bytes(b"x")
-            check("固めた: 実行ファイルの隣を見る", S.model_path() == side / S.MODEL_NAME, str(S.model_path()))
+            """
+            🔴 比べるときは両方を resolve すること。
+               macOS の /var は /private/var への symlink で、model_path() は
+               実行ファイルのパスを resolve してから組み立てる。素の tmp パスと
+               文字列で比べると、Mac でだけ落ちる（2026-10-19 に CI で踏んだ）。
+            """
+            check("固めた: 実行ファイルの隣を見る",
+                  S.model_path() == (side / S.MODEL_NAME).resolve(), str(S.model_path()))
             (side / S.MODEL_NAME).unlink()
             side.rmdir()
 
@@ -207,14 +214,16 @@ def main() -> int:
             (mei / "models" / S.MODEL_NAME).write_bytes(b"x")
             sys._MEIPASS = str(mei)  # type: ignore[attr-defined]
             check("固めた: PyInstaller の datas を見る",
-                  S.model_path() == mei / "models" / S.MODEL_NAME, str(S.model_path()))
+                  S.model_path().resolve() == (mei / "models" / S.MODEL_NAME).resolve(),
+                  str(S.model_path()))
             del sys._MEIPASS  # type: ignore[attr-defined]
 
             # 3) _MEIPASS が無くても _internal/ を見る
             internal = exe_dir / "_internal" / "models"
             internal.mkdir(parents=True)
             (internal / S.MODEL_NAME).write_bytes(b"x")
-            check("固めた: _internal/ も見る", S.model_path() == internal / S.MODEL_NAME, str(S.model_path()))
+            check("固めた: _internal/ も見る",
+                  S.model_path() == (internal / S.MODEL_NAME).resolve(), str(S.model_path()))
             (internal / S.MODEL_NAME).unlink()
 
             # 無いときは、探した場所を言う（配布物の中は覗けないので）
