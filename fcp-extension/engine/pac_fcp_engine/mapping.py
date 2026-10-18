@@ -84,6 +84,11 @@ def map_telops(
             "end": float(t["src_end"]),
             "text": text,
             "style": _STYLE_MAP.get(style, "normal"),
+            # 🔴 「怪しい所」の印を落とさないこと。
+            #    印はエンジンしか知らない（確信度・文字種・品詞）。渡さないと
+            #    画面には出ず、利用者は全部を読み直すことになる
+            "needsCheck": bool(t.get("needs_check")),
+            "checkReasons": list(t.get("check_reasons") or []),
             # 🔴 語ごとの時刻も渡すこと。
             #    build_units が返すのは「文のまとまり」で、1画面ぶんではない
             #    （sidecar/telop.py の注意書き）。画面側で割り直すときに、

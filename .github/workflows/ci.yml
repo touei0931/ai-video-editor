@@ -114,6 +114,9 @@ jobs:
         run: |
           python -m pip install -q numpy
           python scripts/test_speakers.py
+          # 文字起こしの見直し（印・言い換え表・LLM の検算）
+          python scripts/test_proof.py
+          python scripts/test_proof_llm.py
       # Final Cut へ渡すタイムライン。フレーム境界と file:// URL が要点
       - name: FCPXML の書き出し
         run: python scripts/test_fcpxml.py

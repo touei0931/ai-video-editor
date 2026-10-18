@@ -43,3 +43,8 @@ mediapipe               # 顔検出（BlazeFace / Apache-2.0）
                         # モデル本体は scripts/fetch_models.py で取得する
                         # ⚠ Ultralytics YOLO は AGPL なので使わない
 # scenedetect           # シーンカット検出
+
+# 文字起こしの見直し（前後の会話を読んで直し候補を出す）。
+# Mac は mlx-lm、Windows は Ollama（HTTP で頼むので依存は無い）。
+# 🔴 モデルの重み（約 2.3GB）は使うときに初回だけ取りに行く。同梱しない。
+mlx-lm ; sys_platform == "darwin"

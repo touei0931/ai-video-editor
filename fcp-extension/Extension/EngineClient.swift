@@ -60,6 +60,10 @@ final class EngineClient {
         extraFillers: String,
         /// 覚えた「これより短い間は候補にしない」（秒）。0 なら覚えていない
         minGain: Double,
+        /// 動画に出てくる名前（聞き違えた名前を直すのに使う）
+        cast: String,
+        /// 言い換え表（1行1件「誤り→正しい」）
+        swaps: String,
         /// 繋がらなかったときにアプリを起こしてやり直すか。やり直しの回では false
         wake: Bool = true,
         progress: @escaping (String, Double) -> Void,
@@ -75,6 +79,8 @@ final class EngineClient {
             "detectAside": detectAside,
             "extraFillers": extraFillers,
             "minGain": minGain,
+            "cast": cast,
+            "swaps": swaps,
         ]
 
         post(path: "/analyze", body: body) { [weak self] result in
@@ -130,6 +136,9 @@ final class EngineClient {
                             detectAside: detectAside,
                             extraFillers: extraFillers,
                             minGain: minGain,
+                            // 🔴 やり直しでも渡すこと。落とすと1回目だけ効く
+                            cast: cast,
+                            swaps: swaps,
                             wake: false,
                             progress: progress,
                             completion: completion
@@ -190,6 +199,50 @@ final class EngineClient {
                             return
                         }
                         self.speakers(params: params, wake: false, progress: progress, completion: completion)
+                    }
+                }
+            case .success(let json):
+                guard let job = json["jobId"] as? String else {
+                    completion(false, ["message": (json["error"] as? String) ?? "エンジンが応答しませんでした"])
+                    return
+                }
+                self.poll(job: job, progress: progress, completion: completion)
+            }
+        }
+    }
+
+    /// 文字起こしの見直し。候補を受け取る（本文は書き換わらない）。
+    ///
+    /// 🔴 初回はモデル（約 2.3GB）の取得が入るので、時間で切らないこと。
+    func proofread(
+        params: [String: Any],
+        wake: Bool = true,
+        progress: @escaping (String, Double) -> Void,
+        completion: @escaping (Bool, Any) -> Void
+    ) {
+        post(path: "/proofread", body: params) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure:
+                guard wake, let wakeApp = self.wakeApp else {
+                    completion(false, ["message": """
+                    見直せませんでした。エンジンを起こせません。
+                    「インストールと確認」をもう一度実行してみてください。
+                    """])
+                    return
+                }
+                progress("解析エンジンを起こしています", 0.02)
+                wakeApp { launched in
+                    guard launched else {
+                        completion(false, ["message": "解析エンジンを起こせませんでした"])
+                        return
+                    }
+                    self.waitUntilAwake(left: self.wakeAttempts) { awake in
+                        guard awake else {
+                            completion(false, ["message": "解析エンジンが応じませんでした"])
+                            return
+                        }
+                        self.proofread(params: params, wake: false, progress: progress, completion: completion)
                     }
                 }
             case .success(let json):

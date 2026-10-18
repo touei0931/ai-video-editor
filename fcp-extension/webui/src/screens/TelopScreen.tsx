@@ -56,6 +56,10 @@ export function TelopScreen({
   const [voiceNames, setVoiceNames] = useState<Record<string, string>>({})
   /** 「声n」を誰に足すか（空なら新しい人） */
   const [voicePick, setVoicePick] = useState<Record<string, string>>({})
+  /* 文字起こしの見直し */
+  const [proofOpen, setProofOpen] = useState(false)
+  const [proofing, setProofing] = useState(false)
+  const [proofNote, setProofNote] = useState('')
   const clipboard = useRef<Telop | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
@@ -67,6 +71,12 @@ export function TelopScreen({
   const { time, playing, seek, toggle } = usePlayback(duration, videoEl, store.approvedCuts, speed)
 
   const selected = state?.telops.find((t) => t.id === selectedId) ?? null
+
+  /** 「要確認」の印が付いている枚数 */
+  const checkedCount = useMemo(
+    () => (state?.telops ?? []).filter((t) => t.needsCheck).length,
+    [state],
+  )
 
   /** 人ごとの枚数と、画面に出す「声n」 */
   const speakerCounts = useMemo(() => countsBySpeaker(state?.telops ?? []), [state])
@@ -359,6 +369,12 @@ export function TelopScreen({
               }}
             >
               <span className={`badge ${t.style}`}>{STYLE_LABEL[t.style]}</span>
+              {/* 🔴 聞き取りが怪しい所は、一覧で分かるようにする（全部読み直さないため） */}
+              {t.needsCheck && (
+                <span className="badge check" title={(t.checkReasons ?? []).join(' / ')}>
+                  要確認
+                </span>
+              )}
               {/* 誰が喋っているか。色だけで分かるよう、行に小さな丸を出す */}
               {t.speaker && (
                 <span
@@ -426,6 +442,24 @@ export function TelopScreen({
                 <option value="normal">{STYLE_LABEL.normal}</option>
                 <option value="emphasis">{STYLE_LABEL.emphasis}</option>
               </select>
+
+              {/* なぜ怪しいか。印だけだと直しようがない */}
+              {selected.needsCheck && (
+                <>
+                  <label />
+                  <div className="inline">
+                    <span className="warn" style={{ fontSize: 11 }}>
+                      要確認: {(selected.checkReasons ?? []).join(' / ') || '聞き取りが怪しい所です'}
+                    </span>
+                    <button
+                      className="tiny"
+                      onClick={() => updateTelop(selected.id, { needsCheck: false, checkReasons: undefined })}
+                    >
+                      確認した
+                    </button>
+                  </div>
+                </>
+              )}
 
               {/*
                 誰が喋っているか。
@@ -688,6 +722,116 @@ export function TelopScreen({
             </div>
           </div>
         )}
+
+        {/*
+          文字起こしの見直し。
+
+          🔴 候補を自動で当てないこと。テロップは発言の引用で、小さいモデルは
+             「もっともらしい別の台詞」を作る。1件ずつ押して採る形にしてある。
+        */}
+        <div className="section">
+          <button className="disclosure" onClick={() => setProofOpen((v) => !v)}>
+            <span className="disclosure-arrow">{proofOpen ? '▾' : '▸'}</span>
+            文字起こしの見直し
+            <span className="spacer" />
+            <span className="disclosure-value">
+              {checkedCount > 0 ? `要確認 ${checkedCount}件` : '印なし'}
+              {(state.proofCandidates?.length ?? 0) > 0
+                ? ` / 候補 ${state.proofCandidates!.length}件`
+                : ''}
+            </span>
+          </button>
+          {proofOpen && (
+            <>
+              <div className="form">
+                <label />
+                <div className="inline">
+                  <button
+                    className="tiny"
+                    disabled={proofing}
+                    onClick={async () => {
+                      setProofing(true)
+                      setProofNote('前後の会話を読んでいます…')
+                      const note = await store.proofread({}, (stage) => setProofNote(stage))
+                      setProofNote(note)
+                      setProofing(false)
+                    }}
+                  >
+                    {proofing ? '見直しています…' : '全部を見直す'}
+                  </button>
+                  <button
+                    className="tiny"
+                    disabled={proofing || checkedCount === 0}
+                    title="「要確認」の印が付いた所だけを見ます（速い）"
+                    onClick={async () => {
+                      setProofing(true)
+                      setProofNote('印の付いた所を見ています…')
+                      const note = await store.proofread({ onlyChecked: true }, (stage) =>
+                        setProofNote(stage),
+                      )
+                      setProofNote(note)
+                      setProofing(false)
+                    }}
+                  >
+                    印の所だけ見直す
+                  </button>
+                  {proofNote && (
+                    <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>{proofNote}</span>
+                  )}
+                </div>
+              </div>
+
+              {(state.proofCandidates?.length ?? 0) > 0 && (
+                <div className="form">
+                  <label>直し候補</label>
+                  <div className="speaker-list">
+                    {state.proofCandidates!.map((c, i) => {
+                      const target = state.telops.find((t) => t.id === c.id)
+                      return (
+                        <div key={`${c.id}-${i}`} className="inline speaker-row">
+                          <button
+                            className="tiny"
+                            title="その場所を見る"
+                            onClick={() => {
+                              if (!target) return
+                              setSelectedId(target.id)
+                              seek(target.start)
+                            }}
+                          >
+                            {fmtTime(target?.start ?? 0)}
+                          </button>
+                          <span style={{ fontSize: 11 }}>
+                            <span className="warn">{c.before}</span>
+                            {' → '}
+                            <strong>{c.after}</strong>
+                          </span>
+                          <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>{c.reason}</span>
+                          <span className="spacer" />
+                          <button className="tiny" onClick={() => store.applyCandidate(c)}>
+                            採用
+                          </button>
+                          <button className="tiny" onClick={() => store.dismissCandidate(c)}>
+                            却下
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="hint">
+                前後の会話を読んで、聞き違えと思われる語の直し候補を出します。
+                <strong>本文は自動では変わりません</strong>（「採用」を押した分だけ直ります）。
+                <br />
+                初回だけモデルの取得に時間がかかります（約 2.3GB。2回目以降はありません）。
+                この Mac の中だけで動き、どこにも送っていません。
+                <br />
+                いつも同じ間違いをする語は、②設定の「言い換え表」に書いておくと解析のたびに直ります。
+              </div>
+            </>
+          )}
+        </div>
 
         {/*
           話者（喋っている人）ごとの色。

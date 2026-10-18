@@ -13,6 +13,7 @@ import type {
   AnalyzeSettings,
   CutMemorySummary,
   IdentifyResult,
+  ProofCandidate,
   SpeakerProfile,
 } from './types'
 
@@ -286,6 +287,51 @@ function mockSpeakers<T>(params: Record<string, unknown>): Promise<T> {
     backend: '開発モード',
   }
   return Promise.resolve(result as T)
+}
+
+/**
+ * 文字起こしを見直して、直し候補を受け取る。
+ *
+ * 🔴 本文は書き換わらない。返るのは候補だけで、採るかどうかは人が決める。
+ * 🔴 時間で切らないこと。初回はモデル（約 2.3GB）の取得が入る。
+ */
+export async function proofreadTelops(
+  payload: {
+    telops: { id: string; text: string }[]
+    /** 出てくる名前（手がかりとして渡す） */
+    names?: string
+    /** 言い換え表 */
+    swaps?: string
+    /** 印が付いた所だけ見直すときに渡す */
+    onlyIds?: string[]
+  },
+  onProgress?: (stage: string, ratio: number) => void,
+): Promise<{
+  candidates: ProofCandidate[]
+  fixed?: { id: string; text: string }[]
+  suspects?: { id: string; reasons: string[] }[]
+  checked?: number
+  backend?: string
+  error?: string
+}> {
+  if (!isInFCP) {
+    // 開発中はモデルが無いので、それらしい候補を返す（画面の確認用）
+    await new Promise((r) => setTimeout(r, 400))
+    const hit = payload.telops.find((t) => t.text.includes('オロライブ'))
+    return {
+      candidates: hit
+        ? [{ id: hit.id, before: 'オロライブ', after: 'ホロライブ', reason: '団体名（開発モード）' }]
+        : [],
+      checked: payload.telops.length,
+      backend: '開発モード',
+    }
+  }
+  if (onProgress) window.pacProgress = onProgress
+  try {
+    return await callSwift('proofread', payload, 0)
+  } finally {
+    if (onProgress) window.pacProgress = undefined
+  }
 }
 
 /**

@@ -599,6 +599,21 @@ ipcMain.handle('app:speakers', async (_e, params: Record<string, unknown>) => {
 });
 
 /**
+ * 文字起こしの見直し（前後の会話を読んで直し候補を出す）。
+ *
+ * 🔴 本文は書き換わらない。返るのは候補だけ（採るかは人が決める）。
+ * 🔴 どこにも送っていない。Mac は mlx、Windows は手元の Ollama に頼む。
+ */
+ipcMain.handle('app:proofread', async (_e, params: Record<string, unknown>) => {
+  try {
+    return await sidecar.call('proofread', params);
+  } catch (error) {
+    recordFailure('proofread', error, params);
+    throw error;
+  }
+});
+
+/**
  * 編集をやめるときの確認。
  *
  * 🔴 黙って捨ててはいけない。レビューを何十件も終えたあとかもしれない。

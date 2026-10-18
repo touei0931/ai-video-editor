@@ -656,3 +656,9 @@ textarea {
   padding: 0;
   flex: none;
 }
+
+/* 聞き取りが怪しい所の印。一覧で目に入るが、強調しすぎない */
+.badge.check {
+  background: #5a4420;
+  color: #ffd98a;
+}

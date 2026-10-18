@@ -10,12 +10,21 @@ import {
   identifySpeakers,
   listSpeakers,
   loadProject,
+  proofreadTelops,
   loadTitleTemplate,
   removeSpeaker,
   updateSpeaker,
 } from './bridge'
 import { applyIdentification, assignSpeaker, recolor, screensOfUnits, unitsOf } from './speakers'
-import type { CutCandidate, Decision, ProjectState, StyleName, Telop, TelopStyle } from './types'
+import type {
+  CutCandidate,
+  Decision,
+  ProjectState,
+  ProofCandidate,
+  StyleName,
+  Telop,
+  TelopStyle,
+} from './types'
 
 export interface Store {
   state: ProjectState | null
@@ -50,6 +59,16 @@ export interface Store {
   editSpeaker: (id: string, patch: { name?: string; color?: string; forget?: boolean }) => Promise<void>
   /** 登録を消す */
   forgetSpeaker: (id: string) => Promise<void>
+  /* ── 文字起こしの見直し ── */
+  /** 前後の会話を読んで直し候補を出す。返り値は画面に出すひとこと */
+  proofread: (
+    args?: { names?: string; swaps?: string; onlyChecked?: boolean },
+    onProgress?: (stage: string, ratio: number) => void,
+  ) => Promise<string>
+  /** 候補を1件採る */
+  applyCandidate: (candidate: ProofCandidate) => void
+  /** 候補を1件捨てる */
+  dismissCandidate: (candidate: ProofCandidate) => void
   /** ひとつ前に戻す（Cmd+Z） */
   undo: () => void
   canUndo: boolean
@@ -419,6 +438,87 @@ export function useStore(): Store {
     [edit],
   )
 
+  /*
+    ── 文字起こしの見直し ─────────────────────────────
+
+    🔴 候補を自動で当てないこと。テロップは発言の引用で、小さいモデルは
+       「もっともらしい別の台詞」を作る。1件ずつ人が採る。
+  */
+
+  /** 前後の会話を読んで直し候補を出す。返り値は画面に出すひとこと */
+  const proofread = useCallback(
+    async (
+      args: { names?: string; swaps?: string; onlyChecked?: boolean } = {},
+      onProgress?: (stage: string, ratio: number) => void,
+    ): Promise<string> => {
+      const current = stateRef.current
+      if (!current || current.telops.length === 0) return 'テロップがありません'
+      const onlyIds = args.onlyChecked
+        ? current.telops.filter((t) => t.needsCheck).map((t) => t.id)
+        : undefined
+      if (args.onlyChecked && (!onlyIds || onlyIds.length === 0)) {
+        return '「要確認」の印が付いたテロップがありません'
+      }
+      try {
+        const r = await proofreadTelops(
+          {
+            telops: current.telops.map((t) => ({ id: t.id, text: t.text })),
+            names: args.names,
+            swaps: args.swaps,
+            onlyIds,
+          },
+          onProgress,
+        )
+        edit((s) => ({ ...s, proofCandidates: r.candidates ?? [] }))
+        if (r.error) return `見直せませんでした：${r.error}`
+        const n = (r.candidates ?? []).length
+        return n === 0
+          ? `${r.checked ?? 0}か所を見ましたが、直す所は見つかりませんでした`
+          : `${n}件の候補が見つかりました（${r.checked ?? 0}か所を確認）`
+      } catch (e) {
+        const message = (e as { message?: string })?.message
+        return message ? `見直せませんでした：${message}` : '見直せませんでした'
+      }
+    },
+    [edit],
+  )
+
+  /** 候補を1件採る（その語だけ置き換える） */
+  const applyCandidate = useCallback(
+    (candidate: ProofCandidate) => {
+      edit((s) => ({
+        ...s,
+        telops: s.telops.map((t) =>
+          t.id === candidate.id && t.text.includes(candidate.before)
+            ? {
+                ...t,
+                text: t.text.replace(candidate.before, candidate.after),
+                // 直したのだから、印は外す（残すと何度も見返すことになる）
+                needsCheck: false,
+                checkReasons: undefined,
+                // 🔴 一部だけの見た目（spans）は文字位置で持っている。
+                //    本文の長さが変わると指す場所がずれるので捨てる
+                spans: candidate.before.length === candidate.after.length ? t.spans : undefined,
+              }
+            : t,
+        ),
+        proofCandidates: (s.proofCandidates ?? []).filter((c) => c !== candidate),
+      }))
+    },
+    [edit],
+  )
+
+  /** 候補を1件捨てる */
+  const dismissCandidate = useCallback(
+    (candidate: ProofCandidate) => {
+      edit((s) => ({
+        ...s,
+        proofCandidates: (s.proofCandidates ?? []).filter((c) => c !== candidate),
+      }))
+    },
+    [edit],
+  )
+
   const approvedCuts = useMemo(
     () => (state ? state.cuts.filter((c) => c.decision === 'approved') : []),
     [state],
@@ -443,6 +543,9 @@ export function useStore(): Store {
     setTelopSpeaker,
     editSpeaker,
     forgetSpeaker,
+    proofread,
+    applyCandidate,
+    dismissCandidate,
     undo,
     canUndo,
   }

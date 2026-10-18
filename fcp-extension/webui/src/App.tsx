@@ -98,6 +98,8 @@ export function App() {
     // 必ず人が1件ずつ見る側に入るので、既定で挙げる
     detectAside: true,
     extraFillers: '',
+    cast: '',
+    swaps: '',
     exportSpeed: 1,
     telopMaxChars: DEFAULT_TELOP_MAX_CHARS,
   })

@@ -151,6 +151,9 @@ final class EngineServer {
         } else if method == "POST", path.hasPrefix("/speakers") {
             let params = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
             payload = startSpeakers(params: params)
+        } else if method == "POST", path.hasPrefix("/proofread") {
+            let params = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+            payload = startProofread(params: params)
         } else if method == "GET", path.hasPrefix("/progress") {
             let job = value(of: "job", in: path)
             payload = progress(of: job)
@@ -225,6 +228,9 @@ final class EngineServer {
             "--ffmpeg", EnginePaths.ffmpeg.path,
             // 声を見分けるのに使うので、取り出した音を残す
             "--keep-wav", wav.path,
+            // 動画に出てくる名前と、言い換え表。文字起こしの直後に当てる
+            "--cast", (params["cast"] as? String) ?? "",
+            "--swaps", (params["swaps"] as? String) ?? "",
         ]
 
         // 進み具合は標準エラーに1行ずつ流れてくる
@@ -366,6 +372,82 @@ final class EngineServer {
             job.process = process
             job.ratio = 0.3
             lastMessage = "声を見分けています…"
+        } catch {
+            job.error = "エンジンを起動できませんでした：\(error.localizedDescription)"
+            job.done = true
+        }
+        return ["jobId": id]
+    }
+
+    // MARK: - 文字起こしの見直し
+
+    /*
+      パネルの「文字起こしを見直す」から来る注文。
+
+      🔴 解析と同じ job の仕組みに乗せること。
+         初回はモデル（約 2.3GB）の取得が入る。繋ぎっぱなしで待てる長さではない。
+
+      🔴 本文を書き換えて返さないのはエンジン側の決まり（pac_fcp_engine/proof.py）。
+         こちらは受け渡しだけで、中身に手を入れない。
+    */
+    private func startProofread(params: [String: Any]) -> [String: Any] {
+        let missing = EnginePaths.missing()
+        guard missing.isEmpty else {
+            return ["error": "同梱物が足りません：\(missing.joined(separator: " / "))"]
+        }
+        guard let telops = params["telops"] as? [[String: Any]], !telops.isEmpty else {
+            return ["error": "見直すテロップがありません"]
+        }
+
+        let id = UUID().uuidString
+        let job = Job()
+        job.stage = "文字起こしを見直しています（初回はモデルの取得に時間がかかります）"
+        jobsLock.lock(); jobs[id] = job; jobsLock.unlock()
+
+        let paramsURL = EnginePaths.work.appendingPathComponent("proof-\(id).json")
+        let out = EnginePaths.work.appendingPathComponent("proof-\(id).out.json")
+        guard let data = try? JSONSerialization.data(withJSONObject: params),
+              (try? data.write(to: paramsURL)) != nil
+        else {
+            return ["error": "注文を書き出せませんでした"]
+        }
+
+        let process = Process()
+        process.executableURL = EnginePaths.engine
+        process.arguments = ["--proofread", paramsURL.path, "--out", out.path]
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+
+        process.terminationHandler = { proc in
+            defer {
+                job.done = true
+                try? FileManager.default.removeItem(at: paramsURL)
+                try? FileManager.default.removeItem(at: out)
+            }
+            guard
+                let data = try? Data(contentsOf: out),
+                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                job.error = proc.terminationStatus == 0
+                    ? "結果を読み取れませんでした"
+                    : "見直せませんでした（終了コード \(proc.terminationStatus)）"
+                return
+            }
+            /*
+              🔴 候補が無くても、理由があれば一緒に返すこと。
+                 モデルが無い／Ollama が起きていない、は普通に起こる。
+                 黙って 0 件にすると「誤りが無かった」と誤解される。
+            */
+            job.result = obj
+            job.stage = "完了"
+            job.ratio = 1.0
+        }
+
+        do {
+            try process.run()
+            job.process = process
+            job.ratio = 0.2
+            lastMessage = "文字起こしを見直しています…"
         } catch {
             job.error = "エンジンを起動できませんでした：\(error.localizedDescription)"
             job.done = true

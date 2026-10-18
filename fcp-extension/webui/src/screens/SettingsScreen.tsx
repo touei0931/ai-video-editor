@@ -305,6 +305,41 @@ export function SettingsScreen({
               </p>
             </section>
 
+            {/* 出てくる名前と言い換え表 */}
+            <section className="settings-card">
+              <h3>出てくる名前</h3>
+              <textarea
+                rows={2}
+                value={settings.cast}
+                placeholder="ホロライブ、白上フブキ、猫又おかゆ"
+                onChange={(e) => onChange({ cast: e.target.value })}
+              />
+              <p className="settings-note">
+                人名・団体名・専門用語を書いておくと、聞き違えた名前を文字起こしの直後に直します。
+                読点・空白・改行のどれで区切っても大丈夫です。
+                <br />
+                <span className="settings-sub">
+                  ※ 1音違いの語だけを直し、似ているだけの語は触りません（別人に書き換わらないため）
+                </span>
+              </p>
+
+              <h3 style={{ marginTop: 12 }}>言い換え表</h3>
+              <textarea
+                rows={3}
+                value={settings.swaps}
+                placeholder={'オロライブ→ホロライブ\nユナイト→ポケモンユナイト'}
+                onChange={(e) => onChange({ swaps: e.target.value })}
+              />
+              <p className="settings-note">
+                いつも同じ間違いをする語は、1行1件で「誤り→正しい」と書いておくと、そのまま置き換えます。
+                <br />
+                <span className="settings-sub">
+                  ※ 書いた通りにだけ置き換えます。前後を読んで直す見直しは「⑤テロップ」の
+                  「文字起こしを見直す」で行います
+                </span>
+              </p>
+            </section>
+
             {/* テロップの見本 */}
             <section className="settings-card">
               <h3>テロップの見た目</h3>

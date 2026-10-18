@@ -34,6 +34,8 @@ def probe_backends() -> dict:
         ("nagisa", "nagisa"),
         # 話者（喋っている人）を声で見分ける部品
         ("sherpa-onnx", "sherpa_onnx"),
+        # 文字起こしの見直し（前後の会話を読んで候補を出す）
+        ("mlx-lm", "mlx_lm"),
     ):
         try:
             __import__(mod)
@@ -64,6 +66,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="話者（喋っている人）の操作。中身が JSON のファイルを渡す。解析はしない")
     p.add_argument("--keep-wav",
                    help="取り出した音声を残す場所。あとで声を見分けるのに使う")
+    p.add_argument("--proofread",
+                   help="文字起こしの見直し。中身が JSON のファイルを渡す。解析はしない")
+    p.add_argument("--cast", default="",
+                   help="動画に出てくる名前（読点・空白区切り）。聞き違えた名前を直すのに使う")
+    p.add_argument("--swaps", default="",
+                   help="言い換え表（1行1件「誤り→正しい」）。その通りに置き換える")
     p.add_argument("--video", help="解析する動画")
     p.add_argument("--out", help="書き出す JSON")
     p.add_argument("--model", default="large-v3-turbo")
@@ -99,6 +107,15 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": "error" not in result}, ensure_ascii=False), flush=True)
         return 0
 
+    if args.proofread:
+        if not args.out:
+            p.error("--proofread には --out が要ります")
+        from .proof import run_file
+
+        result = run_file(args.proofread, args.out)
+        print(json.dumps({"ok": "error" not in result}, ensure_ascii=False), flush=True)
+        return 0
+
     if not args.video or not args.out:
         p.error("--video と --out が要ります")
 
@@ -122,6 +139,10 @@ def main(argv: list[str] | None = None) -> int:
                 **({"min_gain": args.min_gain} if args.min_gain > 0 else {}),
             }},
             keep_wav=args.keep_wav,
+            # 🔴 名前と言い換え表は、文字起こしの直後に当てること。
+            #    テロップに割ったあとでは、語の時刻と本文がずれる
+            cast=args.cast,
+            swaps=args.swaps,
             progress=progress,
         )
     except Exception as e:  # noqa: BLE001

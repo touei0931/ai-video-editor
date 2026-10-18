@@ -39,6 +39,8 @@ def analyze(
     waveform_points: int = 800,
     options: dict[str, Any] | None = None,
     keep_wav: str | None = None,
+    cast: str = "",
+    swaps: str = "",
     progress: Progress = _noop,
 ) -> dict[str, Any]:
     """動画を解析してパネル用の状態を返す。
@@ -107,6 +109,23 @@ def analyze(
         # 破壊的に transcript を書き換え、何を落としたかを返す
         cleaned = pac_clean.clean_transcript(transcript)
 
+        """
+        🔴 名前と言い換え表は、**文字起こしの直後**に当てること。
+
+           テロップに割ったあとで本文だけ直すと、語の時刻（words）と本文が
+           ずれる。PAC のテロップは words を見て息継ぎで分けるので、
+           ずれると割る位置まで狂う（sidecar/names.py の注意書きと同じ理由）。
+        """
+        name_report: dict[str, Any] = {}
+        if cast:
+            try:
+                from sidecar import names as pac_names
+                from sidecar.proof import parse_names
+
+                name_report = pac_names.fix_transcript(transcript, parse_names(cast))
+            except Exception as e:  # noqa: BLE001
+                name_report = {"error": f"{type(e).__name__}: {e}"}
+
         progress("カット候補を探しています", 0.9)
         # PAC 本体に新しい種類が増えたら、ここに溜めて結果に残す
         unknown: list[str] = []
@@ -131,6 +150,23 @@ def analyze(
 
         progress("テロップを作っています", 0.95)
         units = pac_telop.build_units(transcript, wav_path=wav, options=options.get("telop"))
+
+        """
+        🔴 言い換え表と「怪しい所」の印は、ここで当てる（無料・即時）。
+           前後の会話を読む見直し（LLM）は、⑤テロップの「見直す」で別に走らせる。
+           解析のたびに 2.3GB のモデルを読むのは重すぎる。
+        """
+        proof_report: dict[str, Any] = {}
+        try:
+            from sidecar.proof import parse_names, parse_swaps, review
+
+            proof_report = review(
+                units.get("telops", []),
+                names=parse_names(cast),
+                swaps=parse_swaps(swaps),
+            )
+        except Exception as e:  # noqa: BLE001
+            proof_report = {"error": f"{type(e).__name__}: {e}"}
 
         progress("完了", 1.0)
         state = project_state(
@@ -167,5 +203,12 @@ def analyze(
             "wordCount": analysis.get("word_count", 0),
             # 空でないなら、PAC 本体とこちらの取り決めがずれている
             "unknown": unknown,
+            # 🔴 名前と言い換えで何件直したかを残す。黙って書き換えると、
+            #    「言っていないことが出た」ときに原因を辿れない
+            "nameFixes": name_report.get("count", 0),
+            "nameFixError": name_report.get("error", ""),
+            "swapFixes": proof_report.get("fixed", 0),
+            "suspects": len(proof_report.get("suspects", []) or []),
+            "proofError": proof_report.get("error", ""),
         }
         return state

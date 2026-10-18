@@ -132,6 +132,58 @@ def _speakers(params: dict[str, Any], **_kw) -> dict[str, Any]:
     return handle(params)
 
 
+def _proofread(params: dict[str, Any], on_progress: ProgressFn, is_cancelled: CancelFn) -> dict:
+    """文字起こしを見直して、直し候補を返す（本文は書き換えない）。
+
+    🔴 重い処理（モデルの読み込み）だが、別プロセスへ回していない。
+       進み具合と中断をそのまま渡したいだけなので、ここで動かす。
+       長く掛かるのは初回のモデル取得（約 2.3GB）だけ。
+    """
+    from .proof import parse_names, parse_swaps, review
+    from .proof_llm import Proofreader, pick_engine
+
+    telops = list(params.get("telops") or [])
+    if not telops:
+        return {"error": "見直すテロップがありません"}
+
+    names = parse_names(str(params.get("names") or ""))
+    swaps = parse_swaps(str(params.get("swaps") or ""))
+    rules = review(telops, names=names, swaps=swaps)
+    out: dict[str, Any] = {
+        "fixed": [
+            {"id": t.get("id"), "text": t.get("text")} for t in telops if t.get("fixed_by_swap")
+        ],
+        "suspects": rules["suspects"],
+        "candidates": [],
+        "checked": 0,
+    }
+    if not params.get("llm", True):
+        return out
+
+    engine = str(params.get("engine") or pick_engine())
+    try:
+        reader = Proofreader(engine, params.get("model"))
+    except Exception as e:  # noqa: BLE001
+        out["error"] = str(e)
+        return out
+    out["backend"] = reader.describe()
+    only = params.get("onlyIds")
+    llm = reader.review(
+        telops,
+        names=names,
+        only_ids=list(only) if only else None,
+        on_progress=lambda ratio, note="": on_progress(ratio, note or "文字起こしを見直しています"),
+        is_cancelled=is_cancelled,
+    )
+    out["candidates"] = llm.get("candidates", [])
+    out["checked"] = llm.get("checked", 0)
+    if llm.get("error"):
+        out["error"] = llm["error"]
+    if llm.get("cancelled"):
+        out["cancelled"] = True
+    return out
+
+
 def _heavy(method: str):
     """重い処理は別プロセスへ回す（worker.py の冒頭に理由を書いてある）。"""
 
@@ -150,6 +202,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "transcribe": _transcribe,
     "make_clip": _make_clip,
     "speakers": _speakers,
+    "proofread": _proofread,
     "analyze": _heavy("analyze"),
     "redetect": _heavy("redetect"),
     "build_telops": _heavy("build_telops"),

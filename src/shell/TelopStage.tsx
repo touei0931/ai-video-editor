@@ -558,6 +558,47 @@ export function TelopStage({
     [styles, onStylesChange],
   );
 
+  /* ---------- 文字起こしの見直し（前後の会話を読む） ---------- */
+
+  /**
+   * 🔴 本文を自動で書き換えないこと。候補を出して人が選ぶ。
+   *    テロップは発言の引用で、小さいモデルは「もっともらしい別の台詞」を作る。
+   */
+  const [proofing, setProofing] = useState(false);
+  const [proofNote, setProofNote] = useState('');
+  const [proofCandidates, setProofCandidates] = useState<
+    { id: string; before: string; after: string; reason: string }[]
+  >([]);
+
+  const runProofread = useCallback(async () => {
+    setProofing(true);
+    setProofNote('前後の会話を読んでいます…');
+    try {
+      const r = (await window.app.proofread({
+        telops: cardsRef.current.map((c) => ({ id: c.id, text: c.text })),
+      })) as {
+        candidates?: { id: string; before: string; after: string; reason: string }[];
+        checked?: number;
+        error?: string;
+      };
+      setProofCandidates(r.candidates ?? []);
+      if (r.error) {
+        setProofNote(`見直せませんでした：${r.error}`);
+      } else {
+        const n = (r.candidates ?? []).length;
+        setProofNote(
+          n === 0
+            ? `${r.checked ?? 0}か所を見ましたが、直す所は見つかりませんでした`
+            : `${n}件の候補が見つかりました（${r.checked ?? 0}か所を確認）`,
+        );
+      }
+    } catch (e) {
+      setProofNote(`見直せませんでした：${(e as Error).message}`);
+    } finally {
+      setProofing(false);
+    }
+  }, []);
+
   /* ---------- 話者（誰が喋っているか）ごとの色 ---------- */
 
   /**
@@ -1682,6 +1723,70 @@ export function TelopStage({
                 </p>
               </div>
             )}
+
+            {/*
+              文字起こしの見直し。前後の会話を読んで、聞き違えの候補を出す。
+
+              🔴 候補を自動で当てないこと。テロップは発言の引用で、小さいモデルは
+                 「もっともらしい別の台詞」を作る。1件ずつ押して採る。
+            */}
+            <div className="fcp-field">
+              <label>文字起こしの見直し</label>
+              <div className="fcp-row">
+                <button className="tiny" disabled={proofing} onClick={() => void runProofread()}>
+                  {proofing ? '見直しています…' : '前後の会話と照らして見直す'}
+                </button>
+                {proofNote && <span className="fcp-dim">{proofNote}</span>}
+              </div>
+              {proofCandidates.length > 0 && (
+                <div className="fcp-voices">
+                  {proofCandidates.map((c, i) => (
+                    <div key={`${c.id}-${i}`} className="fcp-voice">
+                      <button
+                        className="tiny"
+                        title="その場所を見る"
+                        onClick={() => {
+                          const card = cardsRef.current.find((x) => x.id === c.id);
+                          if (card) {
+                            setSelected(card.id);
+                            player.seek(Math.max(0, toAxis(card.srcStart) - 0.3));
+                          }
+                        }}
+                      >
+                        見る
+                      </button>
+                      <span>
+                        <span style={{ color: 'var(--sel)' }}>{c.before}</span> → <strong>{c.after}</strong>
+                      </span>
+                      <span className="fcp-dim">{c.reason}</span>
+                      <button
+                        className="tiny"
+                        onClick={() => {
+                          const card = cardsRef.current.find((x) => x.id === c.id);
+                          if (card && card.text.includes(c.before)) {
+                            remember();
+                            retext(card.id, card.text.replace(c.before, c.after));
+                          }
+                          setProofCandidates((list) => list.filter((x) => x !== c));
+                        }}
+                      >
+                        採用
+                      </button>
+                      <button
+                        className="tiny"
+                        onClick={() => setProofCandidates((list) => list.filter((x) => x !== c))}
+                      >
+                        却下
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="fcp-dim">
+                本文は自動では変わりません（「採用」を押した分だけ直ります）。
+                初回だけモデルの取得に時間がかかります（約 2.3GB）。この PC の中だけで動きます。
+              </p>
+            </div>
 
             {speakers && (
               <div className="fcp-field">

@@ -189,6 +189,25 @@ extension WorkflowExtensionViewController {
         )
     }
 
+    /// ⑤ 文字起こしの見直し（前後の会話を読んで直し候補を出す）。
+    ///
+    /// 🔴 本文はここでは書き換えない。候補を画面に返し、採るかどうかは人が決める。
+    func runProofread(params: [String: Any], completion: @escaping (Bool, Any) -> Void) {
+        guard let telops = params["telops"] as? [[String: Any]], !telops.isEmpty else {
+            completion(false, ["message": "見直すテロップがありません"])
+            return
+        }
+        EngineClient.shared.proofread(
+            params: params,
+            progress: { [weak self] stage, ratio in
+                self?.sendProgress(stage: stage, ratio: ratio)
+            },
+            completion: { ok, payload in
+                completion(ok, payload)
+            }
+        )
+    }
+
     /// 友達が FCP から書き出した .fcpxml を「テロップの見本」として取り込む。
     /// effect の uid・param・text-style を丸写しして、以後のテロップに適用する。
     func loadTitleTemplate(completion: @escaping (Bool, Any) -> Void) {
@@ -268,6 +287,8 @@ extension WorkflowExtensionViewController {
                  「候補が少ない」としか見えない。読むのは1か所にする。
             */
             minGain: CutMemory.load().learnedMinGain()?.minGain ?? 0,
+            cast: (params["cast"] as? String) ?? "",
+            swaps: (params["swaps"] as? String) ?? "",
             progress: { [weak self] stage, ratio in
                 self?.sendProgress(stage: stage, ratio: ratio)
             },

@@ -44,6 +44,10 @@ for package in (
     "dynet",
     # 話者（喋っている人）を声で見分ける。ネイティブの共有ライブラリを持つので丸ごと拾う
     "sherpa_onnx",
+    # 文字起こしの見直し（前後の会話を読んで候補を出す）。
+    # 🔴 重みは同梱しない（初回だけ 2.3GB を取りに行く）。ここで拾うのは
+    #    動かす側（mlx-lm と、その字句解析が使う transformers）だけ
+    "mlx_lm",
 ):
     try:
         d, b, h = collect_all(package)
@@ -98,6 +102,10 @@ a = Analysis(
         "sidecar.asr.qwen_backend",
         # 話者（喋っている人）を声で見分ける。pac_fcp_engine/speakers.py が実行時に読む
         "sidecar.speakers",
+        # 文字起こしの見直し。pac_fcp_engine/proof.py が実行時に読む
+        "sidecar.names",
+        "sidecar.proof",
+        "sidecar.proof_llm",
         # nagisa（日本語の分かち書き）が読む。collect_all では拾えず、
         # 固めた中で「No module named 'six'」になった（CI の --probe で判明）
         "six",

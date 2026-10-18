@@ -87,6 +87,14 @@ export interface Telop {
   /** 誰にも当たらなかったときの「声1」「声2」 */
   voice?: string | null
   /**
+   * 聞き取りが怪しい所の印（エンジンが付ける）。
+   * 🔴 画面に必ず出すこと。印はエンジンしか持っていない（確信度・文字種・品詞）。
+   *    出さないと、利用者は全部を読み直すことになる。
+   */
+  needsCheck?: boolean
+  /** なぜ怪しいか。印だけだと直しようがない */
+  checkReasons?: string[]
+  /**
    * 人が「この声は◯◯」と決めた。
    * 🔴 見分け直しても動かさないこと。直した意味が無くなる。
    */
@@ -139,6 +147,23 @@ export interface IdentifyResult {
   backend?: string
 }
 
+/**
+ * 文字起こしの直し候補（前後の会話を読んだ結果）。
+ *
+ * 🔴 自動で当てないこと。テロップは発言の引用で、小さいモデルは
+ *    「もっともらしい別の台詞」を作る。採るかどうかは人が決める。
+ */
+export interface ProofCandidate {
+  /** どのテロップか */
+  id: string
+  /** 直す前の語（そのテロップに必ず入っている） */
+  before: string
+  /** 直した語 */
+  after: string
+  /** 短い根拠 */
+  reason: string
+}
+
 /** 友達のテロップ見本（FCPXML から取り込んだもの）の要約 */
 export interface TitleTemplateSummary {
   effectName: string
@@ -182,6 +207,8 @@ export interface ProjectState {
   voices?: VoiceGroup[]
   /** 最後に声を見分けた結果の要約。画面に出して判断の材料にする */
   speakerReport?: { matched: number; unknown: number; tooShort: number; backend?: string }
+  /** 文字起こしの直し候補（⑤テロップの「見直す」で出る） */
+  proofCandidates?: ProofCandidate[]
   /** FCP から読めた情報（アプリ名・バージョン・シーケンス名など） */
   host?: Record<string, unknown>
   /**
@@ -281,18 +308,23 @@ export interface AnalyzeSettings {
    */
   extraFillers: string
   /**
-   * 出演者（喋っている人）の一覧。1 行に 1 人。「名前 呼び方 呼び方…」を空白区切り。
-   * 聞き取りで名前が別の言葉になったとき、この一覧を見てエンジンが直す。
+   * 動画に出てくる名前（人名・団体名・用語）。読点・空白・改行で区切る。
+   * 聞き取りで名前が別の言葉になったとき、この一覧を見てエンジンが直す
+   * （規則は sidecar/names.py。4配信 9,456行で測って、距離1・敬称つき等に絞ってある）。
    *
-   * 🔴 デスクトップ版（src/analyzeSettings.ts）と同じ項目だが、こちらは任意（?）にしてある。
-   *    プラグイン版ではまだ画面にもエンジンにも繋がっていないので、既定値も sanitize も無い。
-   *    エンジンへ繋ぐときに必須（cast: string）にし、SettingsScreen の既定値と sanitize に '' を足す
-   *    （optional のまま textarea の value に渡すと controlled/uncontrolled の警告が出る）。
-   *    通すには webui の SettingsScreen → bridge → Extension/PanelActions.swift →
-   *    Extension/EngineClient.swift → App/EngineServer.swift（--cast）→
-   *    engine/pac_fcp_engine/__main__.py → analyze.py の順に足す。
+   * 🔴 これは文字起こしの**直後**に当てる。テロップに割ったあとでは、
+   *    語の時刻と本文がずれる。
    */
-  cast?: string
+  cast: string
+  /**
+   * 言い換え表。1行1件で「誤り→正しい」。書いた通りに置き換える。
+   *
+   * 🔴 名前の一覧（cast）で直らないものはここに書く。
+   *    実素材では「オロライブ」→「ホロライブ」が確信度 0.94 で出ていて、
+   *    規則でも確信度でも拾えなかった（2026-10-19）。
+   * 🔴 ここに書いたものだけを置換する。似た語を勝手に寄せない。
+   */
+  swaps: string
   /**
    * 書き出す再生速度（1.0 = 等倍）。
    *

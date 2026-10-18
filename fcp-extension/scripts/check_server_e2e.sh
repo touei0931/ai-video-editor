@@ -181,4 +181,54 @@ assert n == len(r["units"]), f"数が合わない: {r}"
 print(f"✅ 声を見分けられた（当たり {r.get('matched')} / 不明 {r.get('unknown')} / 短すぎ {r.get('tooShort')}）")
 PY
 
+
+# ── 文字起こしの見直し（配管だけ。モデルは取りに行かせない） ───────
+#
+# 🔴 ここで見たいのは「アプリ経由で注文が通り、JSON が返ること」。
+#    LLM の重み（約 2.3GB）を CI で取りに行くと時間もお金も食うので、
+#    llm:false で決定論的な見直し（言い換え表と印）だけを通す。
+echo "--- 言い換え表と印だけで見直させる ---"
+cat > "$WORK/proof.json" <<'JSON'
+{"op":"review","llm":false,"swaps":"オロライブ→ホロライブ",
+ "telops":[{"id":"t1","text":"ではオロライブの大会です"},
+           {"id":"t2","text":"え みないいのahu"}]}
+JSON
+PJOB=$(curl -s --max-time 20 -X POST "http://127.0.0.1:$PORT/proofread" \
+  -H 'Content-Type: application/json' -d @"$WORK/proof.json" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin).get('jobId',''))")
+test -n "$PJOB" || { echo "❌ 見直しの注文を受け付けてもらえなかった"; exit 1; }
+
+rm -f "$WORK/pdone.json"
+for i in $(seq 1 60); do
+  curl -s --max-time 5 "http://127.0.0.1:$PORT/progress?job=$PJOB" -o "$WORK/pprog.json" || true
+  python3 - "$WORK/pprog.json" "$WORK/pdone.json" <<'PYEOF'
+import json, sys
+
+try:
+    p = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+if p.get("done"):
+    json.dump(p, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
+PYEOF
+  if [ -f "$WORK/pdone.json" ]; then break; fi
+  sleep 2
+done
+test -f "$WORK/pdone.json" || { echo "❌ 見直しが終わらなかった"; exit 1; }
+
+python3 - "$WORK/pdone.json" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1], encoding="utf-8"))
+if p.get("error"):
+    print("❌ 見直せなかった: " + p["error"]); sys.exit(1)
+r = p.get("result") or {}
+if r.get("error"):
+    print("❌ エンジンが理由を返した: " + r["error"]); sys.exit(1)
+fixed = {x["id"]: x["text"] for x in r.get("fixed", [])}
+assert fixed.get("t1", "").startswith("ではホロライブ"), f"言い換え表が効いていない: {r}"
+ids = {s["id"] for s in r.get("suspects", [])}
+assert "t2" in ids, f"怪しい所に印が付いていない: {r}"
+print("✅ 言い換え表が効き、怪しい所に印が付いた")
+PY
+
 echo "🎉 パネルが使う経路で解析が通った"
