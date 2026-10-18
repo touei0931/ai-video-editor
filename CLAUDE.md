@@ -8,6 +8,7 @@
 | FCP プラグイン版 | `fcp-extension/`（Swift の拡張＋`webui/` の画面＋`engine/`） | 売り物。中身は `sidecar/` を同梱して使う |
 
 判定・検出・文字起こし・LLM の中身は**すべて `sidecar/`** にある。画面は2つある。
+
 ## デスクトップ版とプラグイン版は機能を揃える（2026-10-19〜）
 
 PAC には **デスクトップ版（`src/` + `sidecar/`）** と **FCP プラグイン版（`fcp-extension/`）**
