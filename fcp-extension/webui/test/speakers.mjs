@@ -19,6 +19,7 @@ import {
   nextColor,
   recolor,
   unitsOf,
+  screensOfUnits,
   visibleVoices,
   withoutSpeakerColor,
   withSpeakerColor,
@@ -148,8 +149,48 @@ const telop = (id, extra = {}) => ({
 
   check('使っていない色を選ぶ', nextColor([フブキ]) !== '#7ec8ff')
 
-  const units = unitsOf([{ ...telop('t1'), start: 1.5, end: 3.25 }])
-  check('見分けに渡す区間は素材の時刻', units[0].src_start === 1.5 && units[0].src_end === 3.25)
+}
+
+
+/* ── 見分けは「まとまり」単位 ───────────────────────── */
+{
+  const words = [
+    { text: 'ここ', srcStart: 1.0, srcEnd: 1.2 },
+    { text: 'だ', srcStart: 1.2, srcEnd: 1.4 },
+    { text: 'すごい', srcStart: 1.5, srcEnd: 2.1 },
+  ]
+  // 1つのまとまりを3画面に割ったもの。最後の画面には余韻が乗っている
+  const screens = [
+    { ...telop('t0007-1', { words }), start: 1.0, end: 1.4 },
+    { ...telop('t0007-2', { words }), start: 1.4, end: 1.5 },
+    { ...telop('t0007-3', { words }), start: 1.5, end: 2.9 },
+    { ...telop('t0008-1', { words: [{ text: 'はい', srcStart: 4.0, srcEnd: 4.3 }] }), start: 4.0, end: 4.7 },
+  ]
+  const units = unitsOf(screens)
+  check('🔴 画面ごとではなく、まとまりごとに1区間', units.length === 2, JSON.stringify(units))
+  check('🔴 区間は語の時刻から作る（余韻を含めない）',
+    units[0].src_start === 1.0 && units[0].src_end === 2.1, JSON.stringify(units[0]))
+  check('まとまりの id で返す', units[0].id === 't0007' && units[1].id === 't0008')
+  check('語が無ければ表示時刻に落ちる',
+    unitsOf([{ ...telop('x-1'), start: 3, end: 4 }])[0].src_end === 4)
+
+  // まとまりの結果を、その全画面に配る
+  const result = {
+    units: [
+      { id: 't0007', speaker: 'spk1', score: 0.7, voice: null },
+      { id: 't0008', speaker: null, score: 0.2, voice: 'v1' },
+    ],
+    voices: [], speakers: [フブキ], matched: 1, unknown: 1, tooShort: 0,
+  }
+  const out = applyIdentification(screens, result, [フブキ])
+  check('🔴 0.6秒未満の画面にも色が配られる',
+    out.slice(0, 3).every((t) => t.overrides?.color === '#7ec8ff'),
+    JSON.stringify(out.map((t) => t.overrides?.color)))
+  check('当たらなかったまとまりの画面には付かない', out[3].overrides === undefined)
+
+  check('まとまりの id から画面の id を集める',
+    screensOfUnits(screens, ['t0007']).join(',') === 't0007-1,t0007-2,t0007-3',
+    screensOfUnits(screens, ['t0007']).join(','))
 }
 
 console.log()

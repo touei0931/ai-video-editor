@@ -123,9 +123,10 @@ export function applyIdentification(
   profiles: SpeakerProfile[],
 ): TelopCard[] {
   const byProfile = new Map(profiles.map((p) => [p.id, p]));
+  // 🔴 結果は「まとまり」単位。1枚ずつではなく、そのまとまりの全カードに配る
   const byId = new Map(result.units.map((u) => [u.id, u]));
   return cards.map((c) => {
-    const u = byId.get(c.id);
+    const u = byId.get(c.unitId) ?? byId.get(c.id);
     if (!u) return c;
     if (c.manualSpeaker) {
       // 人が決めたものは動かさない。声nの印だけ外す
@@ -207,10 +208,40 @@ export function recolor(cards: TelopCard[], profiles: SpeakerProfile[]): TelopCa
   return changed ? next : cards;
 }
 
-/** テロップから「見分ける」に渡す区間 */
+/**
+ * 声を見分けるために渡す区間。**まとまり（文単位）ごと**に1つにまとめる。
+ *
+ * 🔴 1枚ごとで渡さないこと。
+ *    声の特徴が取れるのは 0.6秒以上の区間だけ（sidecar/speakers.py の min_seconds）。
+ *    テロップを息継ぎで割るようにしたため1枚は短く、実素材（VTuber のコラボ5本・
+ *    画面 210枚）で **18% が 0.6秒未満**だった。割る前のまとまりなら 4〜6%。
+ *    刻んだ区間は材料としても弱く当たりにくい。まとまりで見分けて、結果は
+ *    そのまとまりの全カードに配る（2026-10-19 に実測して変更）。
+ */
 export function unitsOf(cards: TelopCard[]): { id: string; src_start: number; src_end: number }[] {
-  return cards.map((c) => ({ id: c.id, src_start: c.srcStart, src_end: c.srcEnd }));
+  const byUnit = new Map<string, { start: number; end: number }>();
+  for (const c of cards) {
+    const found = byUnit.get(c.unitId);
+    byUnit.set(
+      c.unitId,
+      found
+        ? { start: Math.min(found.start, c.srcStart), end: Math.max(found.end, c.srcEnd) }
+        : { start: c.srcStart, end: c.srcEnd },
+    );
+  }
+  return [...byUnit].map(([id, r]) => ({
+    id,
+    src_start: Number(r.start.toFixed(3)),
+    src_end: Number(r.end.toFixed(3)),
+  }));
 }
+
+/** まとまりの id から、その1枚ずつの id を集める */
+export function cardsOfUnits(cards: TelopCard[], unitIds: Iterable<string>): string[] {
+  const want = new Set(unitIds);
+  return cards.filter((c) => want.has(c.unitId)).map((c) => c.id);
+}
+
 
 /** 画面に出す声のまとまり。1枚だけの短いものは「その他」に寄せる */
 export function visibleVoices(voices: VoiceGroup[]): { shown: VoiceGroup[]; others: number } {

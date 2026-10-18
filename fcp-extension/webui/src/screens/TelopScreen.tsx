@@ -54,6 +54,8 @@ export function TelopScreen({
   const [speakerNote, setSpeakerNote] = useState('')
   /** 「声n」に打ち込んでいる名前（覚えるまでの下書き） */
   const [voiceNames, setVoiceNames] = useState<Record<string, string>>({})
+  /** 「声n」を誰に足すか（空なら新しい人） */
+  const [voicePick, setVoicePick] = useState<Record<string, string>>({})
   const clipboard = useRef<Telop | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
@@ -791,7 +793,7 @@ export function TelopScreen({
                     {shownVoices.shown.map((v) => (
                       <div key={v.id} className="inline speaker-row">
                         <span style={{ minWidth: 92 }}>
-                          {v.id.replace('v', '声')}（{v.count}枚・{v.seconds}秒）
+                          {v.id.replace('v', '声')}（{v.count}か所・{v.seconds}秒）
                         </span>
                         <button
                           className="tiny"
@@ -801,22 +803,54 @@ export function TelopScreen({
                         >
                           ▶ 聞く
                         </button>
-                        <input
-                          type="text"
-                          placeholder="この声は誰？"
-                          style={{ width: 120 }}
-                          value={voiceNames[v.id] ?? ''}
-                          onChange={(e) => setVoiceNames((m) => ({ ...m, [v.id]: e.target.value }))}
-                        />
+                        {/*
+                          🔴 登録済みの人を選べるようにすること。
+                             名前を打つだけだと、同じ人の「叫び声の組」と
+                             「落ち着いた声の組」が別人として2人登録され、
+                             色も別色になる（2026-10-19 に直した）。
+                        */}
+                        {(state.speakers?.length ?? 0) > 0 && (
+                          <select
+                            value={voicePick[v.id] ?? ''}
+                            onChange={(e) => setVoicePick((m) => ({ ...m, [v.id]: e.target.value }))}
+                          >
+                            <option value="">新しい人…</option>
+                            {state.speakers!.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} に足す
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {!voicePick[v.id] && (
+                          <input
+                            type="text"
+                            placeholder="この声は誰？"
+                            style={{ width: 120 }}
+                            value={voiceNames[v.id] ?? ''}
+                            onChange={(e) => setVoiceNames((m) => ({ ...m, [v.id]: e.target.value }))}
+                          />
+                        )}
                         <button
                           className="tiny"
-                          disabled={!(voiceNames[v.id] ?? '').trim()}
+                          disabled={identifying || !(voicePick[v.id] || (voiceNames[v.id] ?? '').trim())}
                           onClick={async () => {
-                            const name = (voiceNames[v.id] ?? '').trim()
+                            const picked = voicePick[v.id]
+                              ? state.speakers?.find((p) => p.id === voicePick[v.id])
+                              : undefined
+                            const name = picked ? picked.name : (voiceNames[v.id] ?? '').trim()
                             if (!name) return
-                            const note = await store.nameVoice(v.id, name, nextColor(state.speakers ?? []))
+                            setIdentifying(true)
+                            setSpeakerNote('声を覚えています…')
+                            const note = await store.nameVoice(
+                              v.id,
+                              name,
+                              picked?.color ?? nextColor(state.speakers ?? []),
+                            )
                             setVoiceNames((m) => ({ ...m, [v.id]: '' }))
+                            setVoicePick((m) => ({ ...m, [v.id]: '' }))
                             setSpeakerNote(note)
+                            setIdentifying(false)
                           }}
                         >
                           覚える
@@ -828,7 +862,7 @@ export function TelopScreen({
                     <>
                       <label />
                       <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>
-                        短くて判別できない声が {shownVoices.others}枚。
+                        短くて判別できない声が {shownVoices.others}か所。
                         テロップを選んで「話者」から付けられます。
                       </span>
                     </>

@@ -38,6 +38,7 @@ import {
   applyIdentification,
   assignSpeaker,
   recolor,
+  cardsOfUnits,
   unitsOf,
   visibleVoices,
   type IdentifyResult,
@@ -1749,7 +1750,7 @@ export function TelopStage({
                             <strong>{v.id.replace('v', '声')}</strong>
                             <span className="fcp-dim">
                               {' '}
-                              {v.count} 枚・{v.seconds.toFixed(1)} 秒
+                              {v.count} か所・{v.seconds.toFixed(1)} 秒
                             </span>
                           </span>
                           <button className="tiny" disabled={!v.sample} onClick={() => v.sample && playSample(v.sample)}>
@@ -1765,9 +1766,10 @@ export function TelopStage({
                                 const name = window.prompt('この声の人の名前（例: 白上フブキ）', '');
                                 if (!name?.trim()) return;
                                 const color = SPEAKER_COLOR_CANDIDATES[profiles.length % SPEAKER_COLOR_CANDIDATES.length];
-                                void createSpeaker(name.trim(), color, v.unitIds);
+                                // 🔴 まとまりの id で返ってくるので、1枚ずつの id に広げる
+                                void createSpeaker(name.trim(), color, cardsOfUnits(cardsRef.current, v.unitIds));
                               } else if (val) {
-                                void assignVoice(v.unitIds, val);
+                                void assignVoice(cardsOfUnits(cardsRef.current, v.unitIds), val);
                               }
                             }}
                           >
@@ -1783,7 +1785,7 @@ export function TelopStage({
                       ))}
                       {others > 0 && (
                         <p className="fcp-dim">
-                          短くて判別できない声が {others} 枚。テロップを選ぶと「話者」から付けられます。
+                          短くて判別できない声が {others} か所。テロップを選ぶと「話者」から付けられます。
                         </p>
                       )}
                     </>

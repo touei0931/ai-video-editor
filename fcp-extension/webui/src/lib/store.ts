@@ -14,7 +14,7 @@ import {
   removeSpeaker,
   updateSpeaker,
 } from './bridge'
-import { applyIdentification, assignSpeaker, recolor, unitsOf } from './speakers'
+import { applyIdentification, assignSpeaker, recolor, screensOfUnits, unitsOf } from './speakers'
 import type { CutCandidate, Decision, ProjectState, StyleName, Telop, TelopStyle } from './types'
 
 export interface Store {
@@ -310,7 +310,13 @@ export function useStore(): Store {
         if (result.speakers.length === 0) {
           return `${result.voices.length}人ぶんの声に分かれました。名前を付けると色が付きます`
         }
-        return `${result.matched}枚に色が付きました（当たらなかった声 ${result.unknown}枚）`
+        /*
+          🔴 数の単位は「か所（まとまり）」。枚ではない。
+             見分けは文のまとまりごとに1回で、結果はそのまとまりの全画面に配る。
+             「枚」と書くと、画面の枚数と合わなくて混乱する。
+        */
+        const short = result.tooShort > 0 ? `。短くて判別できない所 ${result.tooShort}か所` : ''
+        return `${result.matched}か所に色が付きました（当たらなかった声 ${result.unknown}か所）${short}`
       } catch (e) {
         /*
           🔴 理由をそのまま画面に出すこと。
@@ -329,34 +335,55 @@ export function useStore(): Store {
    * 「この声は◯◯」と決める。その声の区間を覚えてから、人に結び付ける。
    *
    * 🔴 覚える前に結び付けないこと。覚えていないと、次の動画で同じ声が来ても当たらない。
+   *
+   * 🔴 同じ名前なら**同じ人に足すこと**。新しい人を作らない。
+   *    同じ人の声は「叫び声の組」と「落ち着いた声の組」に分かれる（2026-09-11 の実測）。
+   *    両方に同じ名前を入れたときに別人が2人できると、色も別色になり、
+   *    「一部分しか色が付かない」ことになる。
+   *
+   * 🔴 覚えたら、そのまま見分け直すこと。
+   *    以前は覚えた声の分だけ色が付き、残りは利用者がもう一度
+   *    「声を見分ける」を押すまで無色のままだった（押さなければ一部分しか付かない）。
    */
   const nameVoice = useCallback(
     async (voiceId: string, name: string, color: string): Promise<string> => {
       const current = stateRef.current
       const voice = current?.voices?.find((v) => v.id === voiceId)
       if (!current || !voice) return 'その声が見つかりません'
-      const ids = new Set(voice.unitIds)
-      const ranges = current.telops
-        .filter((t) => ids.has(t.id))
+      const wanted = name.trim()
+      if (!wanted) return '名前を入れてください'
+      const existing = (current.speakers ?? []).find((p) => p.name.trim() === wanted)
+
+      const ranges = unitsOf(current.telops)
+        .filter((u) => voice.unitIds.includes(u.id))
         // 長い区間ほど声の特徴が出る。上限は覚えすぎを防ぐため（エンジン側も 32 まで）
-        .sort((a, b) => b.end - b.start - (a.end - a.start))
+        .sort((a, b) => b.src_end - b.src_start - (a.src_end - a.src_start))
         .slice(0, 16)
-        .map((t) => ({ src_start: t.start, src_end: t.end }))
+        .map((u) => ({ src_start: u.src_start, src_end: u.src_end }))
+
       try {
-        const r = await enrollSpeaker({ name, color, ranges })
+        const r = existing
+          ? await enrollSpeaker({ id: existing.id, ranges })
+          : await enrollSpeaker({ name: wanted, color, ranges })
+        const ids = screensOfUnits(current.telops, voice.unitIds)
         edit((s) => ({
           ...s,
           speakers: r.speakers,
           voices: (s.voices ?? []).filter((v) => v.id !== voiceId),
           telops: assignSpeaker(s.telops, ids, r.speaker),
         }))
-        return `${name} を覚えました（声 ${r.added}本・${ids.size}枚に色が付きました）`
+        const added = existing
+          ? `${wanted} に声を ${r.added}本 足しました`
+          : `${wanted} を覚えました（声 ${r.added}本）`
+        // 覚えた声で、残りにも当たるか見る
+        const note = await identify()
+        return `${added}。${note}`
       } catch (e) {
         const message = (e as { message?: string })?.message
         return message ? `覚えられませんでした：${message}` : '覚えられませんでした'
       }
     },
-    [edit],
+    [edit, identify],
   )
 
   /** 1枚ずつ「この人」に付け替える（自動の判定より人の指定を優先する） */

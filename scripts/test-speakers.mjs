@@ -128,6 +128,36 @@ const okayu = { id: 'o1', name: '猫又おかゆ', color: '#c59bff', strokeColor
   check('残りは枚数だけ', others === 2, String(others));
 }
 
+// ── 見分けは「まとまり」単位（2026-10-19） ──
+{
+  // 1つのまとまりを3枚に割ったもの。最後の1枚には余韻が乗っている
+  const cards = [
+    card('u7-0', { unitId: 'u7', srcStart: 1.0, srcEnd: 1.4 }),
+    card('u7-1', { unitId: 'u7', srcStart: 1.4, srcEnd: 1.5 }),
+    card('u7-2', { unitId: 'u7', srcStart: 1.5, srcEnd: 2.9 }),
+    card('u8', { unitId: 'u8', srcStart: 4.0, srcEnd: 4.7 }),
+  ];
+  const units = S.unitsOf(cards);
+  check('🔴 1枚ごとではなく、まとまりごとに1区間', units.length === 2, JSON.stringify(units));
+  check('区間はまとまりの端から端', units[0].src_start === 1.0 && units[0].src_end === 2.9, JSON.stringify(units[0]));
+  check('まとまりの id で返す', units[0].id === 'u7' && units[1].id === 'u8');
+
+  const result = {
+    units: [
+      { id: 'u7', speaker: 'f1', score: 0.7, voice: null },
+      { id: 'u8', speaker: null, score: 0.2, voice: 'v1' },
+    ],
+    voices: [], speakers: [fubuki], matched: 1, unknown: 1, tooShort: 0,
+  };
+  const out = S.applyIdentification(cards, result, [fubuki]);
+  check('🔴 0.6秒未満の1枚にも色が配られる',
+    out.slice(0, 3).every((c) => c.override?.color === '#7ec8ff'),
+    JSON.stringify(out.map((c) => c.override?.color)));
+  check('当たらなかったまとまりには付かない', out[3].override === undefined);
+  check('まとまりの id から1枚ずつの id を集める',
+    S.cardsOfUnits(cards, ['u7']).join(',') === 'u7-0,u7-1,u7-2', S.cardsOfUnits(cards, ['u7']).join(','));
+}
+
 console.log('');
 if (failed > 0) {
   console.log(`❌ ${failed} 件が期待どおりではありません`);

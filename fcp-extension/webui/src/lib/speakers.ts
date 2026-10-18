@@ -57,9 +57,10 @@ export function applyIdentification(
   profiles: SpeakerProfile[],
 ): Telop[] {
   const byProfile = new Map(profiles.map((p) => [p.id, p]))
+  // 🔴 結果は「まとまり」単位。1枚ずつではなく、そのまとまりの全画面に配る
   const byId = new Map(result.units.map((u) => [u.id, u]))
   return telops.map((t) => {
-    const u = byId.get(t.id)
+    const u = byId.get(unitIdOf(t.id)) ?? byId.get(t.id)
     if (!u) return t
     if (t.manualSpeaker) {
       // 人が決めたものは動かさない。「声n」の印だけ外す
@@ -144,10 +145,57 @@ export function recolor(telops: Telop[], profiles: SpeakerProfile[]): Telop[] {
   return changed ? next : telops
 }
 
-/** テロップから「見分ける」に渡す区間 */
-export function unitsOf(telops: Telop[]): { id: string; src_start: number; src_end: number }[] {
-  return telops.map((t) => ({ id: t.id, src_start: t.start, src_end: t.end }))
+/**
+ * 画面の id から、元になった「まとまり」の id を取る（`t0007-2` → `t0007`）。
+ * 割る側（splitTelop.ts）が付ける規則に合わせてある。
+ */
+export function unitIdOf(telopId: string): string {
+  return telopId.replace(/-\d+$/, '')
 }
+
+/**
+ * 声を見分けるために渡す区間。**まとまり単位**で1つにまとめる。
+ *
+ * 🔴 1画面ぶんで渡さないこと。
+ *    声の特徴が取れるのは 0.6秒以上の区間だけ（sidecar/speakers.py の min_seconds）。
+ *    テロップを息継ぎで割るようにしたため、画面は短く刻まれていて、実素材
+ *    （VTuber のコラボ5本・画面 210枚）で**18% が 0.6秒未満**だった。
+ *    割る前のまとまりなら 4〜6%。刻んだ区間は材料としても弱く、当たりにくい。
+ *    まとまりで見分けて、結果はその全画面に配る（2026-10-19 に実測して変更）。
+ *
+ * 🔴 区間は**語の時刻**から作ること。
+ *    テロップの表示時刻には余韻（+0.15秒）と最低表示時間（0.7秒）の
+ *    引き伸ばしが入っている。その無音まで声として渡すと特徴が薄まる。
+ */
+export function unitsOf(telops: Telop[]): { id: string; src_start: number; src_end: number }[] {
+  const byUnit = new Map<string, { start: number; end: number }>()
+  for (const t of telops) {
+    const key = unitIdOf(t.id)
+    // 画面は元のまとまりの語を丸ごと持っている（splitTelop が複製する）
+    const words = (t.words ?? []).filter((w) => w.text.trim())
+    const start = words.length ? Math.min(...words.map((w) => w.srcStart)) : t.start
+    const end = words.length ? Math.max(...words.map((w) => w.srcEnd)) : t.end
+    const found = byUnit.get(key)
+    byUnit.set(
+      key,
+      found
+        ? { start: Math.min(found.start, start), end: Math.max(found.end, end) }
+        : { start, end },
+    )
+  }
+  return [...byUnit].map(([id, r]) => ({
+    id,
+    src_start: Number(r.start.toFixed(3)),
+    src_end: Number(r.end.toFixed(3)),
+  }))
+}
+
+/** まとまりの id から、その画面の id を集める */
+export function screensOfUnits(telops: Telop[], unitIds: Iterable<string>): string[] {
+  const want = new Set(unitIds)
+  return telops.filter((t) => want.has(unitIdOf(t.id))).map((t) => t.id)
+}
+
 
 /**
  * 画面に出す声のまとまり。1枚だけの短いものは「その他」に寄せる。
