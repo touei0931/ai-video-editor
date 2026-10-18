@@ -154,12 +154,24 @@ export async function runAnalysis(
  * 友達が FCP から書き出した .fcpxml を「テロップの見本」として取り込む。
  * effect の uid と text-style を丸写しするので、FCP 上の見た目が完全に一致する。
  */
-export async function loadTitleTemplate(): Promise<TitleTemplateSummary> {
+export async function loadTitleTemplate(speaker = ''): Promise<TitleTemplateSummary> {
   if (!isInFCP) {
     // 開発中は見本を選べないので、それらしいものを返す
-    return { effectName: '基本01_10', font: 'Hiragino Sans', fontFace: 'W8', fontSize: 146, bold: true, paramCount: 3 }
+    return {
+      effectName: speaker ? `見本（${speaker}）` : '基本01_10',
+      font: 'Hiragino Sans', fontFace: 'W8', fontSize: 146, bold: true, paramCount: 3, hasStyle: true,
+    }
   }
-  return callSwift<TitleTemplateSummary>('loadTitleTemplate', {}, 0)
+  return callSwift<TitleTemplateSummary>('loadTitleTemplate', { speaker }, 0)
+}
+
+/**
+ * 話者ごとの見本の一覧（話者の id → 要約）。
+ * 🔴 既定の見本とは別物。ここに無い人は既定の見本で出る。
+ */
+export async function listSpeakerTemplates(): Promise<Record<string, TitleTemplateSummary>> {
+  if (!isInFCP) return {}
+  return callSwift<Record<string, TitleTemplateSummary>>('speakerTemplates')
 }
 
 /**
@@ -405,9 +417,12 @@ export async function forgetCutMemory(): Promise<CutMemorySummary> {
   return callSwift<CutMemorySummary>('forgetCutMemory', {}, 0)
 }
 
-export async function clearTitleTemplate(): Promise<void> {
-  if (!isInFCP) return
-  await callSwift('clearTitleTemplate')
+/** 見本を外す。speaker を渡すとその人のぶんだけ外す（既定の見本は残る） */
+export async function clearTitleTemplate(
+  speaker = '',
+): Promise<Record<string, TitleTemplateSummary>> {
+  if (!isInFCP) return {}
+  return (await callSwift<Record<string, TitleTemplateSummary>>('clearTitleTemplate', { speaker })) ?? {}
 }
 
 /**

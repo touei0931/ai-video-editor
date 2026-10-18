@@ -225,6 +225,13 @@ export interface ProjectState {
   speakerReport?: { matched: number; unknown: number; tooShort: number; backend?: string }
   /** 文字起こしの直し候補（⑤テロップの「見直す」で出る） */
   proofCandidates?: ProofCandidate[]
+  /**
+   * 話者ごとのテロップ見本（話者の id → 要約）。
+   *
+   * 🔴 既定の見本（template）は置き換えない。ここに無い人と、
+   *    声が短くて分からなかったテロップは既定の見本で出す。
+   */
+  speakerTemplates?: Record<string, TitleTemplateSummary>
   /** FCP から読めた情報（アプリ名・バージョン・シーケンス名など） */
   host?: Record<string, unknown>
   /**

@@ -147,6 +147,8 @@ struct TitleTemplate: Codable {
     // MARK: - 保存
 
     private static let key = "pac.titleTemplate"
+    /// 話者ごとの見本。話者の id → 見本
+    private static let speakerKey = "pac.titleTemplate.bySpeaker"
 
     func save() {
         if let data = try? JSONEncoder().encode(self) {
@@ -161,5 +163,52 @@ struct TitleTemplate: Codable {
 
     static func clear() {
         UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    /*
+      話者（喋っている人）ごとの見本。
+
+      🔴 既定の見本（上の key）は消さないこと。
+         話者が分からないテロップ（声が短くて当たらなかった所）は、
+         これまでどおり既定の見本で出す。話者ごとの見本は上書きであって、
+         置き換えではない。
+
+      🔴 id で持つこと（名前ではなく）。
+         名前は画面で変えられる。名前で持つと、名前を直した瞬間に
+         見本との結び付きが切れる。
+    */
+    static func loadBySpeaker() -> [String: TitleTemplate] {
+        guard let data = UserDefaults.standard.data(forKey: speakerKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: TitleTemplate].self, from: data)) ?? [:]
+    }
+
+    static func saveBySpeaker(_ map: [String: TitleTemplate]) {
+        guard let data = try? JSONEncoder().encode(map) else { return }
+        UserDefaults.standard.set(data, forKey: speakerKey)
+    }
+
+    func save(speaker: String) {
+        guard !speaker.isEmpty else {
+            save()
+            return
+        }
+        var map = Self.loadBySpeaker()
+        map[speaker] = self
+        Self.saveBySpeaker(map)
+    }
+
+    static func clear(speaker: String) {
+        guard !speaker.isEmpty else {
+            clear()
+            return
+        }
+        var map = loadBySpeaker()
+        map.removeValue(forKey: speaker)
+        saveBySpeaker(map)
+    }
+
+    /// 画面に渡す形（話者の id → 要約）
+    static func summariesBySpeaker() -> [String: Any] {
+        loadBySpeaker().mapValues { $0.summary }
     }
 }

@@ -16,6 +16,10 @@ import Foundation
 
 enum FCPXMLWriter {
 
+    /// 見本が無いときに使う FCP 標準のタイトル
+    static let BASIC_TITLE_UID =
+        ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"
+
     /// FCPXML のバージョン。上げてはいけない（FCP 12 = 1.13）
     static let version = "1.13"
 
@@ -247,7 +251,9 @@ enum FCPXMLWriter {
         /// 🔴 1.0 のときは速度の指定を**一切書かない**こと。
         ///    使わない人の書き出しを、この機能で変えてはいけない。
         speed: Double = 1.0,
-        template: TitleTemplate? = nil
+        template: TitleTemplate? = nil,
+        /// 話者（喋っている人）ごとの見本。話者の id → 見本。無ければ既定の見本で出す
+        speakerTemplates: [String: TitleTemplate] = [:]
     ) -> String {
         let (fdNum, fdDen) = frameDuration(fps: fps)
         let frameDur = "\(fdNum)/\(fdDen)s"
@@ -329,6 +335,54 @@ enum FCPXMLWriter {
         */
         let outTotalF = hasMedia ? clipFrames.reduce(0, +) : frameCount(total, fps: fps)
 
+        /*
+          話者（喋っている人）ごとの見本。
+
+          🔴 effect は使うぶんだけ、重複なく並べること。
+             同じ見本を2人で使っていたら1つにまとめる。FCP は同じ uid の
+             effect が並んでいても読むが、どの title がどれを指しているか
+             追えなくなる。
+
+          🔴 既定の見本（r2）は必ず残すこと。
+             声が短くて話者が分からなかったテロップは r2 で出す。
+             話者ごとの見本は上書きであって、置き換えではない。
+        */
+        var effects: [(id: String, template: TitleTemplate?)] = [("r2", template)]
+        var refOfSpeaker: [String: String] = [:]
+        if !speakerTemplates.isEmpty {
+            var idOfUID: [String: String] = [:]
+            if let template { idOfUID[template.effectUID] = "r2" }
+            // 並びが動かないように、話者の id の順で当てる
+            for speaker in speakerTemplates.keys.sorted() {
+                guard let t = speakerTemplates[speaker] else { continue }
+                if let known = idOfUID[t.effectUID] {
+                    refOfSpeaker[speaker] = known
+                    continue
+                }
+                let id = "rT\(effects.count)"
+                effects.append((id, t))
+                idOfUID[t.effectUID] = id
+                refOfSpeaker[speaker] = id
+            }
+        }
+
+        /// そのテロップが使う見本と、その effect の id
+        func templateFor(_ telop: [String: Any]) -> (ref: String, template: TitleTemplate?) {
+            if let speaker = telop["speaker"] as? String,
+               let ref = refOfSpeaker[speaker],
+               let found = effects.first(where: { $0.id == ref }) {
+                return (ref, found.template)
+            }
+            return ("r2", template)
+        }
+
+        // resources に並べる effect（既定＋話者ごと）。1行1つ
+        let effectsXML = effects.map { e -> String in
+            let name = escape(e.template?.effectName ?? "Basic Title")
+            let uid = escape(e.template?.effectUID ?? BASIC_TITLE_UID)
+            return "    <effect id=\"\(e.id)\" name=\"\(name)\" uid=\"\(uid)\"/>"
+        }.joined(separator: "\n")
+
         var xml = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE fcpxml>
@@ -336,7 +390,7 @@ enum FCPXMLWriter {
           <!-- \(escape(stamp(meta: meta, width: w, height: h, fps: fps, cuts: cuts, telops: telops, approved: approvedCuts.count, styles: styles, sizeFromTemplate: template.map { $0.textStyle.isEmpty } ?? false))) -->
           <resources>
             <format id="r1" name="\(formatName(width: w, height: h, fps: fps))" frameDuration="\(frameDur)" width="\(w)" height="\(h)" colorSpace="1-1-1 (Rec. 709)"/>
-            <effect id="r2" name="\(escape(template?.effectName ?? "Basic Title"))" uid="\(escape(template?.effectUID ?? ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"))"/>
+        \(effectsXML)
 
         """
 
@@ -475,7 +529,8 @@ enum FCPXMLWriter {
                     if tOffF >= limitF { tOffF = limitF - 1 }
                     var tDurF = max(1, Int((Double(eF - sF) / rate).rounded()))
                     if tOffF + tDurF > limitF { tDurF = limitF - tOffF }
-                    xml += titleElement(t, styles: styles, offsetFrames: tOffF, durationFrames: tDurF, fps: fps, template: template, frameHeight: h, indent: "          ")
+                    let pick = templateFor(t)
+                    xml += titleElement(t, styles: styles, offsetFrames: tOffF, durationFrames: tDurF, fps: fps, template: pick.template, effectRef: pick.ref, frameHeight: h, indent: "          ")
                 }
                 xml += "        </asset-clip>\n"
                 // 🔴 積むのは出来上がりの長さ。素材の長さを積むと、
@@ -488,7 +543,8 @@ enum FCPXMLWriter {
                 guard let s = t["start"] as? Double, let e = t["end"] as? Double else { continue }
                 let sF = frameCount(s, fps: fps)
                 let eF = max(frameCount(e, fps: fps), sF + 1)
-                xml += titleElement(t, styles: styles, offsetFrames: sF, durationFrames: eF - sF, fps: fps, template: template, frameHeight: h, indent: "          ")
+                let pick = templateFor(t)
+                xml += titleElement(t, styles: styles, offsetFrames: sF, durationFrames: eF - sF, fps: fps, template: pick.template, effectRef: pick.ref, frameHeight: h, indent: "          ")
             }
             xml += "        </gap>\n"
         }
@@ -516,6 +572,8 @@ enum FCPXMLWriter {
         durationFrames: Int,
         fps: Double,
         template: TitleTemplate?,
+        /// この title が指す effect の id（話者ごとに見本が違うことがある）
+        effectRef: String = "r2",
         /// プロジェクトの高さ。文字の大きさが決まらないときの拠り所にする
         frameHeight: Int,
         indent: String
@@ -536,7 +594,7 @@ enum FCPXMLWriter {
         let titleStart = template?.titleStart ?? "0s"
 
         var s = """
-        \(indent)<title ref="r2" lane="1" offset="\(timeFrames(offsetFrames, fps: fps))" name="\(escape(text))" start="\(titleStart)" duration="\(timeFrames(durationFrames, fps: fps))">
+        \(indent)<title ref="\(effectRef)" lane="1" offset="\(timeFrames(offsetFrames, fps: fps))" name="\(escape(text))" start="\(titleStart)" duration="\(timeFrames(durationFrames, fps: fps))">
 
         """
 

@@ -146,17 +146,20 @@ extension WorkflowExtensionViewController: WKScriptMessageHandler {
                 self.reply(id: id, ok: ok, payload: payload)
             }
         case "loadTitleTemplate":
-            loadTitleTemplate { ok, payload in
+            loadTitleTemplate(params: params) { ok, payload in
                 self.reply(id: id, ok: ok, payload: payload)
             }
+        case "speakerTemplates":
+            reply(id: id, ok: true, payload: TitleTemplate.summariesBySpeaker())
         case "cutMemory":
             reply(id: id, ok: true, payload: CutMemory.load().summary)
         case "forgetCutMemory":
             CutMemory.clear()
             reply(id: id, ok: true, payload: CutMemory.load().summary)
         case "clearTitleTemplate":
-            TitleTemplate.clear()
-            reply(id: id, ok: true, payload: NSNull())
+            // speaker を渡せば、その人の見本だけ外す（既定の見本は残る）
+            TitleTemplate.clear(speaker: (params["speaker"] as? String) ?? "")
+            reply(id: id, ok: true, payload: TitleTemplate.summariesBySpeaker())
         case "sendToFCP":
             exportToFCP(params: params) { ok, message in
                 self.reply(id: id, ok: ok, payload: ["ok": ok, "message": message])

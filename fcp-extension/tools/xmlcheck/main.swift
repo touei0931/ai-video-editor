@@ -365,6 +365,80 @@ do {
      「テロップが意味が分からないくらい小さい」になる
      （2026-09-01、見本 基本01_13 で発生）。
 */
+/* ================================================ 話者ごとのテロップ見本
+
+  🔴 人ごとに別の見本（Motion テンプレ）を使えること。
+     コラボ動画で、人ごとにテロップのデザインが違うことがある（2026-10-19、利用者）。
+     effect は使うぶんだけ重複なく並べ、title はその人の effect を指すこと。
+
+  🔴 話者が分からないテロップは既定の見本（r2）で出すこと。
+     声が短くて当たらなかった所まで消えたり、別人の見た目になってはいけない。
+*/
+do {
+    let 見本B = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE fcpxml>
+    <fcpxml version="1.13">
+      <resources><effect id="r9" name="見本B" uid="~/Titles.localized/PackB/B/B.moti"/></resources>
+      <library><event name="e"><project name="p"><sequence><spine>
+        <title ref="r9" offset="0s" name="見本B" start="3600s" duration="542/30s">
+          <param name="位置" key="9999/1/2/3/100/101" value="0 -200"/>
+          <text><text-style ref="tb">見本</text-style></text>
+          <text-style-def id="tb">
+            <text-style font="Hiragino Sans" fontSize="120" fontColor="1 1 0 1" bold="1"/>
+          </text-style-def>
+        </title>
+      </spine></sequence></project></event></library>
+    </fcpxml>
+    """
+    guard let tplB = try? TitleTemplate.parse(fcpxml: 見本B) else {
+        check("2つ目の見本を読める", false); exit(1)
+    }
+    check("2つ目の見本を読める", true)
+
+    let telops: [[String: Any]] = [
+        ["id": "a", "start": 1.0, "end": 2.0, "text": "フブキの発言", "style": "normal", "speaker": "spk1"],
+        ["id": "b", "start": 3.0, "end": 4.0, "text": "おかゆの発言", "style": "normal", "speaker": "spk2"],
+        ["id": "c", "start": 5.0, "end": 6.0, "text": "誰か分からない発言", "style": "normal"],
+    ]
+    let xml = FCPXMLWriter.build(
+        cuts: [], telops: telops, styles: styles, mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 10, mediaWidth: 1080, mediaHeight: 1920,
+        template: template, speakerTemplates: ["spk2": tplB])
+
+    check("既定の見本が r2 で並ぶ", xml.contains("<effect id=\"r2\" name=\"見本テンプレ\""),
+          xml.range(of: "<effect [^>]*/>", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
+    check("話者の見本も effect に並ぶ", xml.contains("name=\"見本B\""))
+    check("effect は2つだけ", xml.components(separatedBy: "<effect ").count - 1 == 2,
+          "\(xml.components(separatedBy: "<effect ").count - 1)")
+
+    // どの title がどれを指しているか
+    func refOf(_ text: String) -> String {
+        guard let r = xml.range(of: "<title ref=\"[^\"]+\"[^>]*name=\"\(text)\"", options: .regularExpression)
+        else { return "無し" }
+        let line = String(xml[r])
+        return line.components(separatedBy: "\"").count > 1 ? line.components(separatedBy: "\"")[1] : "無し"
+    }
+    check("見本を割り当てた人は、その effect を指す", refOf("おかゆの発言") == "rT1", refOf("おかゆの発言"))
+    check("割り当てていない人は既定の effect", refOf("フブキの発言") == "r2", refOf("フブキの発言"))
+    check("🔴 話者が分からないテロップも既定の effect", refOf("誰か分からない発言") == "r2",
+          refOf("誰か分からない発言"))
+    check("XML として妥当", (try? XMLDocument(xmlString: xml, options: [])) != nil)
+
+    // 同じ見本を2人に割り当てたら、effect は増えない
+    let 同じ見本 = FCPXMLWriter.build(
+        cuts: [], telops: telops, styles: styles, mediaPath: "/m/a.mov", fps: 30,
+        mediaDuration: 10, mediaWidth: 1080, mediaHeight: 1920,
+        template: template, speakerTemplates: ["spk1": tplB, "spk2": tplB])
+    check("同じ見本は1つの effect にまとめる",
+          同じ見本.components(separatedBy: "<effect ").count - 1 == 2,
+          "\(同じ見本.components(separatedBy: "<effect ").count - 1)")
+
+    // 見本の書式も、その人の見本のものが使われる
+    check("その人の見本の大きさで書く", xml.contains("fontSize=\"120\"") || xml.contains("fontSize=\"146\""),
+          xml.range(of: "<text-style [^>]*/>", options: .regularExpression).map { String(xml[$0]) } ?? "無し")
+}
+
 /* ================================================ 話者（喋っている人）ごとの色
 
   🔴 色は1枚ごとの上書き（overrides.color）として来る。スタイルは触られない。

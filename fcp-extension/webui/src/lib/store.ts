@@ -10,6 +10,7 @@ import {
   enrollSpeaker,
   identifySpeakers,
   listSpeakers,
+  listSpeakerTemplates,
   loadProject,
   proofreadTelops,
   loadTitleTemplate,
@@ -62,6 +63,9 @@ export interface Store {
   editSpeaker: (id: string, patch: { name?: string; color?: string; forget?: boolean }) => Promise<void>
   /** 登録を消す */
   forgetSpeaker: (id: string) => Promise<void>
+  /** その人のテロップに使う見本を読み込む / 外す */
+  pickSpeakerTemplate: (speakerId: string) => Promise<string | null>
+  dropSpeakerTemplate: (speakerId: string) => Promise<void>
   /* ── 文字起こしの見直し ── */
   /** 前後の会話を読んで直し候補を出す。返り値は画面に出すひとこと */
   proofread: (
@@ -314,11 +318,11 @@ export function useStore(): Store {
        操作のたびに返ってきた一覧で入れ替える。
   */
 
-  /** 登録の一覧を読み直す（⑤テロップで話者の欄を開いたとき） */
+  /** 登録の一覧と、話者ごとの見本を読み直す（⑤テロップで話者の欄を開いたとき） */
   const refreshSpeakers = useCallback(async () => {
     try {
-      const r = await listSpeakers()
-      setState((s) => (s ? { ...s, speakers: r.speakers } : s))
+      const [r, templates] = await Promise.all([listSpeakers(), listSpeakerTemplates()])
+      setState((s) => (s ? { ...s, speakers: r.speakers, speakerTemplates: templates } : s))
     } catch {
       // 読めなくても画面は出す（登録が無いのと見分けがつかないが、操作はできる）
     }
@@ -578,6 +582,31 @@ export function useStore(): Store {
     [edit],
   )
 
+  /**
+   * その人のテロップに使う見本を読み込む。
+   *
+   * 🔴 既定の見本は置き換えないこと。ここで割り当てた人のテロップだけ、
+   *    その見本で出す。割り当てていない人と、声が短くて分からなかった
+   *    テロップは既定の見本で出る。
+   */
+  const pickSpeakerTemplate = useCallback(async (speakerId: string): Promise<string | null> => {
+    try {
+      const t = await loadTitleTemplate(speakerId)
+      setState((s) =>
+        s ? { ...s, speakerTemplates: { ...(s.speakerTemplates ?? {}), [speakerId]: t } } : s,
+      )
+      return t.effectName
+    } catch {
+      return null
+    }
+  }, [])
+
+  /** その人の見本を外す（既定の見本に戻る） */
+  const dropSpeakerTemplate = useCallback(async (speakerId: string) => {
+    const map = await clearTitleTemplate(speakerId)
+    setState((s) => (s ? { ...s, speakerTemplates: map } : s))
+  }, [])
+
   const approvedCuts = useMemo(
     () => (state ? state.cuts.filter((c) => c.decision === 'approved') : []),
     [state],
@@ -603,6 +632,8 @@ export function useStore(): Store {
     setTelopSpeaker,
     editSpeaker,
     forgetSpeaker,
+    pickSpeakerTemplate,
+    dropSpeakerTemplate,
     proofread,
     applyCandidate,
     dismissCandidate,

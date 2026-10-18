@@ -921,6 +921,33 @@ export function TelopScreen({
                         >
                           声を忘れる
                         </button>
+                        {/*
+                          🔴 人ごとに別の見本（テロップのデザイン）を使えるようにする。
+                             コラボでは人ごとにデザインが違うことがある（2026-10-19）。
+                             割り当てていない人と、声が短くて分からなかったテロップは
+                             既定の見本で出る（置き換えではなく上書き）。
+                        */}
+                        <button
+                          className="tiny"
+                          title="この人のテロップに使う見本（FCP から書き出した XML）を選びます"
+                          onClick={async () => {
+                            const name = await store.pickSpeakerTemplate(p.id)
+                            setSpeakerNote(
+                              name ? `${p.name} の見本を「${name}」にしました` : '見本を読み込めませんでした',
+                            )
+                          }}
+                        >
+                          見本: {state.speakerTemplates?.[p.id]?.effectName ?? '既定'}
+                        </button>
+                        {state.speakerTemplates?.[p.id] && (
+                          <button
+                            className="tiny"
+                            title="この人の見本を外す（既定の見本に戻ります）"
+                            onClick={() => void store.dropSpeakerTemplate(p.id)}
+                          >
+                            見本を外す
+                          </button>
+                        )}
                         <button className="tiny" onClick={() => void store.forgetSpeaker(p.id)}>
                           消す
                         </button>
@@ -1019,6 +1046,8 @@ export function TelopScreen({
                 （覚えるのは声の特徴だけで、音そのものは保存しません）。
                 <br />
                 変わるのは<strong>文字の色だけ</strong>です（書体と大きさは全員同じ）。
+                人ごとにテロップのデザインを変えたいときは、その人の「見本」に
+                別の XML を読み込ませてください。
                 自信が無いところは色を付けず「当たらなかった声」に残すので、そこは手で付けてください。
                 同時に喋っているところは声が混ざるので当たりません。
               </div>
