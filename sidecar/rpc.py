@@ -184,6 +184,38 @@ def _proofread(params: dict[str, Any], on_progress: ProgressFn, is_cancelled: Ca
     return out
 
 
+def _check_cuts(params: dict[str, Any], on_progress: ProgressFn, is_cancelled: CancelFn) -> dict:
+    """カットを当ててよいかを、前後の発言から確かめる（判断は書き換えない）。"""
+    from .cutsafe import review, verify
+    from .proof_llm import Proofreader, pick_engine
+
+    candidates = list(params.get("candidates") or [])
+    if not candidates:
+        return {"error": "確かめるカット候補がありません"}
+    out: dict[str, Any] = {"flagged": review(candidates)["flagged"], "verdicts": [], "checked": 0}
+    if not params.get("llm", True):
+        return out
+    try:
+        reader = Proofreader(str(params.get("engine") or pick_engine()), params.get("model"))
+    except Exception as e:  # noqa: BLE001
+        out["error"] = str(e)
+        return out
+    out["backend"] = reader.describe()
+    got = verify(
+        candidates,
+        reader.ask,
+        only_flagged=bool(params.get("onlyFlagged", False)),
+        is_cancelled=is_cancelled,
+        on_progress=lambda ratio, note="": on_progress(ratio, note or "切ってよいか確かめています"),
+    )
+    out["verdicts"] = got.get("verdicts", [])
+    out["checked"] = got.get("checked", 0)
+    for key in ("error", "cancelled"):
+        if got.get(key):
+            out[key] = got[key]
+    return out
+
+
 def _heavy(method: str):
     """重い処理は別プロセスへ回す（worker.py の冒頭に理由を書いてある）。"""
 
@@ -203,6 +235,7 @@ HANDLERS: dict[str, Callable[..., Any]] = {
     "make_clip": _make_clip,
     "speakers": _speakers,
     "proofread": _proofread,
+    "check_cuts": _check_cuts,
     "analyze": _heavy("analyze"),
     "redetect": _heavy("redetect"),
     "build_telops": _heavy("build_telops"),

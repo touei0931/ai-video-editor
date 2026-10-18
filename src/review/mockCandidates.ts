@@ -24,6 +24,16 @@ export interface CutCandidate {
   /** フィラーや言い直しの場合、その語 */
   word?: string;
   /**
+   * 「切ると前後が繋がらなくなる」の印（sidecar/cutsafe.py が付ける）。
+   *
+   * 🔴 これが付いているものは、まとめ承認から外すこと。
+   *    独り言やフィラーを全部切ると、前後の関係が消えて話が分からなくなる
+   *    （2026-10-19、利用者）。
+   */
+  keepHint?: { risk: 'high' | 'medium'; reason: string };
+  /** 前後の発言を読んだ見立て（cut:false = 残した方がいい） */
+  cutVerdict?: { cut: boolean; reason: string };
+  /**
    * レビュー用の短尺クリップ。「切って繋いだ結果」が入っている。
    * これをループ再生して「繋ぎが自然か」を判断する（§3.3.3）。
    */

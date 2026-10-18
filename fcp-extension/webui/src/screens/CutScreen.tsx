@@ -33,6 +33,9 @@ export function CutScreen({
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  /* カットを当ててよいか（前後の繋がり）を確かめる */
+  const [checking, setChecking] = useState(false)
+  const [checkNote, setCheckNote] = useState('')
 
   const duration = state?.durationSec ?? 0
   // 承認したカットは飛ばして再生する。切ると決めた区間を流しても確認にならない
@@ -44,6 +47,12 @@ export function CutScreen({
    * 少し手前から当たりにする。「そろそろ来る」と分かった時点で
    * 手が動かせないと、通り過ぎてから押すことになる。
    */
+  /** 「残した方がいい」と判定された件数 */
+  const keepCount = useMemo(
+    () => (state?.cuts ?? []).filter((c) => c.keepHint || c.cutVerdict?.cut === false).length,
+    [state],
+  )
+
   const playingCut = useMemo(
     () =>
       state?.cuts.find((c) => time >= c.start - LEAD_IN && time <= c.end) ?? null,
@@ -207,6 +216,11 @@ export function CutScreen({
         <div className="panel-title">
           <span>カット候補 {state.cuts.length} 件</span>
           <span className="spacer" />
+          {/*
+            🔴 「全部承認」は、切ると前後が繋がらなくなる候補を外して承認する。
+               独り言やフィラーを全部切ると話が分からなくなることがある
+               （2026-10-19）。外した件数は下の注意に出す。
+          */}
           <button className="tiny ok" onClick={() => decideAllCuts('approved')}>
             全部承認
           </button>
@@ -228,6 +242,36 @@ export function CutScreen({
           <span><kbd>⌘Z</kbd> ひとつ戻す</span>
         </div>
 
+        <div className="form" style={{ padding: '0 10px 6px' }}>
+          <label />
+          <div className="inline">
+            <button
+              className="tiny"
+              disabled={checking}
+              title="前後の発言を読んで、消しても話が通じるかを1件ずつ確かめます"
+              onClick={async () => {
+                setChecking(true)
+                setCheckNote('前後の発言を読んでいます…')
+                const note = await store.checkCutSafety((stage) => setCheckNote(stage))
+                setCheckNote(note)
+                setChecking(false)
+              }}
+            >
+              {checking ? '確かめています…' : '切ってよいか確かめる'}
+            </button>
+            {checkNote && (
+              <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>{checkNote}</span>
+            )}
+          </div>
+        </div>
+
+        {keepCount > 0 && (
+          <div className="hint warn">
+            {keepCount}件は<strong>残した方がいい</strong>と判定しました（印が付いています）。
+            「全部承認」ではこの分を切りません。1件ずつ見て決めてください。
+          </div>
+        )}
+
         <div className="list" ref={listRef}>
           {state.cuts.map((c) => (
             <div
@@ -245,6 +289,15 @@ export function CutScreen({
               }}
             >
               <span className={`badge ${c.kind}`}>{CUT_LABEL[c.kind]}</span>
+              {/* 🔴 切ると前後が繋がらない候補は、一覧で分かるようにする */}
+              {(c.keepHint || c.cutVerdict?.cut === false) && (
+                <span
+                  className="badge keep"
+                  title={c.keepHint?.reason || c.cutVerdict?.reason || ''}
+                >
+                  残す?
+                </span>
+              )}
               <span className="row-time">{fmtTime(c.start)}</span>
               <span className="row-text">
                 {c.text || (

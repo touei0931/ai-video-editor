@@ -662,3 +662,9 @@ textarea {
   background: #5a4420;
   color: #ffd98a;
 }
+
+/* 切ると前後が繋がらなくなる候補の印。④カットの一覧に出す */
+.badge.keep {
+  background: #5a3a20;
+  color: #ffc98a;
+}

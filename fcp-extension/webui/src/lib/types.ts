@@ -18,6 +18,22 @@ export interface CutCandidate {
   /** 0..1 */
   confidence: number
   decision: Decision
+  /**
+   * 「切ると前後が繋がらなくなる」の印（エンジンが付ける）。
+   *
+   * 🔴 これが付いているものは「全部承認」から外すこと。
+   *    独り言やフィラーを全部切ると、前後の関係が消えて話が分からなくなる
+   *    （2026-10-19、利用者）。まとめて切るときに話を壊さないための歯止め。
+   */
+  keepHint?: { risk: 'high' | 'medium'; reason: string }
+  /** 前後の発言。なぜ残した方がいいかを画面で見せるのに使う */
+  before?: string
+  after?: string
+  /**
+   * 前後の発言を読んだ見立て（⑤の見直しと同じローカル LLM）。
+   * cut:false = 残した方がいい。これも「全部承認」から外す。
+   */
+  cutVerdict?: { cut: boolean; reason: string }
 }
 
 /** テロップの見た目。FCP のテンプレに渡す値でもある */

@@ -61,6 +61,12 @@ def map_cuts(
             "text": text,
             "confidence": float(c.get("confidence", 0)),
             "decision": "pending",
+            # 🔴 「切ると前後が繋がらない」の印を落とさないこと。
+            #    これが無いと「全部承認」で話の中身まで消える
+            "keepHint": c.get("keep_hint") or None,
+            # 前後の発言。画面で「なぜ残した方がいいか」を見せるのに使う
+            "before": c.get("before") or "",
+            "after": c.get("after") or "",
         })
     out.sort(key=lambda c: c["start"])
     return out

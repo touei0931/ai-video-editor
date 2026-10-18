@@ -334,6 +334,56 @@ export async function proofreadTelops(
   }
 }
 
+
+/**
+ * カットを当ててよいかを、前後の発言から確かめる。
+ *
+ * 🔴 判断は書き換わらない。返るのは「切る/残す」の見立てと理由だけ。
+ * 🔴 時間で切らないこと。初回はモデル（約 2.3GB）の取得が入る。
+ */
+export async function checkCuts(
+  payload: { candidates: CutCandidate[]; onlyFlagged?: boolean },
+  onProgress?: (stage: string, ratio: number) => void,
+): Promise<{
+  flagged?: { id: string; risk: string; reason: string }[]
+  verdicts?: { id: string; cut: boolean; reason: string }[]
+  checked?: number
+  backend?: string
+  error?: string
+}> {
+  const body = {
+    op: 'cuts',
+    onlyFlagged: !!payload.onlyFlagged,
+    candidates: payload.candidates.map((c) => ({
+      id: c.id,
+      kind: c.kind,
+      text: c.text,
+      before: c.before ?? '',
+      after: c.after ?? '',
+    })),
+  }
+  if (!isInFCP) {
+    await new Promise((r) => setTimeout(r, 400))
+    return {
+      verdicts: payload.candidates
+        .filter((c) => c.kind !== 'silence')
+        .map((c, i) => ({
+          id: c.id,
+          cut: i % 3 !== 0,
+          reason: i % 3 === 0 ? '前の話を受けています（開発モード）' : 'ただのつぶやき（開発モード）',
+        })),
+      checked: payload.candidates.filter((c) => c.kind !== 'silence').length,
+      backend: '開発モード',
+    }
+  }
+  if (onProgress) window.pacProgress = onProgress
+  try {
+    return await callSwift('proofread', body, 0)
+  } finally {
+    if (onProgress) window.pacProgress = undefined
+  }
+}
+
 /**
  * 覚えた「間の好み」を読む。
  *

@@ -230,6 +230,21 @@ def _redetect(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, Any]
     analysis = detect_candidates(transcript, params.get("options"))
     analysis["video_path"] = video_path
 
+    """
+    🔴 「切ると前後が繋がらなくなる」候補に印を付ける。
+
+       独り言やフィラーを全部切ると、前後の関係が消えて話が分からなく
+       なることがある（2026-10-19、利用者）。candidates に keep_hint が付き、
+       画面はそれを見てまとめ承認から外す。規則だけなので無料・即時。
+       前後の発言を読んで確かめる方（LLM）は rpc の check_cuts。
+    """
+    try:
+        from .cutsafe import review as review_cuts
+
+        analysis["keep_hints"] = review_cuts(analysis.get("candidates") or [])["flagged"]
+    except Exception as e:  # noqa: BLE001
+        analysis["keep_hints_error"] = f"{type(e).__name__}: {e}"
+
     work_dir = Path(params.get("work_dir") or default_work_dir(video_path))
     failed = _make_review_clips(video_path, work_dir, analysis, on_progress, 0.1, 0.85)
     analysis["clip_failures"] = failed

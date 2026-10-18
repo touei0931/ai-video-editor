@@ -132,6 +132,23 @@ def analyze(
         analysis = pac_cut.detect_candidates(transcript, options.get("cut"))
         candidates = cut_text_from_transcript(list(analysis.get("candidates", [])), transcript)
 
+        """
+        🔴 「切ると前後が繋がらなくなる」候補に印を付ける（無料・即時）。
+
+           独り言やフィラーを全部切ると、前後の関係が消えて話が分からなく
+           なることがある（2026-10-19、利用者）。カットの判定は「形」だけを
+           見ているので、繋がりの判断は別に行う。
+           前後の発言を読んで確かめる方（LLM）は、④カットの「切ってよいか
+           確かめる」で走らせる。解析のたびにモデルを読むのは重い。
+        """
+        cut_safety: dict[str, Any] = {}
+        try:
+            from sidecar import cutsafe
+
+            cut_safety = cutsafe.review(candidates)
+        except Exception as e:  # noqa: BLE001
+            cut_safety = {"error": f"{type(e).__name__}: {e}"}
+
         # 🔴 回転情報まで見た「表示上の」大きさを取ること。
         #    iPhone の縦動画はストリームが 1920x1080 のままで、
         #    「回して表示せよ」の情報が付いている。数値をそのまま信じると横向きになる。
@@ -209,6 +226,9 @@ def analyze(
             "nameFixError": name_report.get("error", ""),
             "swapFixes": proof_report.get("fixed", 0),
             "suspects": len(proof_report.get("suspects", []) or []),
+            # 🔴 「残した方がいい」の件数を残す。黙って全部切られるのを防ぐための印
+            "keepHints": len(cut_safety.get("flagged", []) or []),
+            "keepHintError": cut_safety.get("error", ""),
             "proofError": proof_report.get("error", ""),
         }
         return state

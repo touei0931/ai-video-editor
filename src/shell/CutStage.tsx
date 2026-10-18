@@ -376,9 +376,25 @@ export function CutStage({
   const decideAllHeld = useCallback(
     (next: 'cut' | 'keep') => {
       if (held.length === 0) return;
-      const n = held.length;
-      for (const c of held) decide(c.id, next);
-      setNotice(`保留 ${n} 件を${next === 'cut' ? '切りました' : '残しました'}（Ctrl+Z で戻せます）`);
+      /*
+        🔴 まとめて「切る」ときは、切ると前後が繋がらなくなる候補を外すこと。
+           独り言やフィラーを全部切ると、前後の関係が消えて話が分からなく
+           なることがある（2026-10-19、利用者）。外した分は保留のまま残して、
+           1件ずつ見てもらう。「残す」は安全なので全部に当てる。
+      */
+      const risky = next === 'cut'
+        ? held.filter((c) => c.keepHint || c.cutVerdict?.cut === false)
+        : [];
+      const target = next === 'cut' ? held.filter((c) => !risky.includes(c)) : held;
+      if (target.length === 0) {
+        setNotice(`保留 ${held.length} 件はどれも「残した方がいい」判定です。1件ずつ見てください`);
+        return;
+      }
+      for (const c of target) decide(c.id, next);
+      const skipped = risky.length > 0 ? `（${risky.length}件は繋がりが切れるので残しました）` : '';
+      setNotice(
+        `保留 ${target.length} 件を${next === 'cut' ? '切りました' : '残しました'}${skipped}（Ctrl+Z で戻せます）`,
+      );
     },
     [held, decide],
   );

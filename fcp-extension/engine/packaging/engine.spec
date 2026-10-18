@@ -106,6 +106,8 @@ a = Analysis(
         "sidecar.names",
         "sidecar.proof",
         "sidecar.proof_llm",
+        # カットを当ててよいか（前後の繋がり）。analyze と proof.py が読む
+        "sidecar.cutsafe",
         # nagisa（日本語の分かち書き）が読む。collect_all では拾えず、
         # 固めた中で「No module named 'six'」になった（CI の --probe で判明）
         "six",

@@ -42,6 +42,44 @@ def run(params: dict[str, Any]) -> dict[str, Any]:
         except Exception as e:  # noqa: BLE001
             return {"error": str(e)}
 
+    if op == "cuts":
+        """
+        カットを当ててよいかを、前後の発言から確かめる。
+
+        🔴 判断は書き換えない。返すのは「切る/残す」の見立てと理由だけで、
+           決めるのは人（画面の④カット）。
+        """
+        from sidecar import cutsafe
+
+        candidates: list[dict[str, Any]] = list(params.get("candidates") or [])
+        if not candidates:
+            return {"error": "確かめるカット候補がありません"}
+
+        rules = cutsafe.review(candidates)
+        out: dict[str, Any] = {
+            "flagged": rules["flagged"],
+            "verdicts": [],
+            "checked": 0,
+        }
+        if not params.get("llm", True):
+            return out
+        try:
+            reader = Proofreader(engine, params.get("model"))
+        except Exception as e:  # noqa: BLE001
+            out["error"] = str(e)
+            return out
+        out["backend"] = reader.describe()
+        got = cutsafe.verify(
+            candidates,
+            reader.ask,
+            only_flagged=bool(params.get("onlyFlagged", False)),
+        )
+        out["verdicts"] = got.get("verdicts", [])
+        out["checked"] = got.get("checked", 0)
+        if got.get("error"):
+            out["error"] = got["error"]
+        return out
+
     if op != "review":
         return {"error": f"知らない操作です: {op}"}
 

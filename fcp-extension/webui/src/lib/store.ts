@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { splitTelops } from './splitTelop'
 import {
+  checkCuts,
   clearTitleTemplate,
   enrollSpeaker,
   identifySpeakers,
@@ -33,6 +34,8 @@ export interface Store {
   decideAllCuts: (decision: Decision) => void
   /** カットの区間を直す（タイムラインで端を掴んだとき） */
   updateCut: (id: string, patch: Partial<CutCandidate>) => void
+  /** カットを当ててよいかを前後の発言から確かめる。返り値は画面に出すひとこと */
+  checkCutSafety: (onProgress?: (stage: string, ratio: number) => void) => Promise<string>
   /** テロップの編集 */
   updateTelop: (id: string, patch: Partial<Telop>) => void
   addTelop: (telop: Telop) => void
@@ -130,9 +133,23 @@ export function useStore(): Store {
     [edit],
   )
 
+  /**
+   * まとめて決める。
+   *
+   * 🔴 「全部承認」では、切ると前後が繋がらなくなる候補を外すこと。
+   *    独り言やフィラーを全部切ると、前後の関係が消えて話が分からなく
+   *    なることがある（2026-10-19、利用者）。印が付いたものは pending の
+   *    ままにして、1件ずつ見てもらう。「全部却下」は安全なので全部に当てる。
+   */
   const decideAllCuts = useCallback(
     (decision: Decision) => {
-      edit((s) => ({ ...s, cuts: s.cuts.map((c) => ({ ...c, decision })) }))
+      edit((s) => ({
+        ...s,
+        cuts: s.cuts.map((c) => {
+          if (decision === 'approved' && (c.keepHint || c.cutVerdict?.cut === false)) return c
+          return { ...c, decision }
+        }),
+      }))
     },
     [edit],
   )
@@ -519,6 +536,48 @@ export function useStore(): Store {
     [edit],
   )
 
+  /**
+   * カットを当ててよいかを、前後の発言から確かめる。
+   *
+   * 🔴 判断（切る/残す）は書き換えない。見立てを添えるだけで、決めるのは人。
+   *    ここで自動的に却下まですると、「確かめたら勝手に残っていた」になる。
+   */
+  const checkCutSafety = useCallback(
+    async (onProgress?: (stage: string, ratio: number) => void): Promise<string> => {
+      const current = stateRef.current
+      if (!current || current.cuts.length === 0) return 'カット候補がありません'
+      const spoken = current.cuts.filter((c) => c.kind !== 'silence')
+      if (spoken.length === 0) return '言葉が消えるカット候補はありません（無音だけです）'
+      try {
+        const r = await checkCuts({ candidates: current.cuts }, onProgress)
+        const hints = new Map((r.flagged ?? []).map((f) => [f.id, f]))
+        const verdicts = new Map((r.verdicts ?? []).map((v) => [v.id, v]))
+        edit((s) => ({
+          ...s,
+          cuts: s.cuts.map((c) => {
+            const hint = hints.get(c.id)
+            const verdict = verdicts.get(c.id)
+            if (!hint && !verdict) return c
+            return {
+              ...c,
+              keepHint: hint ? { risk: hint.risk as 'high' | 'medium', reason: hint.reason } : c.keepHint,
+              cutVerdict: verdict ? { cut: verdict.cut, reason: verdict.reason } : c.cutVerdict,
+            }
+          }),
+        }))
+        if (r.error) return `確かめられませんでした：${r.error}`
+        const keep = (r.verdicts ?? []).filter((v) => !v.cut).length
+        return keep === 0
+          ? `${r.checked ?? 0}件を確かめました。どれも切って大丈夫そうです`
+          : `${r.checked ?? 0}件のうち ${keep}件は残した方がよさそうです（「全部承認」からは外れます）`
+      } catch (e) {
+        const message = (e as { message?: string })?.message
+        return message ? `確かめられませんでした：${message}` : '確かめられませんでした'
+      }
+    },
+    [edit],
+  )
+
   const approvedCuts = useMemo(
     () => (state ? state.cuts.filter((c) => c.decision === 'approved') : []),
     [state],
@@ -529,6 +588,7 @@ export function useStore(): Store {
     decideCut,
     decideAllCuts,
     updateCut,
+    checkCutSafety,
     updateTelop,
     addTelop,
     removeTelop,

@@ -118,6 +118,7 @@ jobs:
           # 🔴 文字起こしの見直しの配管（モデル不要の所まで）
           python3 scripts/test_proof.py
           python3 scripts/test_proof_llm.py
+          python3 scripts/test_cutsafe.py
 
       - name: xcodegen
         run: brew install xcodegen

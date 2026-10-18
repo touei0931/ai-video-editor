@@ -99,6 +99,8 @@ interface AnalyzeResult {
     before?: string;
     after?: string;
     word?: string;
+    /** 「切ると前後が繋がらなくなる」の印（sidecar/cutsafe.py） */
+    keep_hint?: { risk: 'high' | 'medium'; reason: string } | null;
     clip_path?: string | null;
     clip_join_at?: number;
     clip_duration?: number;
@@ -150,6 +152,8 @@ function toCandidate(c: AnalyzeResult['candidates'][number]): CutCandidate {
     before: c.before ?? '',
     after: c.after ?? '',
     word: c.word,
+    // 🔴 落とさないこと。これが無いと「まとめて切る」で話の中身まで消える
+    keepHint: c.keep_hint ?? undefined,
     clipPath: c.clip_path ?? null,
     clipJoinAt: c.clip_join_at,
     clipDuration: c.clip_duration,
