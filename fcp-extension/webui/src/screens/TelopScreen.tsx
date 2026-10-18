@@ -32,10 +32,16 @@ function newTelopId(): string {
 
 export function TelopScreen({
   store,
+  names,
+  swaps,
   speed,
   onSpeedChange,
 }: {
   store: Store
+  /** ②設定の「出てくる名前」。文字起こしの見直しの手がかりに渡す */
+  names?: string
+  /** ②設定の「言い換え表」 */
+  swaps?: string
   /** 再生速度。書き出しに指定するものと同じ値 */
   speed: number
   onSpeedChange: (speed: number) => void
@@ -752,7 +758,7 @@ export function TelopScreen({
                     onClick={async () => {
                       setProofing(true)
                       setProofNote('前後の会話を読んでいます…')
-                      const note = await store.proofread({}, (stage) => setProofNote(stage))
+                      const note = await store.proofread({ names, swaps }, (stage) => setProofNote(stage))
                       setProofNote(note)
                       setProofing(false)
                     }}
@@ -766,7 +772,7 @@ export function TelopScreen({
                     onClick={async () => {
                       setProofing(true)
                       setProofNote('印の付いた所を見ています…')
-                      const note = await store.proofread({ onlyChecked: true }, (stage) =>
+                      const note = await store.proofread({ names, swaps, onlyChecked: true }, (stage) =>
                         setProofNote(stage),
                       )
                       setProofNote(note)

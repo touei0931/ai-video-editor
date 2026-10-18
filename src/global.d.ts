@@ -74,6 +74,8 @@ declare global {
       speakers: (params: Record<string, unknown>) => Promise<unknown>;
       /** 文字起こしの見直し。候補を返す（本文は書き換えない） */
       proofread: (params: Record<string, unknown>) => Promise<unknown>;
+      /** カットを当ててよいか確かめる。見立てを返す（判断は書き換えない） */
+      checkCuts: (params: Record<string, unknown>) => Promise<unknown>;
       confirmQuit: (info: { hasWork: boolean }) => Promise<'save' | 'discard' | 'cancel'>;
       confirmResume: (info: {
         savedAt: string;

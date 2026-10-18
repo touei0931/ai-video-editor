@@ -439,6 +439,23 @@ def _build_telops(params: dict[str, Any], on_progress: ProgressFn) -> dict[str, 
     cuts = [(float(c["src_start"]), float(c["src_end"])) for c in params.get("cuts", [])]
     result = build_units(transcript, cuts, params.get("wav_path"), params.get("options"))
 
+    """
+    🔴 言い換え表の置換と「怪しい所」の印は、ここで当てる（無料・即時）。
+
+       プラグイン版のエンジンと同じ処理（機能は両方で揃える決まり、2026-10-19）。
+       前後の会話を読む見直し（LLM）は rpc の proofread で別に走らせる。
+    """
+    try:
+        from .proof import parse_names, parse_swaps, review
+
+        result["proof"] = review(
+            result.get("telops", []),
+            names=parse_names(str(params.get("cast_text") or "")),
+            swaps=parse_swaps(str(params.get("swaps") or "")),
+        )
+    except Exception as e:  # noqa: BLE001
+        result["proof"] = {"error": f"{type(e).__name__}: {e}"}
+
     out_path = params.get("out_path")
     if out_path:
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)

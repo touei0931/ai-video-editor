@@ -309,6 +309,9 @@ export function App() {
       {step === 'telop' && (
           <TelopScreen
             store={store}
+            // 🔴 見直しの手がかりに渡す。名前が分かれば誤変換を直しやすい
+            names={settings.cast}
+            swaps={settings.swaps}
             speed={settings.exportSpeed}
             onSpeedChange={(v) => setSettings((s) => ({ ...s, exportSpeed: v }))}
           />

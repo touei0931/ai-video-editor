@@ -614,6 +614,21 @@ ipcMain.handle('app:proofread', async (_e, params: Record<string, unknown>) => {
 });
 
 /**
+ * カットを当ててよいかを、前後の発言から確かめる。
+ *
+ * 🔴 判断は書き換わらない。返るのは「切る/残す」の見立てと理由だけ。
+ * 🔴 どこにも送っていない。Mac は mlx、Windows は手元の Ollama に頼む。
+ */
+ipcMain.handle('app:checkCuts', async (_e, params: Record<string, unknown>) => {
+  try {
+    return await sidecar.call('check_cuts', params);
+  } catch (error) {
+    recordFailure('check_cuts', error, params);
+    throw error;
+  }
+});
+
+/**
  * 編集をやめるときの確認。
  *
  * 🔴 黙って捨ててはいけない。レビューを何十件も終えたあとかもしれない。

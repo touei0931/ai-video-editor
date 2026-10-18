@@ -168,6 +168,23 @@ export function AnalyzeSettingsScreen({ videoPath, settings, onChange, onBack, o
         </section>
 
         <section>
+          <h2>言い換え表</h2>
+          <textarea
+            rows={3}
+            value={settings.swaps}
+            placeholder={'オロライブ→ホロライブ\nユナイト→ポケモンユナイト'}
+            onChange={(e) => onChange({ swaps: e.target.value })}
+          />
+          <p className="muted">
+            いつも同じ間違いをする語は、1 行 1 件で「誤り→正しい」と書くと、そのまま置き換える。
+            上の出演者の一覧は「1 音違いの名前」を直すもので、こちらは<strong>書いた通りに置換</strong>する。
+            <br />
+            前後の会話を読んで直す見直しは、テロップ画面の「文字起こしの見直し」で行う
+            （プラグイン版の②設定と同じ項目）。
+          </p>
+        </section>
+
+        <section>
           <h2>書き出す再生速度</h2>
           <div className="inline">
             <input

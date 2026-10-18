@@ -36,6 +36,16 @@ export interface AnalyzeSettings {
    */
   cast: string;
   /**
+   * 言い換え表。1行1件で「誤り→正しい」。書いた通りに置き換える。
+   *
+   * 🔴 名前の一覧（cast）で直らないものはここに書く。実素材では
+   *    「オロライブ」→「ホロライブ」が確信度 0.94 で出ていて、規則でも
+   *    確信度でも拾えなかった（2026-10-19）。
+   * 🔴 ここに書いたものだけを置換する。似た語を勝手に寄せない。
+   *    プラグイン版の②設定と同じ項目（機能は両方で揃える）。
+   */
+  swaps: string;
+  /**
    * 書き出す再生速度（1 = 等倍）。
    *
    * 🔴 解析には関係しない。書き出し（動画・字幕・Final Cut 用）にだけ効く。
@@ -54,6 +64,7 @@ export const DEFAULT_ANALYZE_SETTINGS: AnalyzeSettings = {
   detectAside: true,
   extraFillers: '',
   cast: '',
+  swaps: '',
   exportSpeed: 1,
 };
 
@@ -150,8 +161,9 @@ export function sanitizeAnalyzeSettings(raw: unknown): AnalyzeSettings {
   const extraFillers = typeof r.extraFillers === 'string' ? r.extraFillers : d.extraFillers;
   // 保存済みの設定に無いとき（この項目より前に保存されたもの）は空に落とす
   const cast = typeof r.cast === 'string' ? r.cast : d.cast;
+  const swaps = typeof r.swaps === 'string' ? r.swaps : d.swaps;
   const exportSpeed = clampSpeed(typeof r.exportSpeed === 'number' ? r.exportSpeed : d.exportSpeed);
-  return { language, model, pace, detectAside, extraFillers, cast, exportSpeed };
+  return { language, model, pace, detectAside, extraFillers, cast, swaps, exportSpeed };
 }
 
 /** 速度を範囲に収める。数でなければ等倍 */

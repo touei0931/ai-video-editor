@@ -106,6 +106,12 @@ export interface TelopStageProps {
    * 省略すると話者の欄を出さない（モックや解析前）。
    */
   speakers?: SpeakerService;
+  /**
+   * ②設定の「出てくる名前」と「言い換え表」。文字起こしの見直しの手がかりに渡す。
+   * 🔴 プラグイン版の⑤テロップと同じ扱い（機能は両方で揃える、2026-10-19）。
+   */
+  names?: string;
+  swaps?: string;
 }
 
 export interface MusicTrack {
@@ -144,6 +150,8 @@ export function TelopStage({
   onMusicChange,
   onPickMusic,
   speakers,
+  names,
+  swaps,
 }: TelopStageProps) {
   const [cards, setCards] = useState<TelopCard[]>(initial);
   const [selected, setSelected] = useState<string | null>(initial[0]?.id ?? null);
@@ -576,6 +584,8 @@ export function TelopStage({
     try {
       const r = (await window.app.proofread({
         telops: cardsRef.current.map((c) => ({ id: c.id, text: c.text })),
+        names,
+        swaps,
       })) as {
         candidates?: { id: string; before: string; after: string; reason: string }[];
         checked?: number;
@@ -597,7 +607,7 @@ export function TelopStage({
     } finally {
       setProofing(false);
     }
-  }, []);
+  }, [names, swaps]);
 
   /* ---------- 話者（誰が喋っているか）ごとの色 ---------- */
 

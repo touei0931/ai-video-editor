@@ -292,6 +292,69 @@ export function CutStage({
     setNotice('1つ戻しました');
   }, []);
 
+  /* ---------- 切ってよいか確かめる（前後の繋がり） ---------- */
+
+  /**
+   * 独り言やフィラーを全部切ると、前後の関係が消えて話が分からなくなることがある
+   * （2026-10-19、利用者）。前後の発言と照らして「切る/残す」を見立てる。
+   *
+   * 🔴 判断（decide）は書き換えないこと。見立てを添えるだけで、決めるのは人。
+   * 🔴 プラグイン版の④カットと同じ機能にする（機能は両方で揃える決まり）。
+   */
+  const [cutVerdicts, setCutVerdicts] = useState<Record<string, { cut: boolean; reason: string }>>({});
+  const [checkingCuts, setCheckingCuts] = useState(false);
+
+  /** 「残した方がいい」と見立てた箇所（規則の印＋LLM の見立て） */
+  const riskyIds = useMemo(() => {
+    const out = new Set<string>();
+    for (const c of candidates) {
+      if (c.keepHint || cutVerdicts[c.id]?.cut === false) out.add(c.id);
+    }
+    return out;
+  }, [candidates, cutVerdicts]);
+
+  const checkCutSafety = useCallback(async () => {
+    const spoken = candidates.filter((c) => c.kind !== 'silence' && c.kind !== 'manual');
+    if (spoken.length === 0) {
+      setNotice('言葉が消えるカット候補はありません（無音だけです）');
+      return;
+    }
+    setCheckingCuts(true);
+    setNotice('前後の発言を読んでいます…');
+    try {
+      const r = (await window.app.checkCuts({
+        candidates: candidates.map((c) => ({
+          id: c.id,
+          kind: c.kind,
+          text: c.word ?? '',
+          before: c.before,
+          after: c.after,
+        })),
+      })) as {
+        verdicts?: { id: string; cut: boolean; reason: string }[];
+        checked?: number;
+        error?: string;
+      };
+      const got: Record<string, { cut: boolean; reason: string }> = {};
+      for (const v of r.verdicts ?? []) got[v.id] = { cut: v.cut, reason: v.reason };
+      setCutVerdicts((prev) => ({ ...prev, ...got }));
+      if (r.error) {
+        setNotice(`確かめられませんでした：${r.error}`);
+      } else {
+        const keep = (r.verdicts ?? []).filter((v) => !v.cut).length;
+        setNotice(
+          keep === 0
+            ? `${r.checked ?? 0} 箇所を確かめました。どれも切って大丈夫そうです`
+            : `${r.checked ?? 0} 箇所のうち ${keep} 箇所は残した方がよさそうです（まとめ切りからは外れます）`,
+        );
+      }
+    } catch (e) {
+      setNotice(`確かめられませんでした：${(e as Error).message}`);
+    } finally {
+      setCheckingCuts(false);
+    }
+  }, [candidates]);
+
   /* ---------- タイムラインの区間 ---------- */
 
   const regions = useMemo<TimelineRegion[]>(() => {
@@ -304,7 +367,10 @@ export function CutStage({
         start: v.srcStart,
         end: v.srcEnd,
         kind: e === 'cut' ? 'cut' : e === 'hold' ? 'hold' : 'keep',
-        label: c.word ? `${KIND_LABEL[c.kind]}「${c.word}」` : KIND_LABEL[c.kind],
+        // 🔴 「残した方がいい」はタイムラインの札にも出す（見落とすと切ってしまう）
+        label:
+          (riskyIds.has(c.id) ? '残す? ' : '') +
+          (c.word ? `${KIND_LABEL[c.kind]}「${c.word}」` : KIND_LABEL[c.kind]),
       };
     });
     for (const m of manualCuts) {
@@ -316,7 +382,7 @@ export function CutStage({
       out.push({ id: m.id, start: v.srcStart, end: v.srcEnd, kind: 'cut', label: '手動' });
     }
     return out.sort((a, b) => a.start - b.start);
-  }, [candidates, adjust, fps, effective, manualCuts]);
+  }, [candidates, adjust, fps, effective, manualCuts, riskyIds]);
 
   const nudge = useCallback(
     (edge: 'start' | 'end', frames: number) => {
@@ -382,9 +448,7 @@ export function CutStage({
            なることがある（2026-10-19、利用者）。外した分は保留のまま残して、
            1件ずつ見てもらう。「残す」は安全なので全部に当てる。
       */
-      const risky = next === 'cut'
-        ? held.filter((c) => c.keepHint || c.cutVerdict?.cut === false)
-        : [];
+      const risky = next === 'cut' ? held.filter((c) => riskyIds.has(c.id)) : [];
       const target = next === 'cut' ? held.filter((c) => !risky.includes(c)) : held;
       if (target.length === 0) {
         setNotice(`保留 ${held.length} 件はどれも「残した方がいい」判定です。1件ずつ見てください`);
@@ -396,7 +460,7 @@ export function CutStage({
         `保留 ${target.length} 件を${next === 'cut' ? '切りました' : '残しました'}${skipped}（Ctrl+Z で戻せます）`,
       );
     },
-    [held, decide],
+    [held, decide, riskyIds],
   );
 
   /* ---------- 再生 ---------- */
@@ -1085,6 +1149,16 @@ export function CutStage({
                 <div className="fcp-dim">{certainty(cur.confidence, band)}</div>
               </div>
             )}
+            {/* 🔴 「切ると前後が繋がらない」の理由は必ず出す。印だけだと直しようがない */}
+            {cur && (cur.keepHint || cutVerdicts[cur.id]) && (
+              <div className="fcp-field">
+                <label>繋がりの確認</label>
+                <div className="fcp-dim" style={{ color: riskyIds.has(cur.id) ? 'var(--sel)' : undefined }}>
+                  {riskyIds.has(cur.id) ? '残した方がいい：' : '切って大丈夫：'}
+                  {cur.keepHint?.reason || cutVerdicts[cur.id]?.reason || ''}
+                </div>
+              </div>
+            )}
 
             <div className="fcp-field">
               <label>どうする</label>
@@ -1181,6 +1255,31 @@ export function CutStage({
                 <span>保留：</span>
                 <strong>{held.length} 箇所</strong>
               </div>
+            </div>
+
+            {/*
+              🔴 プラグイン版の④カットと同じ機能を置く（機能は両方で揃える決まり、2026-10-19）。
+                 独り言やフィラーを全部切ると前後の関係が消えることがあるので、
+                 切る前に前後の発言と照らして見立てる。
+            */}
+            <div className="fcp-field">
+              <label>切ってよいか確かめる</label>
+              <button
+                onClick={() => void checkCutSafety()}
+                disabled={checkingCuts}
+                title="言葉が消える候補を1件ずつ、前後の発言と照らして「切る/残す」を見立てます"
+              >
+                {checkingCuts ? '確かめています…' : '前後の繋がりを確かめる'}
+              </button>
+              {riskyIds.size > 0 && (
+                <p className="fcp-dim">
+                  {riskyIds.size} 箇所は<strong>残した方がいい</strong>と判定しました。
+                  「保留をすべて切る」ではこの分を切りません。
+                </p>
+              )}
+              <p className="fcp-dim">
+                判断を勝手に変えることはありません。初回だけモデルの取得に時間がかかります（約 2.3GB）。
+              </p>
             </div>
 
             <div className="fcp-field">

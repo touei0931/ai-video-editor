@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('app', {
   makeClip: (params: Record<string, unknown>) => ipcRenderer.invoke('app:makeClip', params),
   speakers: (params: Record<string, unknown>) => ipcRenderer.invoke('app:speakers', params),
   proofread: (params: Record<string, unknown>) => ipcRenderer.invoke('app:proofread', params),
+  checkCuts: (params: Record<string, unknown>) => ipcRenderer.invoke('app:checkCuts', params),
   confirmQuit: (info: { hasWork: boolean }) => ipcRenderer.invoke('app:confirmQuit', info),
   confirmResume: (info: { savedAt: string; decided: number }) =>
     ipcRenderer.invoke('app:confirmResume', info),

@@ -907,6 +907,13 @@ export function App({ onSendToTimeline }: AppProps = {}) {
           wav_path: analysis.wav_path,
           out_path: `${analysis.work_dir}/telops.json`,
           cuts: approved.map((c) => ({ src_start: c.srcStart, src_end: c.srcEnd })),
+          /*
+            🔴 名前と言い換え表を渡すこと。渡さないと言い換えが効かず、
+               「怪しい所」の印も名前の手がかり無しで付く
+               （プラグイン版と同じ扱い。機能は両方で揃える）。
+          */
+          cast_text: settings.cast,
+          swaps: settings.swaps,
         })) as TelopResult;
 
         /*
@@ -1431,6 +1438,9 @@ export function App({ onSendToTimeline }: AppProps = {}) {
         {help}
         <TelopStage
           cards={cards}
+          // 🔴 見直しの手がかりに渡す（プラグイン版と同じ）
+          names={settings.cast}
+          swaps={settings.swaps}
           // 下書きに残っていればそれ、無ければ本人が既定として保存した見た目
           styles={styles}
           onStylesChange={setTelopStyles}
